@@ -1,6 +1,6 @@
 ---
 import "../styles/global.css";
-import logo from "../assets/scrob.png";
+import logo from "../assets/watchd-icon.png";
 import WatchedAtPicker from "../components/WatchedAtPicker.astro";
 import { api } from "../lib/api";
 
@@ -38,7 +38,7 @@ const bottomNavItem = (active: boolean) =>
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-  <title>{title} — Scrob</title>
+  <title>{title} — Watchd</title>
   <link rel="icon" type="image/png" href="/favicon-96x96.png" sizes="96x96" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <link rel="shortcut icon" href="/favicon.ico" />
@@ -49,7 +49,7 @@ const bottomNavItem = (active: boolean) =>
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="Scrob" />
+  <meta name="apple-mobile-web-app-title" content="Watchd" />
   <style>
     /* Inline so icons render correctly on first paint before external CSS loads */
     #sun-icon { display: none; }
@@ -112,16 +112,18 @@ const bottomNavItem = (active: boolean) =>
     })();
   </script>
 </head>
-<body class="bg-zinc-950 text-zinc-100 min-h-screen overflow-x-hidden">
+<body class="bg-black text-zinc-100 min-h-screen overflow-x-hidden">
   {!hideNav && (
-    <nav class="px-4 md:px-6 py-3 md:py-4 text-sm relative z-30 bg-zinc-950 md:bg-transparent">
+    <nav class="px-4 md:px-6 py-3 md:py-4 text-sm relative z-30 bg-black md:bg-transparent">
       <!-- Default bar -->
       <div id="nav-default" class="flex items-center justify-between gap-3 safe-area-top">
         <!-- Left: logo + desktop links -->
         <div class="flex items-center gap-6 min-w-0">
           <a href="/" class="flex items-center gap-2 text-zinc-100 font-bold text-lg tracking-tight shrink-0 group active:opacity-70 transition-opacity">
             <img src={logo.src} alt="Watchd Logo" width="32" height="32" loading="eager" class="w-7 h-7 md:w-8 md:h-8 object-contain group-hover:scale-105 transition-transform" />
-            <span>WATCHD TEST</span>
+            <span>
+              watchd<span style="color:#e50914;">.</span>
+            </span>
           </a>
           <div class="hidden md:flex items-center gap-6 text-sm">
             <a href="/movies" class={navLink(activeMovies)}>Movies</a>

@@ -26,10 +26,10 @@
 }
 
 :root {
-  --color-bg-page: #09090b;       /* zinc-950 */
-  --color-bg-card: #18181b;       /* zinc-900 */
-  --color-border-base: #27272a;   /* zinc-800 */
-  --color-border-muted: #3f3f46;  /* zinc-700 */
+  --color-bg-page: #000000;       /* zinc-950 */
+  --color-bg-card: #000000;       /* zinc-900 */
+  --color-border-base: #151515;   /* zinc-800 */
+  --color-border-muted: #202020;  /* zinc-700 */
   --color-text-base: #f4f4f5;     /* zinc-100 */
   --color-text-primary: #e4e4e7;  /* zinc-200 */
   --color-text-secondary: #d4d4d8;/* zinc-300 */
@@ -41,10 +41,10 @@
   --color-brand-plex: #eab308;    /* yellow-500 */
 
   /* Accent color scale — default: blue */
-  --accent-400: #60a5fa;
-  --accent-500: #3b82f6;
-  --accent-600: #2563eb;
-  --accent-900: #1e3a8a;
+  --accent-400: #ff4d57;
+  --accent-500: #e50914;
+  --accent-600: #c40711;
+  --accent-900: #6d0008;
 }
 
 /* ── Accent themes ─────────────────────────────────────── */

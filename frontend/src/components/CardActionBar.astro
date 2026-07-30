@@ -22,7 +22,7 @@ const collectActive = isSeries ? collectionPct > 0 : inLibrary;
     data-watch-pct={String(watchPct)}
     data-state={watchActive ? 'active' : 'inactive'}
     title={isSeries ? `${watchPct}% watched` : (watched ? 'Mark as unwatched' : 'Mark as watched')}
-    class={`flex flex-col items-center justify-center gap-1 py-2.5 transition-all cursor-pointer border-r border-zinc-800/60 hover:brightness-125 ${watchActive ? 'bg-green-500/20 text-green-400' : 'bg-zinc-900 text-zinc-400 hover:bg-green-500/10 hover:text-green-500'}`}
+    class={`flex flex-col items-center justify-center gap-1 py-2.5 transition-all cursor-pointer border-r border-zinc-800/60 hover:brightness-125 ${watchActive ? 'bg-green-500/20 text-green-400' : 'bg-black text-zinc-400 hover:bg-green-500/10 hover:text-green-500'}`}
   >
     <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/>
@@ -37,7 +37,7 @@ const collectActive = isSeries ? collectionPct > 0 : inLibrary;
     data-in-lists={JSON.stringify(inLists)}
     data-state={inLists.length > 0 ? 'active' : 'inactive'}
     title="Add to list"
-    class={`flex flex-col items-center justify-center gap-1 py-2.5 transition-all cursor-pointer border-r border-zinc-800/60 hover:brightness-125 ${inLists.length > 0 ? 'bg-sky-500/20 text-sky-400' : 'bg-zinc-900 text-zinc-400 hover:bg-sky-500/10 hover:text-sky-400'}`}
+    class={`flex flex-col items-center justify-center gap-1 py-2.5 transition-all cursor-pointer border-r border-zinc-800/60 hover:brightness-125 ${inLists.length > 0 ? 'bg-sky-500/20 text-sky-400' : 'bg-black text-zinc-400 hover:bg-sky-500/10 hover:text-sky-400'}`}
   >
     <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <line x1="8" y1="6" x2="21" y2="6"/>
@@ -57,7 +57,7 @@ const collectActive = isSeries ? collectionPct > 0 : inLibrary;
     data-collection-pct={String(collectionPct)}
     data-state={collectActive ? 'active' : 'inactive'}
     title={isSeries ? `${collectionPct}% in library` : (inLibrary ? 'Remove from collection' : 'Add to collection')}
-    class={`flex flex-col items-center justify-center gap-1 py-2.5 transition-all cursor-pointer hover:brightness-125 ${collectActive ? 'bg-purple-500/20 text-purple-400' : 'bg-zinc-900 text-zinc-400 hover:bg-purple-500/10 hover:text-purple-400'}`}
+    class={`flex flex-col items-center justify-center gap-1 py-2.5 transition-all cursor-pointer hover:brightness-125 ${collectActive ? 'bg-purple-500/20 text-purple-400' : 'bg-black text-zinc-400 hover:bg-purple-500/10 hover:text-purple-400'}`}
   >
     <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7"/>
