@@ -1,0 +1,392 @@
+---
+import type { MediaItem } from "../lib/api";
+import { tmdbImageUrl } from "../lib/api";
+
+import wRed from "../assets/watchd-w-red.png";
+import wWhite from "../assets/watchd-w-white.png";
+
+interface Props {
+  item: MediaItem;
+}
+
+const { item } = Astro.props;
+
+// Fields added to /history/next-up for this card (not in the MediaItem type yet)
+const extra = item as MediaItem & {
+  show_imdb_rating?: number | null;
+  show_watch_pct?: number | null;
+  show_episodes_watched?: number | null;
+  show_episodes_total?: number | null;
+};
+
+const poster = tmdbImageUrl(
+  item.show_poster_path ?? item.poster_path,
+  "w500",
+);
+
+const href =
+  item.show_tmdb_id &&
+  item.season_number != null &&
+  item.episode_number != null
+    ? `/show/${item.show_tmdb_id}/season/${item.season_number}/${item.episode_number}`
+    : "#";
+
+const watched = item.watched ?? false;
+const inLists = item.in_lists ?? [];
+const inLibrary = item.in_library ?? false;
+const collectionPct = item.collection_pct ?? (inLibrary ? 100 : 0);
+
+const imdb =
+  extra.show_imdb_rating != null
+    ? Number(extra.show_imdb_rating).toFixed(1)
+    : null;
+
+const progress =
+  extra.show_watch_pct != null
+    ? Math.max(0, Math.min(100, Number(extra.show_watch_pct)))
+    : null;
+
+const epsWatched = extra.show_episodes_watched ?? null;
+const epsTotal = extra.show_episodes_total ?? null;
+
+const progressTip =
+  progress === null
+    ? ""
+    : epsWatched !== null && epsTotal !== null
+      ? `${epsWatched} of ${epsTotal} episodes watched · ${progress}%`
+      : `${progress}% watched`;
+
+const pad = (n: number) => String(n).padStart(2, "0");
+
+const code =
+  item.season_number != null && item.episode_number != null
+    ? `${pad(item.season_number)}x${pad(item.episode_number)}`
+    : "";
+---
+
+<div
+  class="wd-up-next"
+  data-card
+  data-id={item.id}
+  data-tmdb-id={item.tmdb_id}
+  data-media-type="episode"
+  data-show-tmdb-id={item.show_tmdb_id}
+  data-season={item.season_number}
+  data-episode-number={item.episode_number}
+>
+
+  <div class="wd-panel">
+
+    <a href={href} class="wd-poster-link">
+      {poster ? (
+        <img src={poster} alt={item.show_title} class="wd-poster" loading="lazy" />
+      ) : (
+        <div class="wd-poster-empty">
+          <svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.2 6 3 11l-.9-2.4c-.3-1.1.3-2.2 1.3-2.5l13.5-4c1.1-.3 2.2.3 2.5 1.3Z"/><path d="m6.2 5.3 3.1 3.9"/><path d="m12.4 3.4 3.1 4"/><path d="M3 11h18v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>
+          <span>{item.show_title}</span>
+        </div>
+      )}
+    </a>
+
+    <div class="wd-strip">
+
+      <div class="wd-actions">
+
+        <button
+          type="button"
+          class="wd-btn"
+          data-action="watched"
+          data-watched={String(watched)}
+          data-state={watched ? "active" : "inactive"}
+          title={watched ? "Mark as unwatched" : "Mark as watched"}
+          aria-label={watched ? "Mark as unwatched" : "Mark as watched"}
+        >
+          <img
+            src={watched ? wRed.src : wWhite.src}
+            data-watchd-red={wRed.src}
+            data-watchd-white={wWhite.src}
+            alt=""
+            width="25"
+            height="22"
+            class="wd-w"
+          />
+        </button>
+
+        <button
+          type="button"
+          class="wd-btn"
+          data-action="list"
+          data-in-lists={JSON.stringify(inLists)}
+          data-state={inLists.length > 0 ? "active" : "inactive"}
+          title="Add to list"
+          aria-label="Add to list"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="8" y1="6" x2="21" y2="6"/>
+            <line x1="8" y1="12" x2="21" y2="12"/>
+            <line x1="8" y1="18" x2="21" y2="18"/>
+            <line x1="3" y1="6" x2="3.01" y2="6"/>
+            <line x1="3" y1="12" x2="3.01" y2="12"/>
+            <line x1="3" y1="18" x2="3.01" y2="18"/>
+          </svg>
+        </button>
+
+        <button
+          type="button"
+          class="wd-btn"
+          data-action="collected"
+          data-in-library={String(inLibrary)}
+          data-collection-pct={String(collectionPct)}
+          data-state={inLibrary ? "active" : "inactive"}
+          title={inLibrary ? "Remove from collection" : "Add to collection"}
+          aria-label={inLibrary ? "Remove from collection" : "Add to collection"}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7"/>
+            <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/>
+            <path d="M15 22v-4a3 3 0 0 0-6 0v4"/>
+            <path d="M2 7h20"/>
+          </svg>
+        </button>
+
+      </div>
+
+      <div class="wd-rating" title={imdb ? `IMDb ${imdb}` : "No IMDb rating"}>
+        <span class="wd-imdb">IMDb</span>
+        <span class:list={["wd-score", { "wd-score--none": !imdb }]}>{imdb ?? "—"}</span>
+      </div>
+
+    </div>
+
+    {progress !== null && (
+      <div class="wd-progress" tabindex="0" role="img" aria-label={progressTip}>
+        <div class="wd-progress-fill" style={`width:${progress}%`}></div>
+      </div>
+    )}
+
+  </div>
+
+  <a href={href} class="wd-meta">
+    <div class="wd-title"><span class="wd-code">{code}</span> {item.title}</div>
+    {progress !== null && <div class="wd-tip">{progressTip}</div>}
+    <div class="wd-show">{item.show_title}</div>
+  </a>
+
+</div>
+
+<style>
+
+.wd-up-next{
+    width:270px;
+    display:flex;
+    flex-direction:column;
+    gap:12px;
+}
+
+.wd-panel{
+    background:#18181b;
+    border:1px solid #27272a;
+    border-radius:16px;
+    overflow:hidden;
+}
+
+.wd-poster-link{
+    display:block;
+}
+
+.wd-poster{
+    display:block;
+    width:100%;
+    aspect-ratio:2/3;
+    object-fit:cover;
+}
+
+.wd-poster-empty{
+    aspect-ratio:2/3;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:14px;
+    padding:0 20px;
+    text-align:center;
+    background:#18181b;
+    color:#52525b;
+    font-size:11px;
+    font-weight:800;
+    letter-spacing:.2em;
+    text-transform:uppercase;
+}
+
+.wd-strip{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    height:48px;
+    padding:0 12px 0 6px;
+    box-sizing:border-box;
+    border-top:1px solid #27272a;
+}
+
+.wd-actions{
+    display:flex;
+    align-items:center;
+    gap:2px;
+}
+
+/* Only the icons carry colour. The shared click handlers in Base.astro add
+   background/colour classes to these buttons, so they are neutralised here and
+   the colours are driven from data-state instead. */
+.wd-btn{
+    width:42px;
+    height:38px;
+    padding:0;
+    border:0;
+    border-radius:10px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    cursor:pointer;
+    background:transparent !important;
+    color:#71717a !important;
+    transition:filter .15s ease;
+}
+
+.wd-btn:hover{
+    filter:brightness(1.3);
+}
+
+.wd-btn:focus-visible{
+    outline:2px solid #ef4444;
+    outline-offset:1px;
+}
+
+.wd-btn[data-action="list"][data-state="active"]{
+    color:#38bdf8 !important;
+}
+
+.wd-btn[data-action="collected"][data-state="active"]{
+    color:#c084fc !important;
+}
+
+.wd-w{
+    display:block;
+    width:25px;
+    height:22px;
+    object-fit:contain;
+}
+
+.wd-rating{
+    display:flex;
+    align-items:center;
+    gap:6px;
+}
+
+.wd-imdb{
+    background:#f5c518;
+    color:#000;
+    font-size:10px;
+    font-weight:900;
+    line-height:1.3;
+    padding:1px 4px;
+    border-radius:3px;
+}
+
+.wd-score{
+    font-size:15px;
+    font-weight:800;
+    color:#f5c518;
+}
+
+.wd-score--none{
+    color:#a1a1aa;
+}
+
+.wd-progress{
+    position:relative;
+    height:3px;
+    background:#27272a;
+    transform-origin:bottom;
+    transition:transform .15s ease;
+    outline:none;
+}
+
+/* extra invisible hit area so the thin line is easy to hover */
+.wd-progress::before{
+    content:"";
+    position:absolute;
+    left:0;
+    right:0;
+    top:-5px;
+    bottom:0;
+}
+
+.wd-progress:hover,
+.wd-progress:focus{
+    transform:scaleY(2);
+}
+
+.wd-progress-fill{
+    height:100%;
+    background:#ef4444;
+}
+
+.wd-meta{
+    position:relative;
+    display:block;
+    padding:0 2px;
+    text-decoration:none;
+}
+
+.wd-title{
+    color:#ffffff;
+    font-size:16px;
+    font-weight:600;
+    line-height:1.25;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+}
+
+.wd-code{
+    color:#ef4444;
+    font-weight:800;
+}
+
+.wd-show{
+    margin-top:3px;
+    color:#a1a1aa;
+    font-size:14px;
+    line-height:1.3;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+}
+
+.wd-tip{
+    position:absolute;
+    left:2px;
+    top:-6px;
+    z-index:5;
+    padding:5px 10px;
+    border-radius:8px;
+    background:#27272a;
+    border:1px solid #3f3f46;
+    color:#ffffff;
+    font-size:12px;
+    font-weight:700;
+    line-height:1.2;
+    white-space:nowrap;
+    pointer-events:none;
+    opacity:0;
+    transform:translateY(-2px);
+    transition:opacity .15s ease, transform .15s ease;
+}
+
+.wd-up-next:has(.wd-progress:hover) .wd-tip,
+.wd-up-next:has(.wd-progress:focus) .wd-tip{
+    opacity:1;
+    transform:none;
+}
+
+</style>

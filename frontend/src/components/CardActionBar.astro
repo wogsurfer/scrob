@@ -8,9 +8,12 @@ interface Props {
   isSeries: boolean;
 }
 
+import watchdRed from "../assets/watchd-icon-red.png";
+import watchdWhite from "../assets/watchd-icon-white.png";
+
 const { watched, inLists, inLibrary, collectionPct, watchPct, isSeries } = Astro.props;
 
-const watchActive = isSeries ? watchPct > 0 : watched;
+const watchActive = isSeries ? watchPct === 100 : watched;
 const collectActive = isSeries ? collectionPct > 0 : inLibrary;
 ---
 
@@ -22,14 +25,19 @@ const collectActive = isSeries ? collectionPct > 0 : inLibrary;
     data-watch-pct={String(watchPct)}
     data-state={watchActive ? 'active' : 'inactive'}
     title={isSeries ? `${watchPct}% watched` : (watched ? 'Mark as unwatched' : 'Mark as watched')}
-    class={`flex flex-col items-center justify-center gap-1 py-2.5 transition-all cursor-pointer border-r border-zinc-800/60 hover:brightness-125 ${watchActive ? 'bg-green-500/20 text-green-400' : 'bg-black text-zinc-400 hover:bg-green-500/10 hover:text-green-500'}`}
+    class="flex flex-col items-center justify-center gap-1 py-2.5 transition-all cursor-pointer border-r border-zinc-800/60 hover:brightness-125 bg-black text-zinc-400"
   >
-    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/>
-      <circle cx="12" cy="12" r="3" fill={watchActive ? "currentColor" : "none"}/>
-    </svg>
-    <span class="text-[8px] font-bold uppercase tracking-wider leading-none">{isSeries ? `${watchPct}%` : 'Watched'}</span>
-  </button>
+    <img
+      src={watchActive ? watchdRed.src : watchdWhite.src}
+      alt="Watch"
+      class="watch-logo w-[24px] h-[24px] object-contain"
+    />
+
+    {isSeries && (
+      <span class="text-[10px] font-bold text-red-500 leading-none">
+        {watchPct}%
+      </span>
+    )}
 
   <!-- Lists (sky) -->
   <button

@@ -2,6 +2,8 @@
 import Base from "../../layouts/Base.astro";
 import MediaCard from "../../components/MediaCard.astro";
 import ListCard from "../../components/ListCard.astro";
+import watchdIconWhite from "../../assets/watchd-icon-white.png";
+import watchdIconRed from "../../assets/watchd-icon-red.png";
 import { api, type ListDetail, type UserList, type PublicList, type MediaItem } from "../../lib/api";
 export const prerender = false;
 
@@ -34,6 +36,7 @@ Astro.response.headers.set("Cache-Control", "no-store");
 const origin = Astro.url.origin;
 const hasMovies = list ? list.items.some(i => i.media.type === "movie") : false;
 const hasShows = list ? list.items.some(i => i.media.type === "series") : false;
+const canImportLetterboxd = list?.name.trim().toLowerCase() === "movies";
 const radarrUrl = `${origin}/api/proxy/radarr-compat/${list?.id}/api/v3/movie`;
 const sonarrUrl = `${origin}/api/proxy/sonarr-compat/${list?.id}/api/v3/series`;
 ---
@@ -224,7 +227,22 @@ const sonarrUrl = `${origin}/api/proxy/sonarr-compat/${list?.id}/api/v3/series`;
       <!-- Add Items Search (owner only) -->
       {list.is_owner && (
       <div class="mb-10 bg-zinc-900/40 border border-zinc-800/60 rounded-3xl p-6">
-        <h2 class="text-sm font-black text-zinc-400 uppercase tracking-widest mb-4">Add Items</h2>
+        <div class="flex flex-wrap items-center justify-between gap-4 mb-4">
+          <h2 class="text-sm font-black text-zinc-400 uppercase tracking-widest">Add Items</h2>
+          {canImportLetterboxd && (
+          <form id="letterboxd-import-form" class="flex flex-wrap items-center gap-2">
+            <label for="letterboxd-csv" class="sr-only">Letterboxd watchlist CSV</label>
+            <input id="letterboxd-csv" name="file" type="file" accept=".csv,text/csv" required
+              class="max-w-full text-xs text-zinc-300 file:mr-2 file:rounded-lg file:border-0 file:bg-zinc-800 file:px-3 file:py-2 file:font-semibold file:text-zinc-200 hover:file:bg-zinc-700" />
+            <button id="letterboxd-import-button" type="submit"
+              class="rounded-lg bg-zinc-800 px-4 py-2 text-xs font-bold text-zinc-200 transition hover:bg-zinc-700 disabled:cursor-wait disabled:opacity-60">
+              Import Letterboxd CSV
+            </button>
+          </form>
+          )}
+        </div>
+        {canImportLetterboxd && <p class="mb-4 text-xs text-zinc-500">Import films from Letterboxd’s <code>watchlist.csv</code> export into this list.</p>}
+        {canImportLetterboxd && <div id="letterboxd-import-status" class="hidden mb-4 text-sm" role="status" aria-live="polite"></div>}
         <div class="flex flex-col sm:flex-row gap-3">
           <input
             type="text"
@@ -267,7 +285,19 @@ const sonarrUrl = `${origin}/api/proxy/sonarr-compat/${list?.id}/api/v3/series`;
 
       <!-- Items Grid -->
       <div>
-        <h2 class="text-sm font-black text-zinc-400 uppercase tracking-widest mb-6">Items</h2>
+        <div class="mb-6 flex flex-wrap items-center justify-between gap-3">
+          <h2 class="text-sm font-black text-zinc-400 uppercase tracking-widest">Items</h2>
+          <label class="flex items-center gap-2 text-xs font-semibold text-zinc-400">
+            <span>Sort by</span>
+            <select id="list-sort" class="rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="manual">List order</option>
+              <option value="recent">Recently added</option>
+              <option value="title">Title A–Z</option>
+              <option value="year">Release year (newest first)</option>
+              <option value="rating">TMDB rating (highest first)</option>
+            </select>
+          </label>
+        </div>
         {list.items.length === 0 ? (
           <div id="empty-state" class="text-center py-16 bg-zinc-900/20 border border-zinc-800/50 border-dashed rounded-3xl">
             <div class="text-4xl mb-3">📋</div>
@@ -276,7 +306,14 @@ const sonarrUrl = `${origin}/api/proxy/sonarr-compat/${list?.id}/api/v3/series`;
         ) : (
           <div id="items-grid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-6">
             {list.items.map((entry) => (
-              <div data-item-id={entry.id}>
+              <div
+                data-item-id={entry.id}
+                data-title={entry.media.title}
+                data-year={entry.media.release_date?.slice(0, 4) || ""}
+                data-rating={entry.media.tmdb_rating ?? ""}
+                data-added-at={entry.added_at}
+                data-sort-order={entry.sort_order}
+              >
                 <MediaCard item={entry.media}>
                   {list.is_owner && (
                     <button
@@ -360,6 +397,114 @@ const sonarrUrl = `${origin}/api/proxy/sonarr-compat/${list?.id}/api/v3/series`;
     }
     return `/api/proxy/media/image/${size}${path.startsWith('/') ? path : '/' + path}`;
   }
+
+  // Keep an independent display sort choice for each custom list.
+  const listSort = document.getElementById('list-sort');
+  const listGrid = document.getElementById('items-grid');
+  const listSortKey = `scrob-list-sort-${listId}`;
+
+  function applyListSort() {
+    if (!listSort || !listGrid) return;
+    const mode = listSort.value;
+    const cards = Array.from(listGrid.children).filter((node) => node.dataset.itemId);
+    const numberOrNull = (value) => value === '' || value == null ? null : Number(value);
+    cards.sort((a, b) => {
+      if (mode === 'recent') {
+        return (b.dataset.addedAt || '').localeCompare(a.dataset.addedAt || '');
+      }
+      if (mode === 'title') {
+        return (a.dataset.title || '').localeCompare(b.dataset.title || '', undefined, { sensitivity: 'base' });
+      }
+      if (mode === 'year' || mode === 'rating') {
+        const key = mode === 'year' ? 'year' : 'rating';
+        const left = numberOrNull(a.dataset[key]);
+        const right = numberOrNull(b.dataset[key]);
+        if (left == null && right != null) return 1;
+        if (right == null && left != null) return -1;
+        if (left != null && right != null && left !== right) return right - left;
+      }
+      const orderDiff = (numberOrNull(a.dataset.sortOrder) ?? 0) - (numberOrNull(b.dataset.sortOrder) ?? 0);
+      return orderDiff || (a.dataset.addedAt || '').localeCompare(b.dataset.addedAt || '');
+    });
+    cards.forEach((card) => listGrid.appendChild(card));
+  }
+
+  if (listSort) {
+    try {
+      const savedSort = localStorage.getItem(listSortKey);
+      if (savedSort && Array.from(listSort.options).some((option) => option.value === savedSort)) {
+        listSort.value = savedSort;
+      }
+    } catch { /* Local storage may be unavailable; keep the default order. */ }
+    listSort.addEventListener('change', () => {
+      try { localStorage.setItem(listSortKey, listSort.value); } catch { /* Sorting still works for this visit. */ }
+      applyListSort();
+    });
+    applyListSort();
+  }
+
+  // --- Letterboxd watchlist CSV import ---
+  const letterboxdForm = document.getElementById('letterboxd-import-form');
+  const letterboxdInput = document.getElementById('letterboxd-csv');
+  const letterboxdButton = document.getElementById('letterboxd-import-button');
+  const letterboxdStatus = document.getElementById('letterboxd-import-status');
+
+  letterboxdForm?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const file = letterboxdInput?.files?.[0];
+    if (!file || !letterboxdStatus || !letterboxdButton) return;
+
+    letterboxdStatus.className = 'mb-4 text-sm text-zinc-300';
+    letterboxdStatus.textContent = 'Matching films and adding them to this list…';
+    letterboxdButton.disabled = true;
+    try {
+      const body = new FormData();
+      body.append('file', file);
+      const response = await fetch(`/api/proxy/lists/${listId}/import-letterboxd`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body,
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.detail || 'The CSV import failed.');
+
+      const summary = document.createElement('p');
+      summary.className = 'text-emerald-400';
+      summary.textContent = `Added ${result.imported} film${result.imported === 1 ? '' : 's'} to this list; ${result.already_present} already here.`;
+      letterboxdStatus.replaceChildren(summary);
+
+      const showTitles = (label, titles) => {
+        if (!titles?.length) return;
+        const section = document.createElement('div');
+        section.className = 'mt-3';
+        const heading = document.createElement('p');
+        heading.className = 'font-medium text-amber-300';
+        heading.textContent = `${label} (${titles.length})`;
+        const names = document.createElement('p');
+        names.className = 'mt-1 text-zinc-400';
+        names.textContent = titles.join(', ');
+        section.append(heading, names);
+        letterboxdStatus?.append(section);
+      };
+      showTitles('Could not match', result.unmatched);
+      showTitles('Needs manual review', result.ambiguous);
+
+      if (result.imported > 0) {
+        const refresh = document.createElement('button');
+        refresh.type = 'button';
+        refresh.className = 'mt-3 rounded-lg bg-zinc-800 px-4 py-2 font-medium text-white hover:bg-zinc-700';
+        refresh.textContent = 'Refresh this list';
+        refresh.addEventListener('click', () => window.location.reload());
+        letterboxdStatus.append(refresh);
+      }
+    } catch (error) {
+      letterboxdStatus.className = 'mb-4 text-sm text-red-400';
+      letterboxdStatus.textContent = error instanceof Error ? error.message : 'The CSV import failed.';
+    } finally {
+      letterboxdButton.disabled = false;
+    }
+  });
+
   // --- Edit list ---
   const editModal = document.getElementById('edit-modal');
   const editForm = document.getElementById('edit-form');
@@ -761,8 +906,14 @@ const sonarrUrl = `${origin}/api/proxy/sonarr-compat/${list?.id}/api/v3/series`;
 
       const wrapper = document.createElement('div');
       wrapper.setAttribute('data-item-id', String(entry.id));
+      wrapper.dataset.title = cardMedia.title || '';
+      wrapper.dataset.year = (cardMedia.release_date || '').slice(0, 4);
+      wrapper.dataset.rating = cardMedia.tmdb_rating ?? '';
+      wrapper.dataset.addedAt = entry.added_at || new Date().toISOString();
+      wrapper.dataset.sortOrder = entry.sort_order ?? '0';
       wrapper.innerHTML = buildCard(cardMedia, entry.id);
       grid.appendChild(wrapper);
+      applyListSort();
       bindRemoveButtons();
     } catch (err) {
       console.error('Failed to add item', err);

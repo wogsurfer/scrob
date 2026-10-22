@@ -12,7 +12,9 @@ const { item } = Astro.props;
 const isPerson = item.type === "person";
 const isCollection = item.type === "collection";
 const year = item.release_date?.slice(0, 4) ?? null;
-const rating = item.tmdb_rating ? item.tmdb_rating.toFixed(1) : null;
+const tmdbRating = item.tmdb_rating ? item.tmdb_rating.toFixed(1) : null;
+const imdbRating = item.imdb_rating ? item.imdb_rating.toFixed(1) : null;
+const userRating = item.user_rating != null ? item.user_rating.toFixed(1) : null;
 const isEpisode = item.type === "episode";
 const isSeries = item.type === "series" || (item.type === "episode" && !item.season_number && !item.id);
 const sxe = isEpisode && item.season_number != null && item.episode_number != null
@@ -23,21 +25,15 @@ const href = isPerson
   ? `/person/${item.tmdb_id}`
   : isCollection
     ? `/collection/${item.tmdb_id}`
-    : isSeries && item.tvdb_id && !item.tmdb_id
-    ? `/show/tvdb/${item.tvdb_id}`
     : isSeries && item.tmdb_id
-    ? `/show/${item.tmdb_id}`
-    : isEpisode && item.show_tmdb_id && item.season_number != null && item.episode_number != null
-      ? `/show/${item.show_tmdb_id}/season/${item.season_number}/${item.episode_number}`
-      : isEpisode && item.show_tvdb_id && item.season_number != null && item.episode_number != null
-        ? `/show/tvdb/${item.show_tvdb_id}/season/${item.season_number}/${item.episode_number}`
+      ? `/show/${item.tmdb_id}`
+      : isEpisode && item.show_tmdb_id && item.season_number != null && item.episode_number != null
+        ? `/show/${item.show_tmdb_id}/season/${item.season_number}/${item.episode_number}`
         : isEpisode && item.show_tmdb_id
           ? `/show/${item.show_tmdb_id}`
-          : isEpisode && item.show_tvdb_id
-            ? `/show/tvdb/${item.show_tvdb_id}`
-            : item.tmdb_id
-              ? `/media/${item.type}/${item.tmdb_id}`
-              : null;
+          : item.tmdb_id
+            ? `/media/${item.type}/${item.tmdb_id}`
+            : null;
 
 const posterPath = tmdbImageUrl(
   isEpisode && item.show_poster_path ? item.show_poster_path : item.poster_path,
@@ -53,7 +49,7 @@ const inLibrary = item.in_library ?? false;
 ---
 
 <div
-class="group relative flex flex-col rounded-md overflow-hidden bg-black border border-zinc-800 hover:border-[#e50914]/50 hover:shadow-2xl hover:shadow-[#e50914]/20 transition-all duration-300 transform hover:-translate-y-1 active:scale-95 active:opacity-70"  data-card
+class="relative flex flex-col rounded-md overflow-hidden bg-black border border-zinc-800 active:scale-95 active:opacity-70"  data-card
   data-id={item.id ? String(item.id) : ""}
   data-tmdb-id={item.tmdb_id ? String(item.tmdb_id) : ""}
   data-media-type={item.type}
@@ -63,13 +59,13 @@ class="group relative flex flex-col rounded-md overflow-hidden bg-black border b
 >
   <!-- Clickable poster -->
   {href ? (
-    <a href={href} class="block">
-      <div class="aspect-[2/3] bg-black relative overflow-hidden ring-1 ring-white/5 group-hover:ring-blue-500/30 transition-all duration-300" data-adult={item.adult ? "true" : undefined}>
+    <a href={href} data-astro-prefetch class="block">
+      <div class="aspect-[2/3] bg-black relative overflow-hidden ring-1 ring-white/5" data-adult={item.adult ? "true" : undefined}>
         {posterPath ? (
           <img
             src={posterPath}
             alt={item.title}
-            class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+            class="w-full h-full object-cover"
             loading="lazy"
             decoding="async"
           />
@@ -80,11 +76,25 @@ class="group relative flex flex-col rounded-md overflow-hidden bg-black border b
           </div>
         )}
 
-        <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+        {(tmdbRating || imdbRating || userRating) && (
+          <div class="absolute bottom-2 left-2 right-2 flex items-center justify-center gap-3 bg-black/80 backdrop-blur-md px-2 py-1.5 rounded-lg shadow-lg border border-zinc-800/80 text-xs font-black">
+            {tmdbRating && (
+              <span class="flex items-center gap-1 text-[#01b4e4]">
+                <span>{tmdbRating}</span>
+              </span>
+            )}
 
-        {rating && (
-          <div class="absolute top-2 left-2 bg-black/80 backdrop-blur-md text-yellow-400 text-xs font-bold px-2 py-0.5 rounded-full shadow-lg border border-zinc-800 flex items-center gap-1">
-            <span class="text-xs leading-none">★</span> {rating}
+            {imdbRating && (
+              <span class="flex items-center gap-1 text-[#f5c518]">
+                <span>{imdbRating}</span>
+              </span>
+            )}
+
+            {userRating && (
+              <span class="flex items-center gap-1 text-red-500">
+                <span>{userRating}</span>
+              </span>
+            )}
           </div>
         )}
 
@@ -112,9 +122,25 @@ class="group relative flex flex-col rounded-md overflow-hidden bg-black border b
             <span class="text-xs font-bold uppercase tracking-widest">{item.title}</span>
           </div>
         )}
-        {rating && (
-          <div class="absolute top-2 left-2 bg-black/80 backdrop-blur-md text-yellow-400 text-xs font-bold px-2 py-0.5 rounded-full shadow-lg border border-zinc-800 flex items-center gap-1">
-            <span class="text-xs leading-none">★</span> {rating}
+        {(tmdbRating || imdbRating || userRating) && (
+          <div class="absolute bottom-2 left-2 right-2 flex items-center justify-center gap-3 bg-black/80 backdrop-blur-md px-2 py-1.5 rounded-lg shadow-lg border border-zinc-800/80 text-xs font-black">
+            {tmdbRating && (
+              <span class="flex items-center gap-1 text-[#01b4e4]">
+                <span>{tmdbRating}</span>
+              </span>
+            )}
+
+            {imdbRating && (
+              <span class="flex items-center gap-1 text-[#f5c518]">
+                <span>{imdbRating}</span>
+              </span>
+            )}
+
+            {userRating && (
+              <span class="flex items-center gap-1 text-red-500">
+                <span>{userRating}</span>
+              </span>
+            )}
           </div>
         )}
       </div>
@@ -137,11 +163,11 @@ class="group relative flex flex-col rounded-md overflow-hidden bg-black border b
 
   <!-- Info -->
   {href ? (
-    <a href={href} class="block p-3 bg-black flex-1">
+    <a href={href} data-astro-prefetch class="block p-3 bg-black flex-1">
       {isEpisode && item.show_title ? (
         <h3 class="text-xs font-medium text-zinc-400 truncate mb-0.5">{item.show_title}</h3>
       ) : null}
-      <h3 class="text-sm font-bold text-zinc-100 truncate group-hover:text-[#e50914] transition-colors leading-tight mb-1">{item.title}</h3>
+      <h3 class="text-sm font-bold text-zinc-100 truncate leading-tight mb-1">{item.title}</h3>
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-2">
           {sxe && <span class="text-[11px] font-bold text-[#e50914] tracking-wide">{sxe}</span>}

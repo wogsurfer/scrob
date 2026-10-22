@@ -73,7 +73,7 @@ const useHls = settings.use_hls_player === true;
 )}
 
 <script>
-  import Hls from 'hls.js';
+  type HlsInstance = import('hls.js').default;
 
   function esc(str: string | null | undefined): string {
     if (str == null) return '';
@@ -141,7 +141,7 @@ const useHls = settings.use_hls_player === true;
     let currentSubtitles: { index: number; key?: string | null; language: string; label: string }[] = [];
     let currentPlexSessionId: string | null = null;
     let sessionTimer: ReturnType<typeof setInterval> | null = null;
-    let hlsInstance: Hls | null = null;
+    let hlsInstance: HlsInstance | null = null;
 
     const errorOverlay  = document.getElementById('player-error') as HTMLDivElement;
     const errorDetail   = document.getElementById('player-error-detail') as HTMLParagraphElement;
@@ -243,8 +243,23 @@ const useHls = settings.use_hls_player === true;
       } catch {}
     }
 
-    function loadHlsUrl(url: string): void {
+    async function loadHlsUrl(url: string): Promise<void> {
       destroyHls();
+      if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        // Use native HLS where available without downloading the HLS.js bundle.
+        video.src = url;
+        video.load();
+        video.play().catch(() => {});
+        return;
+      }
+
+      let Hls: typeof import('hls.js').default;
+      try {
+        ({ default: Hls } = await import('hls.js'));
+      } catch {
+        showPlaybackError('The HLS player could not be loaded. Please try again.', false);
+        return;
+      }
       if (Hls.isSupported()) {
         hlsInstance = new Hls({ xhrSetup: (xhr) => { xhr.setRequestHeader('Authorization', `Bearer ${token}`); } });
         hlsInstance.on(Hls.Events.ERROR, (_ev, data) => {
@@ -258,11 +273,8 @@ const useHls = settings.use_hls_player === true;
         hlsInstance.attachMedia(video);
         hlsInstance.loadSource(url);
         video.play().catch(() => {});
-      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-        // Safari — native HLS
-        video.src = url;
-        video.load();
-        video.play().catch(() => {});
+      } else {
+        showPlaybackError('This browser does not support HLS playback.', false);
       }
     }
 

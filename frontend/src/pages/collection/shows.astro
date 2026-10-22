@@ -1,9 +1,9 @@
 ---
 import Base from "../../layouts/Base.astro";
-import MediaCard from "../../components/MediaCard.astro";
 import Pagination from "../../components/Pagination.astro";
 import FilterPanel from "../../components/FilterPanel.astro";
 import SortButton from "../../components/SortButton.astro";
+import ActionBar from "../../components/ActionBar.astro";
 import { api } from "../../lib/api";
 export const prerender = false;
 
@@ -96,8 +96,126 @@ const baseUrl = `/collection/shows?${baseParams.toString()}`;
     </div>
   ) : (
     <>
-      <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-6">
-        {data.results.map(item => <MediaCard item={{...item, type: 'series', in_library: true}} />)}
+      <div class="space-y-8">
+        {data.results.map((item) => {
+          const progress = Math.max(0, Math.min(100, item.watch_pct ?? 0));
+
+          return (
+            <article class="group relative overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950 shadow-xl">
+
+              <div class="flex flex-col md:flex-row">
+
+                <!-- POSTER -->
+                <a
+                  href={`/show/${item.tmdb_id}`}
+                  class="relative w-full md:w-[220px] lg:w-[250px] shrink-0 aspect-[2/3] md:aspect-auto"
+                >
+                  {item.poster_path ? (
+                    <img
+                      src={item.poster_path}
+                      alt={item.title}
+                      class="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <div class="absolute inset-0 bg-zinc-900 flex items-center justify-center text-zinc-600">
+                      <span class="text-5xl">📺</span>
+                    </div>
+                  )}
+
+                  <div class="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent"></div>
+                </a>
+
+                <!-- BACKDROP / INFORMATION -->
+                <div class="relative min-w-0 flex-1 min-h-[330px]">
+
+                  {item.backdrop_path ? (
+                    <img
+                      src={item.backdrop_path}
+                      alt=""
+                      class="absolute inset-0 w-full h-full object-cover opacity-45"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <div class="absolute inset-0 bg-zinc-900"></div>
+                  )}
+
+                  <!-- Dark overlay -->
+                  <div class="absolute inset-0 bg-gradient-to-r from-zinc-950/95 via-zinc-950/80 to-zinc-950/45"></div>
+                  <div class="absolute inset-0 bg-gradient-to-t from-zinc-950 via-transparent to-zinc-950/20"></div>
+
+                  <!-- CONTENT -->
+                  <div class="relative z-10 flex min-h-[330px] flex-col justify-end p-6 lg:p-8">
+
+                    <!-- ACTIONS -->
+                    <div class="absolute top-5 right-5">
+                      <ActionBar
+                        tmdbId={Number(item.tmdb_id)}
+                        mediaType="series"
+                        watched={item.watched ?? false}
+                        inLists={item.in_lists ?? []}
+                        inLibrary={true}
+                        collectionPct={item.collection_pct ?? 0}
+                        watchPct={item.watch_pct ?? 0}
+                        showTmdbId={Number(item.tmdb_id)}
+                        isMonitored={item.is_monitored ?? false}
+                        requestEnabled={item.request_enabled ?? false}
+                        requestStatus={item.request_status ?? null}
+                        userRating={item.user_rating ?? null}
+                      />
+                    </div>
+
+                    <!-- TITLE -->
+                    <a
+                      href={`/show/${item.tmdb_id}`}
+                      class="block mb-3 pr-40"
+                    >
+                      <h2 class="text-2xl lg:text-3xl font-black text-white tracking-tight group-hover:text-red-500 transition-colors">
+                        {item.title}
+                      </h2>
+                    </a>
+
+                    <!-- BASIC PROGRESS -->
+                    <div class="flex flex-wrap items-center gap-x-5 gap-y-2 mb-5 text-sm">
+                      <span class="font-bold text-zinc-100">
+                        {Math.round(progress)}% watched
+                      </span>
+
+                      {item.status && (
+                        <span class="text-zinc-400">
+                          {item.status}
+                        </span>
+                      )}
+
+                      {item.first_air_date && (
+                        <span class="text-zinc-500">
+                          {String(item.first_air_date).slice(0, 4)}
+                        </span>
+                      )}
+                    </div>
+
+                    <!-- PROGRESS BAR -->
+                    <div class="w-full max-w-4xl">
+                      <div class="h-2 bg-zinc-800 rounded-full overflow-hidden">
+                        <div
+                          class="h-full bg-red-600 rounded-full transition-all"
+                          style={`width: ${progress}%`}
+                        ></div>
+                      </div>
+
+                      <div class="flex justify-between mt-2 text-[10px] font-black uppercase tracking-[0.18em] text-zinc-500">
+                        <span>Progress</span>
+                        <span>{Math.round(progress)}%</span>
+                      </div>
+                    </div>
+
+                  </div>
+                </div>
+
+              </div>
+            </article>
+          );
+        })}
       </div>
 
       <Pagination

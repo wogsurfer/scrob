@@ -1,0 +1,72 @@
+---
+import type { CrewCredit } from "../lib/api";
+
+interface Props {
+  crew?: CrewCredit[] | null;
+  title?: string;
+  showEpisodeCounts?: boolean;
+}
+
+const { crew = [], title = "Crew", showEpisodeCounts = false } = Astro.props;
+
+const crewGroups = [
+  { title: "Director", jobs: ["Director"] },
+  { title: "Writers", jobs: ["Writer", "Staff Writer", "Head Writer", "Screenplay", "Story", "Screenstory", "Teleplay", "Adaptation", "Series Composition"] },
+  { title: "Executive producers", jobs: ["Executive Producer"] },
+  { title: "Producers", jobs: ["Producer", "Supervising Producer", "Line Producer", "Associate Producer"] },
+  { title: "Co-producers", jobs: ["Co-Producer"] },
+  { title: "Cinematographer", jobs: ["Director of Photography", "Cinematography"] },
+  { title: "Musician", jobs: ["Original Music Composer", "Composer", "Music"] },
+  { title: "TV Series Creators", jobs: ["Creator"] },
+  { title: "Original Work", jobs: ["Novel", "Book", "Comic Book", "Original Story", "Original Material By", "Characters"] },
+  { title: "Other crew", jobs: [] },
+];
+
+const knownJobs = crewGroups.slice(0, -1).flatMap((group) => group.jobs);
+---
+
+{crew && crew.length > 0 && (
+  <section class="mt-16 border-t border-zinc-800/70 pt-10">
+    <h2 class="text-3xl font-black text-zinc-100 tracking-tighter uppercase mb-10">{title}</h2>
+    <div class="space-y-10">
+      {crewGroups.map(({ title: groupTitle, jobs }) => {
+        const members = crew
+          .filter((person) => jobs.length
+            ? jobs.includes(person.job)
+            : !knownJobs.includes(person.job))
+          .filter((person, index, list) => list.findIndex(
+            (candidate) => candidate.tmdb_id === person.tmdb_id && candidate.job === person.job,
+          ) === index);
+        return members.length > 0 && (
+          <section>
+            <h3 class="text-lg font-black text-zinc-200 tracking-tight uppercase mb-4">{groupTitle}</h3>
+            <div class="flex gap-6 overflow-x-auto pb-4 min-w-0 max-w-full">
+              {members.map((person) => {
+                const role = `${person.job}${showEpisodeCounts && person.episode_count ? ` · ${person.episode_count} episodes` : ""}`;
+                return (
+                  <a
+                    href={`/person/${person.tmdb_id}`}
+                    title={`${person.name} · ${role}`}
+                    class="group/crew shrink-0 w-[200px] sm:w-[220px] bg-zinc-900/20 border border-zinc-800/40 p-4 rounded-3xl active:scale-95 active:opacity-70"
+                  >
+                    <div class="aspect-square w-full rounded-2xl overflow-hidden mb-5 ring-2 ring-zinc-800/50 shadow-lg">
+                      {person.profile_path ? (
+                        <img src={person.profile_path} alt={person.name} class="w-full h-full object-cover" loading="lazy" decoding="async" />
+                      ) : (
+                        <div class="w-full h-full bg-zinc-800 flex items-center justify-center text-zinc-400 text-4xl">👤</div>
+                      )}
+                    </div>
+                    <div class="space-y-1.5 text-center">
+                      <p title={person.name} class="text-sm font-black text-zinc-100 line-clamp-1 leading-tight">{person.name}</p>
+                      <p title={role} class="text-[11px] text-zinc-500 font-bold uppercase tracking-wider line-clamp-2 opacity-80">{role}</p>
+                    </div>
+                  </a>
+                );
+              })}
+            </div>
+          </section>
+        );
+      })}
+    </div>
+  </section>
+)}

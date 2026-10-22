@@ -1,74 +1,159 @@
 ---
 import Base from "../layouts/Base.astro";
 import MediaRow from "../components/MediaRow.astro";
-import MediaCard from "../components/MediaCard.astro";
+import DashboardWatchlistCard from "../components/DashboardWatchlistCard.astro";
+import UpNextCard from "../components/UpNextCard.astro";
 import EpisodeCard from "../components/EpisodeCard.astro";
 import ContinueWatchingCard from "../components/ContinueWatchingCard.astro";
-import { api, type ContinueWatchingItem, type MediaItem, tmdbImageUrl } from "../lib/api";
+import DashboardHeader from "../components/DashboardHeader.astro";
+import UpcomingSchedule from "../components/UpcomingSchedule.astro";
+import Last30Days from "../components/Last30Days.astro";
+import GenreStrip from "../components/GenreStrip.astro";
+
+import {
+  api,
+  type ContinueWatchingItem,
+  type MediaItem,
+  type WatchlistMovie,
+  tmdbImageUrl,
+} from "../lib/api";
 
 const { token } = Astro.locals;
+
 Astro.response.headers.set("Cache-Control", "no-store");
-const apiUrl = import.meta.env.PUBLIC_API_URL ?? "http://localhost:8000";
 
-// Fetch settings first to check for TMDB key
+const apiUrl =
+  import.meta.env.PUBLIC_API_URL ??
+  "http://localhost:8000";
+
+// ----------------------------------------------------
+// Settings
+// ----------------------------------------------------
+
 const settings = await api.auth.getSettings(token!);
-const hasTmdbKey = !!settings?.has_effective_tmdb_key;
 
-let recentMovies: { results: MediaItem[] } = { results: [] };
-let recentShows: { results: MediaItem[] } = { results: [] };
+const hasTmdbKey =
+  !!settings?.has_effective_tmdb_key;
+
+// ----------------------------------------------------
+// Defaults
+// ----------------------------------------------------
+
+let recentMovies: { results: MediaItem[] } = {
+  results: [],
+};
+
+let recentShows: { results: MediaItem[] } = {
+  results: [],
+};
+
 let continueWatching: ContinueWatchingItem[] = [];
+
 let nextUp: MediaItem[] = [];
 
+let dashboardHero: any = null;
+
+let upcomingSchedule: any[] = [];
+
+let watchlist: WatchlistMovie[] = [];
+
+let last30 = null;
+
+let dashboardStats = {
+  tv: {
+    episodes: 0,
+    shows: 0,
+    minutes: 0,
+  },
+  movies: {
+    plays: 0,
+    movies: 0,
+    minutes: 0,
+  },
+};
+
+// ----------------------------------------------------
+// Load dashboard
+// ----------------------------------------------------
+
 if (token) {
+
   const results = await Promise.allSettled([
+
     api.media.recentlyAdded("movie", token),
+
     api.media.recentlyAdded("episode", token),
+
     api.history.continueWatching(token),
-    api.history.nextUp(token, 10),
+
+    api.history.nextUp(token, 20),
+
+    api.dashboard.stats(token),
+
+    api.dashboard.hero(token),
+
+    api.calendar.upcoming(token, 30),
+
+    api.dashboard.watchlist(token),
+
+    api.dashboard.last30(token),
+    
   ]);
 
-  if (results[0].status === "fulfilled") recentMovies = results[0].value;
-  if (results[1].status === "fulfilled") recentShows = results[1].value;
-  if (results[2].status === "fulfilled")
-    continueWatching = results[2].value?.continue_watching ?? [];
-  if (results[3].status === "fulfilled") {
-    const raw = results[3].value?.next_up ?? [];
-    for (let i = raw.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [raw[i], raw[j]] = [raw[j], raw[i]];
-    }
-    nextUp = raw;
+  if (results[0].status === "fulfilled") {
+    recentMovies = results[0].value;
   }
+
+  if (results[1].status === "fulfilled") {
+    recentShows = results[1].value;
+  }
+
+  if (results[2].status === "fulfilled") {
+    continueWatching =
+      results[2].value?.continue_watching ?? [];
+  }
+
+  if (results[3].status === "fulfilled") {
+
+    nextUp = results[3].value?.next_up ?? [];
+
+  }
+
+  if (results[4].status === "fulfilled") {
+    dashboardStats = results[4].value;
+  }
+
+  if (results[5].status === "fulfilled") {
+    dashboardHero = results[5].value;
+  }
+
+  if (results[6].status === "fulfilled") {
+    upcomingSchedule = results[6].value?.episodes ?? [];
+  }
+
+  if (results[7].status === "fulfilled") {
+    watchlist = results[7].value;
+  }
+
+  if (results[8].status === "fulfilled") {
+    last30 = results[8].value;
+  }
+
 }
 
-const FALLBACK_BACKDROPS: string[] = [
-  "https://image.tmdb.org/t/p/original/n4nGpp7VQJWJzZSKanpFkcxhsE4.jpg",
-  "https://image.tmdb.org/t/p/original/cPaAXKa3QCgyfk5j848cVSrVs9p.jpg",
-  "https://image.tmdb.org/t/p/original/5dQGAaAcX7MLtl1KcqXMjkBgTtg.jpg",
-  "https://image.tmdb.org/t/p/original/rJFqKcmMSttdNP58l0dVzY2NcTA.jpg",
-  "https://image.tmdb.org/t/p/original/r0Q6eeN9L1ORL9QsV0Sg8ZV3vnv.jpg",
-  "https://image.tmdb.org/t/p/original/vZePKXaSO3537aJTxifE3Rrwobb.jpg",
-  "https://image.tmdb.org/t/p/original/kfUWupX3phYp7AleZA2U1dmVcjX.jpg",
-  "https://image.tmdb.org/t/p/original/ejdD20cdHNFAYAN2DlqPToXKyzx.jpg",
-  "https://image.tmdb.org/t/p/original/dqK9Hag1054tghRQSqLSfrkvQnA.jpg",
-  "https://image.tmdb.org/t/p/original/ctiw6FZK4N36LmkjSklWEbuvlq9.jpg",
-  "https://image.tmdb.org/t/p/original/5kD1o6exM1RbauVLJjtNzseiM1Q.jpg",
-  "https://image.tmdb.org/t/p/original/c6OLXfKAk5BKeR6broC8pYiCquX.jpg",
-];
+// ----------------------------------------------------
+// Dashboard Hero
+// ----------------------------------------------------
 
-const backdropPool: MediaItem[] = [
-  ...recentMovies.results.filter(m => !!m.backdrop_path),
-  ...recentShows.results.filter(e => !!e.backdrop_path),
-];
-const discoverPick = backdropPool.length > 0
-  ? backdropPool[Math.floor(Math.random() * backdropPool.length)]
-  : null;
-const discoverBackdropUrl = discoverPick?.backdrop_path
-  ? tmdbImageUrl(discoverPick.backdrop_path, "w1280")
-  : FALLBACK_BACKDROPS[Math.floor(Math.random() * FALLBACK_BACKDROPS.length)];
 ---
 
 <Base title="Dashboard">
+
+  <DashboardHeader
+    posters={dashboardHero?.posters ?? []}
+    stats={dashboardStats}
+  />
+
   {!hasTmdbKey && (
     <div class="mb-12 p-8 bg-blue-600/10 border border-blue-600/20 rounded-2xl flex flex-col md:flex-row items-center gap-6 text-center md:text-left">
       <div class="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center text-3xl shrink-0 shadow-lg shadow-blue-600/20 text-zinc-100">
@@ -84,202 +169,86 @@ const discoverBackdropUrl = discoverPick?.backdrop_path
     </div>
   )}
 
-  {nextUp.length > 0 && (() => {
-    const hero = nextUp[0];
-    const rest = nextUp.slice(1);
-    const heroHref = hero.show_tmdb_id && hero.season_number != null && hero.episode_number != null
-      ? `/show/${hero.show_tmdb_id}/season/${hero.season_number}/${hero.episode_number}`
-      : hero.show_tvdb_id && hero.season_number != null && hero.episode_number != null
-        ? `/show/tvdb/${hero.show_tvdb_id}/season/${hero.season_number}/${hero.episode_number}`
-        : `/media/${hero.type}/${hero.tmdb_id}`;
-    const episodeLabel = hero.season_number != null && hero.episode_number != null
-      ? `S${hero.season_number} E${hero.episode_number}`
-      : null;
-    const rawBackdrop = hero.backdrop_path || hero.show_backdrop_path;
-    const heroBackdrop = tmdbImageUrl(rawBackdrop, "w1280");
-    return (
-      <section class="relative md:-mt-8 mb-16">
-        <div class="absolute top-0 left-1/2 -translate-x-1/2 w-screen overflow-hidden pointer-events-none" style="height: 100%;">
-          {heroBackdrop ? (
-            <img
-              src={heroBackdrop}
-              alt={hero.title}
-              class="w-full h-full object-cover"
-              loading="eager"
-              decoding="async"
-            />
-          ) : (
-            <div class="w-full h-full bg-zinc-900"></div>
-          )}
-          <div class="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/60 to-zinc-950/20"></div>
-          <div class="absolute inset-0 bg-gradient-to-r from-zinc-950/70 via-transparent to-transparent"></div>
-        </div>
-
-        <div class="relative aspect-[16/9] sm:aspect-[21/8] md:aspect-[21/5] flex flex-col">
-          <div class="flex items-center justify-between pt-8 pb-0">
-            <h2 class="section-headline">Next Up</h2>
-            <a href="/next-up" class="text-sm font-bold uppercase tracking-widest text-zinc-400 hover:text-blue-400 transition-all flex items-center gap-2 group/all">
-              See All
-              <span class="group-hover/all:translate-x-1 transition-transform">→</span>
-            </a>
-          </div>
-
-          <div class="flex-1 flex items-end pb-6 sm:pb-8">
-            <a href={heroHref} class="block max-w-2xl group">
-              {episodeLabel && (
-                <span class="inline-block text-xs font-bold uppercase tracking-widest text-blue-400 bg-blue-500/10 border border-blue-500/20 px-3 py-1 rounded-full mb-3">
-                  {episodeLabel}
-                </span>
-              )}
-              <h3 class="text-2xl sm:text-4xl font-black text-zinc-100 leading-tight mb-1 drop-shadow-lg group-hover:text-blue-200 transition-colors">
-                {hero.show_title ?? hero.title}
-              </h3>
-              {hero.show_title && (
-                <p class="text-sm sm:text-base text-zinc-300 font-medium truncate">{hero.title}</p>
-              )}
-            </a>
-          </div>
-        </div>
-
-        {rest.length > 0 && (
-          <div class="relative flex gap-3 overflow-x-auto pb-3 scrollbar-none pt-6 -mx-6 px-6 md:mx-0 md:px-0">
-            {rest.map((item) => <div class="flex-shrink-0 w-40"><MediaCard item={item} /></div>)}
-          </div>
-        )}
-      </section>
-    );
-  })()}
-
-  {continueWatching.length > 0 && (
-    <section id="continue-watching-section" class="mb-16">
-      <div class="flex items-center justify-between mb-8">
-        <h2 class="section-headline">Continue Watching</h2>
-      </div>
-      <div class="flex gap-3 overflow-x-auto pb-3 scrollbar-none -mx-6 px-6 md:mx-0 md:px-0">
-        {continueWatching.slice(0, 12).map((item) => (
-          <div class="flex-shrink-0 w-40"><ContinueWatchingCard item={item} /></div>
-        ))}
-      </div>
-    </section>
-  )}
-
-  {recentMovies.results?.length > 0 && (
+  {token && (
     <section class="mb-16">
       <div class="flex items-center justify-between mb-8">
-        <h2 class="section-headline">Recently Added Movies</h2>
-        <a href="/collection/movies?sort=created_at" class="text-sm font-bold uppercase tracking-widest text-zinc-500 hover:text-blue-400 transition-all flex items-center gap-2 group/all">
-          See All <span class="group-hover/all:translate-x-1 transition-transform">→</span>
-        </a>
-      </div>
-      <div class="flex gap-3 overflow-x-auto pb-3 scrollbar-none -mx-6 px-6 md:mx-0 md:px-0">
-        {recentMovies.results.map((item) => (
-          <div class="flex-shrink-0 w-40"><MediaCard item={item} /></div>
-        ))}
-      </div>
-    </section>
-  )}
+        <h2 class="section-headline">Next Up</h2>
 
-  {recentShows.results?.length > 0 && (
-    <section class="mb-16">
-      <div class="flex items-center justify-between mb-8">
-        <h2 class="section-headline">Recently Added Episodes</h2>
-        <a href="/collection/shows?sort=created_at" class="text-sm font-bold uppercase tracking-widest text-zinc-500 hover:text-blue-400 transition-all flex items-center gap-2 group/all">
-          See All <span class="group-hover/all:translate-x-1 transition-transform">→</span>
-        </a>
-      </div>
-      <div class="flex gap-3 overflow-x-auto pb-3 scrollbar-none -mx-6 px-6 md:mx-0 md:px-0">
-        {recentShows.results.map((item) => (
-          <div class="flex-shrink-0 w-56"><EpisodeCard item={item} /></div>
-        ))}
-      </div>
-    </section>
-  )}
+        <div class="flex items-center gap-4">
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              id="next-up-prev"
+              aria-label="Scroll left"
+              class="w-9 h-9 flex items-center justify-center rounded-full bg-zinc-900 border border-zinc-800 text-zinc-300 hover:bg-zinc-800 hover:text-white transition disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+            </button>
+            <button
+              type="button"
+              id="next-up-next"
+              aria-label="Scroll right"
+              class="w-9 h-9 flex items-center justify-center rounded-full bg-zinc-900 border border-zinc-800 text-zinc-300 hover:bg-zinc-800 hover:text-white transition disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+            </button>
+          </div>
 
-  {hasTmdbKey && (
-    <section class="relative mb-16 rounded-3xl overflow-hidden h-48 sm:h-56 flex items-center">
-      <img src={discoverBackdropUrl} alt="" class="absolute inset-0 w-full h-full object-cover" loading="lazy" decoding="async" />
-      <div class="absolute inset-0 bg-gradient-to-r from-zinc-950/90 via-zinc-950/60 to-zinc-950/20"></div>
-      <div class="absolute inset-0 bg-gradient-to-t from-zinc-950/60 via-transparent to-transparent"></div>
-      <div class="relative px-8 sm:px-12">
-        <p class="text-xs font-black uppercase tracking-[0.2em] text-zinc-400 mb-2">What to watch next?</p>
-        <h2 class="text-2xl sm:text-3xl font-black text-zinc-100 mb-5 leading-tight">Explore movies & shows<br class="hidden sm:block" /> you haven't seen yet.</h2>
-        <a
-          href="/discover"
-          class="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white font-black rounded-2xl transition-all shadow-xl shadow-blue-900/40 active:scale-95 text-sm uppercase tracking-wider"
-        >
-          Discover
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="w-4 h-4">
-            <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
-          </svg>
-        </a>
-      </div>
-    </section>
-  )}
-
-  {hasTmdbKey && (
-    <>
-      <!-- Trending Movies -->
-      <section class="mb-16" id="section-trending-movies">
-        <div class="flex items-center justify-between mb-8">
-          <h2 class="section-headline">Trending Movies</h2>
-          <a href="/trending/movies" class="text-sm font-bold uppercase tracking-widest text-zinc-500 hover:text-blue-400 transition-all flex items-center gap-2 group/all">
-            See All <span class="group-hover/all:translate-x-1 transition-transform">→</span>
+          <a
+            href="/progress"
+            class="text-sm font-bold uppercase tracking-widest text-zinc-400 hover:text-blue-400 transition-all"
+          >
+            See All →
           </a>
         </div>
-        <div class="flex gap-3 overflow-x-auto pb-3 scrollbar-none -mx-6 px-6 md:mx-0 md:px-0" id="grid-trending-movies">
-          {Array.from({ length: 10 }).map(() => (
-            <div class="flex-shrink-0 w-40 animate-pulse rounded-2xl overflow-hidden bg-zinc-900 border border-zinc-800">
-              <div class="aspect-[2/3] bg-zinc-800"></div>
-              <div class="p-3 space-y-2">
-                <div class="h-3 bg-zinc-800 rounded w-3/4"></div>
-                <div class="h-2 bg-zinc-800 rounded w-1/4"></div>
-              </div>
+      </div>
+
+      {nextUp.length > 0 ? (
+        <div id="next-up-row" class="flex gap-5 overflow-x-auto pb-3 scrollbar-none">
+          {nextUp.map((item) => (
+            <div class="flex-shrink-0">
+              <UpNextCard item={item} />
             </div>
           ))}
         </div>
-      </section>
-
-      <!-- Trending Shows -->
-      <section class="mb-16" id="section-trending-shows">
-        <div class="flex items-center justify-between mb-8">
-          <h2 class="section-headline">Trending Shows</h2>
-          <a href="/trending/shows" class="text-sm font-bold uppercase tracking-widest text-zinc-500 hover:text-blue-400 transition-all flex items-center gap-2 group/all">
-            See All <span class="group-hover/all:translate-x-1 transition-transform">→</span>
-          </a>
-        </div>
-        <div class="flex gap-3 overflow-x-auto pb-3 scrollbar-none -mx-6 px-6 md:mx-0 md:px-0" id="grid-trending-shows">
-          {Array.from({ length: 10 }).map(() => (
-            <div class="flex-shrink-0 w-40 animate-pulse rounded-2xl overflow-hidden bg-zinc-900 border border-zinc-800">
-              <div class="aspect-[2/3] bg-zinc-800"></div>
-              <div class="p-3 space-y-2">
-                <div class="h-3 bg-zinc-800 rounded w-3/4"></div>
-                <div class="h-2 bg-zinc-800 rounded w-1/4"></div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <!-- Airing Today -->
-      <section class="mb-16" id="section-airing-today">
-        <div class="flex items-center justify-between mb-8">
-          <h2 class="section-headline">Airing Today</h2>
-          <a href="/airing-today" class="text-sm font-bold uppercase tracking-widest text-zinc-500 hover:text-blue-400 transition-all flex items-center gap-2 group/all">
-            See All <span class="group-hover/all:translate-x-1 transition-transform">→</span>
-          </a>
-        </div>
-        <div class="flex gap-3 overflow-x-auto pb-3 scrollbar-none -mx-6 px-6 md:mx-0 md:px-0" id="grid-airing-today">
-          {Array.from({ length: 10 }).map(() => (
-            <div class="flex-shrink-0 w-56 animate-pulse rounded-2xl overflow-hidden bg-zinc-900 border border-zinc-800">
-              <div class="aspect-[3/2] bg-zinc-800"></div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-    </>
+      ) : (
+        <p class="rounded-xl border border-zinc-800 bg-zinc-900/40 px-5 py-4 text-sm text-zinc-500">
+          New episodes will appear here once they’ve aired.
+        </p>
+      )}
+    </section>
   )}
-</Base>
+
+  <UpcomingSchedule episodes={upcomingSchedule} />
+
+  {watchlist.length > 0 && (
+    <section id="watchlist" class="mb-16">
+
+        <div class="flex items-center justify-between mb-8">
+            <h2 class="section-headline">Watchlist</h2>
+
+            <a
+                href="/watchlist"
+                class="text-sm font-bold uppercase tracking-widest text-zinc-400 hover:text-blue-400 transition"
+            >
+                See All →
+            </a>
+        </div>
+
+        <div class="flex gap-10 overflow-x-auto pb-3 scrollbar-none -mx-6 px-6 md:mx-0 md:px-0">
+            {watchlist.map((movie) => (
+                <div class="flex-shrink-0 w-[210px]">
+                    <DashboardWatchlistCard movie={movie} />
+                </div>
+            ))}
+        </div>
+
+    </section>
+  )}
+
+  <Last30Days data={last30} />
+
+  <GenreStrip genres={last30?.genres ?? []} />
 
 <script define:vars={{ token }}>
 
@@ -327,7 +296,7 @@ const discoverBackdropUrl = discoverPick?.backdrop_path
           const collectedFill = 'none';
 
           return `<div
-            class="flex-shrink-0 w-40 group relative flex flex-col rounded-2xl overflow-hidden bg-zinc-900 border border-zinc-800 hover:border-blue-500/50 hover:shadow-2xl hover:shadow-blue-900/20 transition-all duration-300 transform hover:-translate-y-1 active:scale-95 active:opacity-70"
+            class="flex-shrink-0 w-40 relative flex flex-col rounded-2xl overflow-hidden bg-zinc-900 border border-zinc-800"
             data-card
             data-tmdb-id="${esc(String(item.tmdb_id))}"
             data-media-type="${esc(item.type)}"
@@ -335,12 +304,12 @@ const discoverBackdropUrl = discoverPick?.backdrop_path
             data-season=""
           >
             <a href="${esc(href)}" class="block">
-              <div class="aspect-[2/3] bg-zinc-950 relative overflow-hidden ring-1 ring-white/5 group-hover:ring-blue-500/30 transition-all duration-300">
+              <div class="aspect-[2/3] bg-zinc-950 relative overflow-hidden ring-1 ring-white/5"
                 ${posterUrl
-                  ? `<img src="${esc(posterUrl)}" alt="${esc(item.title)}" class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" loading="lazy" decoding="async" />`
+                  ? `<img src="${esc(posterUrl)}" alt="${esc(item.title)}" class="w-full h-full object-cover" loading="lazy" decoding="async" />`
                   : `<div class="w-full h-full flex flex-col items-center justify-center text-zinc-700 bg-zinc-900 p-4 text-center"><span class="text-3xl mb-2 opacity-30">🎬</span><span class="text-xs font-bold uppercase tracking-widest">${esc(item.title)}</span></div>`
                 }
-                <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent"></div>
                 ${rating ? `<div class="absolute top-2 left-2 bg-black/80 backdrop-blur-md text-yellow-400 text-[10px] font-black px-2 py-0.5 rounded-full shadow-lg border border-zinc-800 flex items-center gap-1"><span class="text-xs leading-none">★</span> ${esc(rating)}</div>` : ''}
               </div>
             </a>
@@ -375,7 +344,7 @@ const discoverBackdropUrl = discoverPick?.backdrop_path
               </button>
             </div>
             <a href="${esc(href)}" class="block p-3 bg-gradient-to-b from-zinc-900 to-zinc-950 flex-1">
-              <h3 class="text-sm font-bold text-zinc-100 truncate group-hover:text-blue-400 transition-colors leading-tight mb-1">${esc(item.title)}</h3>
+              <h3 class="text-sm font-bold text-zinc-100 truncate leading-tight mb-1">
               <div class="flex items-center justify-between">
                 <div class="flex items-center gap-2">
                   ${year ? `<span class="text-[11px] font-medium text-zinc-500 tracking-wide">${esc(year)}</span>` : ''}
@@ -390,28 +359,26 @@ const discoverBackdropUrl = discoverPick?.backdrop_path
           const isSeries = item.type === 'series';
           const href = item.show_tmdb_id && item.season_number != null && item.episode_number != null
             ? `/show/${item.show_tmdb_id}/season/${item.season_number}/${item.episode_number}`
-            : item.show_tvdb_id && item.season_number != null && item.episode_number != null
-              ? `/show/tvdb/${item.show_tvdb_id}/season/${item.season_number}/${item.episode_number}`
-              : isSeries
-                ? `/show/${item.tmdb_id}`
-                : `/media/${item.type}/${item.tmdb_id}`;
+            : isSeries
+              ? `/show/${item.tmdb_id}`
+              : `/media/${item.type}/${item.tmdb_id}`;
           const raw = isSeries ? (item.backdrop_path ?? item.poster_path) : item.poster_path;
           const imageUrl = tmdbImageUrl(raw, 'w780');
           const sxe = item.season_number != null && item.episode_number != null
             ? `S${String(item.season_number).padStart(2, '0')}E${String(item.episode_number).padStart(2, '0')}`
             : null;
 
-          return `<a href="${esc(href)}" class="flex-shrink-0 w-56 group relative block rounded-2xl overflow-hidden bg-zinc-900 border border-zinc-800 hover:border-blue-500/50 hover:shadow-2xl hover:shadow-blue-900/20 transition-all duration-300 transform hover:-translate-y-1 active:scale-95 active:opacity-70">
-            <div class="aspect-[3/2] bg-zinc-950 relative overflow-hidden ring-1 ring-white/5 group-hover:ring-blue-500/30 transition-all duration-300">
+          return `<a href="${esc(href)}" class="flex-shrink-0 w-56 relative block rounded-2xl overflow-hidden bg-zinc-900 border border-zinc-800 transition-all duration-300 active:scale-95 active:opacity-70">
+            <div class="aspect-[3/2] bg-zinc-950 relative overflow-hidden ring-1 ring-white/5">
               ${imageUrl
-                ? `<img src="${esc(imageUrl)}" alt="${esc(item.show_title ?? item.title)}" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" loading="lazy" decoding="async" />`
+                ? `<img src="${esc(imageUrl)}" alt="${esc(item.show_title ?? item.title)}" class="w-full h-full object-cover" loading="lazy" decoding="async" />`
                 : `<div class="w-full h-full flex flex-col items-center justify-center p-4 text-center bg-[#18181b]"><span class="text-3xl mb-2 opacity-30">📺</span><span class="text-xs font-bold uppercase tracking-widest text-[#52525b]">${esc(item.show_title ?? item.title)}</span></div>`
               }
               <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent"></div>
               ${sxe ? `<div class="absolute top-2 left-2 bg-blue-600/90 backdrop-blur-md text-white text-[10px] font-black px-2 py-0.5 rounded-full shadow-lg border border-blue-500/30">${esc(sxe)}</div>` : ''}
               <div class="absolute bottom-0 left-0 right-0 p-3">
                 ${item.show_title ? `<p class="text-[11px] font-bold text-white/70 truncate leading-tight">${esc(item.show_title)}</p>` : ''}
-                <h3 class="text-sm font-bold text-white truncate group-hover:text-blue-300 transition-colors leading-tight">${esc(item.title)}</h3>
+                <h3 class="text-sm font-bold text-white truncate leading-tight">${esc(item.title)}</h3>
               </div>
             </div>
           </a>`;
@@ -468,4 +435,36 @@ const discoverBackdropUrl = discoverPick?.backdrop_path
             if (card) card.style.opacity = '';
           }
         });
+</script>      
+
+<script>
+  const row = document.getElementById('next-up-row');
+  const prev = document.getElementById('next-up-prev') as HTMLButtonElement | null;
+  const next = document.getElementById('next-up-next') as HTMLButtonElement | null;
+
+  if (row && prev && next) {
+    const arrows = prev.parentElement as HTMLElement;
+
+    // Scroll by whole cards, leaving one card of overlap so you keep your place
+    const step = () => {
+      const first = row.firstElementChild as HTMLElement | null;
+      const gap = parseFloat(getComputedStyle(row).columnGap) || 20;
+      const cardWidth = (first?.getBoundingClientRect().width ?? 270) + gap;
+      const cardsPerPage = Math.max(1, Math.floor(row.clientWidth / cardWidth) - 1);
+      return cardsPerPage * cardWidth;
+    };
+
+    const update = () => {
+      const max = row.scrollWidth - row.clientWidth;
+      arrows.style.display = max > 2 ? '' : 'none';
+      prev.disabled = row.scrollLeft <= 2;
+      next.disabled = row.scrollLeft >= max - 2;
+    };
+
+    prev.addEventListener('click', () => row.scrollBy({ left: -step(), behavior: 'smooth' }));
+    next.addEventListener('click', () => row.scrollBy({ left: step(), behavior: 'smooth' }));
+    row.addEventListener('scroll', update, { passive: true });
+    window.addEventListener('resize', update);
+    update();
+  }
 </script>

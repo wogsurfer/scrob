@@ -1,0 +1,153 @@
+---
+import type { WatchlistMovie } from "../lib/api";
+import { tmdbImageUrl } from "../lib/api";
+
+import watchdRed from "../assets/watchd-icon-red.png";
+import watchdWhite from "../assets/watchd-icon-white.png";
+
+interface Props {
+    movie: WatchlistMovie;
+}
+
+const { movie } = Astro.props;
+
+const poster = tmdbImageUrl(movie.poster_path, "w500");
+
+// We'll wire this to the real watch state later.
+const watched = false;
+---
+
+<div class="watchd-card">
+
+    <a href={`/media/movie/${movie.tmdb_id}`} class="poster-link">
+
+        <img
+            src={poster}
+            alt={movie.title}
+            class="poster"
+        />
+
+        <button class="watch-button">
+            <img
+                src={watched ? watchdRed.src : watchdWhite.src}
+                alt="Watch"
+                class="watch-logo"
+            />
+        </button>
+
+    </a>
+
+    <div class="content">
+        <h3>{movie.title}</h3>
+    </div>
+
+</div>
+
+<style>
+
+.watchd-card{
+
+    width:100%;
+
+    background:#0b0b0b;
+
+    border:1px solid #27272a;
+
+    border-radius:16px;
+
+    overflow:hidden;
+
+    transition:.25s;
+
+}
+
+.poster{
+
+    width:100%;
+
+    aspect-ratio:2/3;
+
+    object-fit:cover;
+
+}
+
+.content{
+
+    padding:16px;
+
+}
+
+.content h3{
+
+    color:#ffffff;
+
+    font-size:15px;
+    font-weight:600;
+
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+
+    margin:0;
+
+    text-align:center;
+
+}
+
+.poster-link{
+
+    position:relative;
+
+    display:block;
+
+}
+
+.watch-button{
+
+    position:absolute;
+
+    left:50%;
+    bottom:-21px;
+
+    transform:translateX(-50%);
+
+    width:42px;
+    height:42px;
+
+    border-radius:50%;
+    overflow:hidden;
+
+    background:#0b0b0b;
+
+    border:2px solid #3a3a3a;
+
+    box-shadow:0 4px 12px rgba(0,0,0,.55);
+
+    display:flex;
+    align-items:center;
+    justify-content:center;
+
+    cursor:pointer;
+
+    z-index:20;
+
+}
+
+.watch-button:hover{
+
+    transform:translateX(-50%) scale(1.08);
+
+}
+
+.watch-logo{
+
+    width:30px;
+    height:30px;
+
+    object-fit:cover;
+
+    border-radius:50%;
+
+}
+
+</style>

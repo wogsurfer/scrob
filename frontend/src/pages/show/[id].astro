@@ -2,8 +2,8 @@
 import Base from "../../layouts/Base.astro";
 import MediaRow from "../../components/MediaRow.astro";
 import ActionBar from "../../components/ActionBar.astro";
-import CommentsSection from "../../components/CommentsSection.astro";
 import EpisodeOrderSelector from "../../components/EpisodeOrderSelector.astro";
+import CrewSection from "../../components/CrewSection.astro";
 import { api, type Show } from "../../lib/api";
 export const prerender = false;
 
@@ -30,20 +30,26 @@ if (!show && !error) {
     return Astro.redirect("/404");
 }
 
-if (show?.episode_order === "tvdb" && show.tvdb_id) {
-  return Astro.redirect(`/show/tvdb/${show.tvdb_id}`);
-}
-
 const seasons = Object.entries(show?.seasons ?? {}).sort(
   ([a], [b]) => Number(a.replace("season_", "")) - Number(b.replace("season_", ""))
 );
 
 const year = show?.first_air_date?.slice(0, 4) ?? null;
+const isFinished = show?.status === "Ended" || show?.status === "Canceled";
 const rating = show?.tmdb_rating ? show.tmdb_rating.toFixed(1) : null;
+const fmtRating = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
+const userRated = show?.user_rating != null;
 const langNames = new Intl.DisplayNames(["en"], { type: "language" });
 const originalLanguage = show?.original_language
   ? langNames.of(show.original_language) ?? show.original_language
   : null;
+const seasonCount =
+  show?.seasons_meta?.filter((s) => s.season_number > 0).length || seasons.length;
+const episodeCount =
+  show?.seasons_meta
+    ?.filter((s) => s.season_number > 0)
+    .reduce((total, s) => total + (s.episode_count || 0), 0)
+  || Object.values(show?.seasons ?? {}).reduce((total, episodes) => total + episodes.length, 0);
 ---
 
 <Base title={show?.title || "Show Details"}>
@@ -74,6 +80,22 @@ const originalLanguage = show?.original_language
       )}
 
       <div class="relative z-20">
+        {show.id && (
+                <div class="absolute top-0 right-0">
+                  <button
+                    id="refresh-metadata-btn"
+                    class="flex items-center gap-2 px-4 py-2 text-sm font-bold text-zinc-400 hover:text-zinc-100 bg-zinc-900/60 hover:bg-zinc-800/80 border border-zinc-800 hover:border-zinc-700 rounded-xl transition-all duration-200 cursor-pointer"
+                  >
+                    <svg id="refresh-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
+                      <path d="M21 3v5h-5"/>
+                      <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/>
+                      <path d="M8 16H3v5"/>
+                    </svg>
+                    <span id="refresh-label">Refresh Metadata</span>
+                  </button>
+                </div>
+              )}
         <nav class="flex items-center gap-2 text-sm text-zinc-400 mb-8 overflow-hidden whitespace-nowrap">
           <a href="/shows" class="hover:text-zinc-100 transition shrink-0">Shows</a>
           <span class="text-zinc-700">/</span>
@@ -93,6 +115,7 @@ const originalLanguage = show?.original_language
                     loading="eager"
                     decoding="async"
                   />
+
                   <div class="absolute inset-0 flex items-center justify-center opacity-0 group-hover/poster:opacity-100 transition-opacity duration-200 bg-black/30">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="w-8 h-8 text-white drop-shadow-lg">
                       <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607ZM10.5 7.5v6m3-3h-6" />
@@ -106,34 +129,86 @@ const originalLanguage = show?.original_language
                 </div>
               )}
             </div>
-          </div>
+            {show.genres?.length > 0 && (
+            <div class="flex flex-wrap gap-2 mt-4 mb-4">
+              {show.genres.map(g => (
+                <span class="px-3 py-1.5 bg-zinc-900/40 border border-zinc-800/50 rounded-xl text-zinc-400 text-[11px] font-black uppercase tracking-widest text-center">
+                  {g}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
 
           <!-- Info -->
-          <div class="flex-1 min-w-0 pt-4">
-            <h1 class="text-4xl md:text-6xl font-black text-zinc-100 mb-3 tracking-tight leading-none">{show.title}</h1>
+          <div class="flex-1 min-w-0 pt-2">
+            <h1 class="text-4xl md:text-6xl font-black text-zinc-100 mb-3 tracking-tight leading-none">
+              {show.title}
+            </h1>
 
             {show.tagline && (
               <p class="text-xl italic text-zinc-400 mb-8 font-light leading-relaxed">"{show.tagline}"</p>
             )}
 
-            <div class="flex flex-wrap items-center gap-3 mb-10">
+            <div class="flex flex-wrap items-center gap-3 mb-0">
               <div class="flex flex-wrap items-center gap-4 text-zinc-300 text-sm bg-zinc-900/40 p-3 rounded-xl border border-zinc-800/50 backdrop-blur-sm">
                 {year && <span class="font-bold">{year}</span>}
                 {rating && (
-                  <span class="flex items-center gap-1.5 text-yellow-400 font-black">
-                    <span class="text-lg leading-none">★</span> {rating}
+                  <span class="flex items-center gap-2 text-[#01b4e4] font-black">
+                    <img
+                      src="/logos/tmdb.svg"
+                      alt="TMDB"
+                      class="w-9 h-5 object-contain"
+                    />
+                    <span>{rating}</span>
                   </span>
                 )}
-                <span class="font-medium text-zinc-400">{show.seasons_meta?.length || seasons.length} Seasons</span>
+
+                {show.imdb_rating != null && show.imdb_rating > 0 && (
+                  <span class="flex items-center gap-2 text-[#f5c518] font-black">
+                    <img
+                      src="/logos/imdb.svg"
+                      alt="IMDb"
+                      class="w-9 h-5 object-contain"
+                    />
+                    <span>{show.imdb_rating.toFixed(1)}</span>
+                  </span>
+                )}
+
+                <span
+                  data-card
+                  data-tmdb-id={String(show.tmdb_id ?? id)}
+                  data-media-type="series"
+                  data-episode-order="tmdb"
+                  class="contents"
+                >
+                  <button
+                    type="button"
+                    data-action="rate"
+                    data-rating-style="pill"
+                    data-user-rating={userRated ? String(show.user_rating) : ""}
+                    title={userRated ? `Your rating: ${fmtRating(show.user_rating)}/10` : "Rate this"}
+                    class={`flex items-center gap-1.5 font-black cursor-pointer transition-colors ${userRated ? "text-red-500" : "text-zinc-500 hover:text-red-400"}`}
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill={userRated ? "currentColor" : "none"} stroke="currentColor" stroke-width="2" stroke-linejoin="round" class="w-[18px] h-[18px]">
+                      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+                    </svg>
+                    <span data-rating-value>{userRated ? fmtRating(show.user_rating) : ""}</span>
+                  </button>
+                </span>
+
+                <span class="font-medium text-zinc-400">
+                  {seasonCount} {seasonCount === 1 ? "Season" : "Seasons"}
+                </span>
+
+                <span class="font-medium text-zinc-400">
+                  {episodeCount} {episodeCount === 1 ? "Episode" : "Episodes"}
+                </span>
+
                 {show.age_rating && (
                   <span class="px-2 py-0.5 border border-zinc-600 rounded text-[10px] font-black text-zinc-400 tracking-widest">
                     {show.age_rating}
                   </span>
-                )}
-                {show.imdb_id && (
-                  <a href={`https://www.imdb.com/title/${show.imdb_id}/`} target="_blank" rel="noopener noreferrer" class="px-2 py-0.5 bg-[#f5c518] rounded text-[10px] font-black text-black tracking-widest hover:bg-[#e6b800] transition-colors">
-                    IMDb
-                  </a>
                 )}
                 {show.status && (
                   <span class="capitalize px-2 py-0.5 bg-zinc-800 border border-zinc-700 rounded text-[10px] font-black text-zinc-400 tracking-widest">
@@ -148,21 +223,116 @@ const originalLanguage = show?.original_language
                     {originalLanguage}
                   </span>
                 )}
-                {show.created_by?.length > 0 && (
-                  <span class="flex items-center gap-1.5 font-medium text-zinc-400">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="w-4 h-4 text-zinc-500">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M3.375 19.5h17.25m-17.25 0a1.125 1.125 0 0 1-1.125-1.125M3.375 19.5h1.5C5.496 19.5 6 18.996 6 18.375m-3.75.125v-.125A1.125 1.125 0 0 1 3.375 18H21m-18 0v-1.5A1.125 1.125 0 0 1 3.375 15h17.25M3.375 15v-1.5m0 1.5h17.25M3.375 15a1.125 1.125 0 0 1-1.125-1.125v-1.5M21 13.5V18a1.125 1.125 0 0 1-1.125 1.125H21m0-7.5v1.5m0-1.5a1.125 1.125 0 0 0-1.125-1.125H4.125A1.125 1.125 0 0 0 3 13.5m18 0v-7.5A1.125 1.125 0 0 0 19.875 4.5H4.125A1.125 1.125 0 0 0 3 5.625v7.875" />
-                    </svg>
-                    {show.created_by.map((c: any) => (
-                      <a href={`/person/${c.tmdb_id}`} class="hover:text-zinc-100 transition-colors">{c.name}</a>
-                    )).reduce((acc: any[], el: any, i: number) => i === 0 ? [el] : [...acc, ', ', el], [])}
-                  </span>
-                )}
               </div>
-              {(() => { const n = show.networks?.find(n => n.logo_path); return n ? <div class="bg-zinc-900/40 p-3 rounded-xl border border-zinc-800/50 backdrop-blur-sm flex items-center"><img src={n.logo_path!} alt={n.name} title={n.name} class="h-5 max-w-[80px] object-contain" loading="lazy" /></div> : null; })()}
+              {(() => { const n = show.networks?.find(n => n.logo_path); return n ? <div class="bg-zinc-900/40 p-3 rounded-xl border border-zinc-800/50 backdrop-blur-sm flex items-center">
+              <img
+                src={n.logo_path!}
+                alt={n.name}
+                title={n.name}
+                class:list={[
+                  "h-5 max-w-[80px] object-contain",
+                  [
+                    "FOX",
+                    "Apple TV",
+                    "HBO",
+                    "FX",
+                    "CBS",
+                    "Nine Network",
+                    "The WB",
+                    "UPN",
+                    "FXX",
+                    "Citytv",
+                    "AMC",
+                    "Syfy",
+                    "CBS All Access",
+                    "TNT",
+                    "Spike",
+                    "Audience",
+                    "Cartoon Network",
+                    "TBS",
+                    "Adult Swim",
+                    "Amazon Freevee",
+                    "Rooster Teeth",
+                  ].includes(n.name) && "brightness-0 invert"
+                ]}
+                loading="lazy"
+/></div> : null; })()}
             </div>
 
-            <div class="mb-6">
+            <!-- Show dates and countries -->
+              {(show.first_air_date || show.last_air_date || show.production_countries?.length > 0) && (
+                <div class="mb-2 flex items-center gap-4 text-sm text-zinc-400">
+                  {show.first_air_date && (
+                    <span class="flex items-center gap-1.5">
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                        stroke-width="2" stroke="currentColor" class="w-4 h-4 text-zinc-500">
+                        <path stroke-linecap="round" stroke-linejoin="round"
+                          d="M6.75 3v2.25M17.25 3v2.25M3.75 9.75h16.5M5.25 4.5h13.5a1.5 1.5 0 0 1 1.5 1.5v13.5a1.5 1.5 0 0 1-1.5 1.5H5.25a1.5 1.5 0 0 1-1.5-1.5V6a1.5 1.5 0 0 1 1.5-1.5Z" />
+                      </svg>
+                      <span>Released {new Date(show.first_air_date).toLocaleDateString("en-US", {
+                        month: "short",
+                        day: "numeric",
+                        year: "numeric",
+                      })}</span>
+                    </span>
+                  )}
+
+                  {isFinished && show.last_air_date && (
+                    <span class="flex items-center gap-1.5">
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                        stroke-width="2" stroke="currentColor" class="w-4 h-4 text-zinc-500">
+                        <path stroke-linecap="round" stroke-linejoin="round"
+                          d="M6.75 3v2.25M17.25 3v2.25M3.75 9.75h16.5M5.25 4.5h13.5a1.5 1.5 0 0 1 1.5 1.5v13.5a1.5 1.5 0 0 1-1.5 1.5H5.25a1.5 1.5 0 0 1-1.5-1.5V6a1.5 1.5 0 0 1 1.5-1.5Z" />
+                      </svg>
+                      <span>{show.status === "Canceled" ? "Canceled" : "Ended"} {new Date(show.last_air_date).toLocaleDateString("en-US", {
+                        month: "short",
+                        day: "numeric",
+                        year: "numeric",
+                        timeZone: "UTC",
+                      })}</span>
+                    </span>
+                  )}
+
+                  {show.production_countries?.length > 0 && (
+                    <span class="flex items-center gap-1.5">
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                        stroke-width="2" stroke="currentColor" class="w-4 h-4 text-zinc-500">
+                        <circle cx="12" cy="12" r="9" />
+                        <path stroke-linecap="round" stroke-linejoin="round"
+                          d="M3 12h18M12 3c2.25 2.5 3.5 5.5 3.5 9s-1.25 6.5-3.5 9c-2.25-2.5-3.5-6.5-3.5-9S9.75 5.5 12 3Z" />
+                      </svg>
+                      {show.production_countries
+                        .map((country: any) => country.name ?? country)
+                        .join(" • ")}
+                    </span>
+                  )}
+
+                  {show.production_companies?.length > 0 && (
+                <span class="flex items-center gap-1.5">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke-width="2"
+                    stroke="currentColor"
+                    class="w-4 h-4 text-zinc-500"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      d="M3 21h18M5 21V8l7-5 7 5v13M9 21v-5h6v5M9 10h.01M15 10h.01M9 13h.01M15 13h.01"
+                    />
+                  </svg>
+
+                  {show.production_companies
+                    .map((company) => company.name)
+                    .join(" • ")}
+                </span>
+              )}
+                </div>
+              )}
+    
+            <div class="mb-2">
               <ActionBar
                 tmdbId={Number(id)}
                 mediaType="series"
@@ -176,6 +346,7 @@ const originalLanguage = show?.original_language
                 requestEnabled={show.request_enabled ?? false}
                 requestStatus={show.request_status ?? null}
                 userRating={show.user_rating ?? null}
+                hideRate
               />
             </div>
             {show.tvdb_id && hasTvdbKey && (
@@ -189,73 +360,70 @@ const originalLanguage = show?.original_language
               </div>
             )}
 
-            {show.id && (
-              <div class="mb-8">
-                <button
-                  id="refresh-metadata-btn"
-                  class="flex items-center gap-2 px-4 py-2 text-sm font-bold text-zinc-400 hover:text-zinc-100 bg-zinc-900/60 hover:bg-zinc-800/80 border border-zinc-800 hover:border-zinc-700 rounded-xl transition-all duration-200 cursor-pointer"
-                >
-                  <svg id="refresh-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
-                    <path d="M21 3v5h-5"/>
-                    <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/>
-                    <path d="M8 16H3v5"/>
-                  </svg>
-                  <span id="refresh-label">Refresh Metadata</span>
-                </button>
-              </div>
-            )}
-
-            <div class="mb-12">
+            <div class="mb-10">
               <h2 class="text-xl font-black text-zinc-100 mb-4 flex items-center gap-2 uppercase tracking-tight">
-                <span class="w-2 h-2 bg-blue-500 rounded-full"></span>
-                Overview
               </h2>
               <p class="text-zinc-300 leading-relaxed text-lg max-w-4xl font-medium opacity-90">
                 {show.overview}
               </p>
-            </div>
 
-            {show.genres?.length > 0 && (
-              <div class="flex flex-wrap gap-2 mb-12">
-                {show.genres.map(g => (
-                  <span class="px-4 py-1.5 bg-zinc-900/80 border border-zinc-800 hover:border-zinc-700 transition-colors text-zinc-400 text-xs rounded-full font-bold uppercase tracking-widest">
-                    {g}
-                  </span>
-                ))}
-              </div>
-            )}
-
-            <!-- Where to Watch -->
-            {show.where_to_watch && show.where_to_watch.length > 0 && (
-              <div class="mb-8">
-                <h2 class="text-sm font-black text-zinc-500 mb-3 uppercase tracking-widest">Where to Watch</h2>
-                <div class="flex flex-wrap gap-2">
-                  {show.where_to_watch.map(s => (
-                    <div class="flex items-center gap-2 px-3 py-1.5 bg-zinc-900 border border-zinc-800 rounded-lg">
-                      {s.logo ? (
-                        <img src={s.logo} alt={s.name} class="w-5 h-5 rounded object-cover" />
-                      ) : (s.type === "plex" || s.type === "jellyfin" || s.type === "emby") ? (
-                        <img src={`/icons/${s.type}.svg`} alt={s.name} class="w-5 h-5 rounded object-cover" />
-                      ) : (
-                        <span class="text-zinc-400 text-xs">▶</span>
+              <div class="mt-4 flex flex-wrap items-center gap-x-2 gap-y-2 text-sm text-zinc-400">
+                {show.watch_start_date && (
+                  <span class="flex items-center gap-1.5">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                      stroke-width="2" stroke="currentColor" class="w-4 h-4 text-zinc-500">
+                      <path stroke-linecap="round" stroke-linejoin="round"
+                        d="M6.75 3v2.25M17.25 3v2.25M3.75 9.75h16.5M5.25 4.5h13.5a1.5 1.5 0 0 1 1.5 1.5V19.5A1.5 1.5 0 0 1 18.75 21H5.25a1.5 1.5 0 0 1-1.5-1.5V6a1.5 1.5 0 0 1 1.5-1.5Z" />
+                    </svg>
+                    <span>
+                      Watched from {new Date(show.watch_start_date).toLocaleDateString("en-US")}
+                      {show.watch_end_date && (
+                        <> to {new Date(show.watch_end_date).toLocaleDateString("en-US")}</>
                       )}
-                      <span class="text-zinc-300 text-xs font-semibold">{s.name}</span>
-                    </div>
-                  ))}
-                </div>
+                    </span>
+                  </span>
+                )}
+
+                {show.watch_sources?.length > 0 && (
+                  <span class="flex items-center gap-1.5">
+                    <span class="text-zinc-500">•</span>
+                    <span>{show.watch_sources.join(" • ")}</span>
+                  </span>
+                )}
               </div>
-            )}
-          </div>
+            </div>
+          </div><!-- /Info column -->
+        </div><!-- /Poster + Info row -->
+
+<a id="awards-banner" href={`/show/${show.tmdb_id}/awards`} class="hidden mt-10 mb-4 block">
+  <div class="relative overflow-hidden rounded-2xl bg-[#101b35] border border-[#1d2a48] px-8 py-6">
+    <div class="relative z-10 flex items-center justify-between">
+      <div>
+        <div class="font-serif text-4xl font-black tracking-tight text-white">
+          AWARDS
         </div>
+        <div
+          id="awards-count"
+          class="mt-1 text-sm font-bold text-zinc-400"
+        >
+        </div>
+      </div>
+
+      <div class="flex items-center gap-3 text-zinc-500">
+        <span class="text-2xl">✦</span>
+        <span class="text-3xl">→</span>
+      </div>
+    </div>
+  </div>
+</a>
 
         <!-- Seasons -->
-        <div class="mt-24">
+        <div class="mt-12">
           <div class="flex items-center justify-between mb-10 border-b border-zinc-900 pb-6">
             <h2 class="text-3xl font-black text-zinc-100 tracking-tighter uppercase">Seasons</h2>
           </div>
           
-          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+          <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
             {(show.seasons_meta || seasons.map(([k]) => ({ season_number: Number(k.replace("season_","")), name: `Season ${k.replace("season_","")}`, overview: null, poster_path: null, episode_count: 0, air_date: null }))).map((s) => {
                 const seasonNum = s.season_number;
                 const episodes = show.seasons?.[`season_${seasonNum}`] || [];
@@ -263,12 +431,12 @@ const originalLanguage = show?.original_language
                 const seasonState = show.season_states?.[seasonNum] ?? { watched: false, in_library: episodes.length > 0, collection_pct: 0, user_rating: null };
 
                 return (
-                  <div class="group/season bg-zinc-900/50 border border-zinc-800 rounded-3xl p-5 hover:bg-zinc-800/60 hover:border-blue-500/50 transition-all duration-300 hover:shadow-2xl hover:shadow-blue-900/10">
+                  <div class="group/season bg-zinc-900/50 border border-zinc-800 rounded-3xl p-5">
                     <a href={`/show/${show.tmdb_id}/season/${seasonNum}`} class="flex gap-6 block mb-4 active:opacity-70 transition-opacity duration-100">
                         <div class="w-28 shrink-0">
-                            <div class="aspect-[2/3] rounded-2xl overflow-hidden border border-zinc-800 shadow-lg group-hover/season:ring-2 group-hover/season:ring-blue-500/50 transition-all duration-500">
+                            <div class="aspect-[2/3] rounded-2xl overflow-hidden border border-zinc-800 shadow-lg">
                                 {poster ? (
-                                    <img src={poster} alt={s.name} class="w-full h-full object-cover group-hover/season:scale-110 transition-transform duration-700" />
+                                    <img src={poster} alt={s.name} class="w-full h-full object-cover" />
                                 ) : (
                                     <div class="w-full h-full bg-zinc-900 flex flex-col items-center justify-center text-zinc-500 gap-1">
                                         <span class="text-3xl">📺</span>
@@ -279,17 +447,23 @@ const originalLanguage = show?.original_language
                         </div>
                         <div class="flex-1 py-2">
                             <div class="flex items-start justify-between gap-4 mb-1">
-                                <h3 class="text-xl font-black text-zinc-100 group-hover/season:text-blue-400 transition-colors">{s.name || `Season ${seasonNum}`}</h3>
-                                {s.tmdb_rating != null && s.tmdb_rating > 0 && (
-                                    <div class="bg-zinc-950 border border-zinc-800 px-2 py-1 rounded-xl flex items-center gap-1.5 shrink-0 shadow-sm">
-                                        <span class="text-yellow-400 text-xs">★</span>
-                                        <span class="text-zinc-100 text-xs font-bold">{s.tmdb_rating.toFixed(1)}</span>
-                                    </div>
-                                )}
+                                <h3 class="text-xl font-black text-zinc-100">
+                                  {s.name || `Season ${seasonNum}`}
+                                </h3>
+                                { s.tmdb_rating != null && s.tmdb_rating > 0 && (
+                                <span class="flex items-center gap-2 text-[#01b4e4] font-black shrink-0">
+                                    <img
+                                        src="/logos/tmdb.svg"
+                                        alt="TMDB"
+                                        class="w-9 h-5 object-contain"
+                                    />
+                                    <span>{s.tmdb_rating.toFixed(1)}</span>
+                                </span>
+                            )}
                             </div>
                             <div class="flex items-center gap-2 mb-3">
                                 <span class="text-[10px] font-black text-zinc-500 uppercase tracking-widest bg-zinc-950 px-2 py-0.5 rounded border border-zinc-800">
-                                    {s.episode_count || episodes.length} Episodes
+                                    {(s.episode_count || episodes.length)} {(s.episode_count || episodes.length) === 1 ? "Episode" : "Episodes"}
                                 </span>
                             </div>
                             <p class="text-xs text-zinc-400 line-clamp-3 leading-relaxed opacity-80">{s.overview || "No overview available."}</p>
@@ -314,44 +488,110 @@ const originalLanguage = show?.original_language
           </div>
         </div>
 
-        <!-- Cast -->
-        {show.cast?.length > 0 && (
-          <div class="mt-24 border-zinc-900 pt-16">
-            <div class="flex items-center justify-between mb-10">
-              <h2 class="text-3xl font-black text-zinc-100 tracking-tighter uppercase">Top Cast</h2>
-            </div>
-            <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-6">
-              {show.cast.slice(0, 12).map((person) => (
-                <a href={`/person/${person.tmdb_id}`} class="group/cast bg-zinc-900/20 border border-zinc-800/40 p-4 rounded-3xl hover:bg-zinc-800/40 hover:border-blue-500/50 transition-all duration-500 hover:shadow-2xl hover:shadow-blue-900/10 active:scale-95 active:opacity-70">
-                  <div class="aspect-square w-full rounded-2xl overflow-hidden mb-5 ring-2 ring-zinc-800/50 group-hover/cast:ring-blue-500 transition-all duration-500 shadow-lg">
-                    {person.profile_path ? (
-                      <img
-                        src={person.profile_path}
-                        alt={person.name}
-                        class="w-full h-full object-cover group-hover/cast:scale-110 transition-transform duration-700"
-                        loading="lazy"
-                        decoding="async"
-                      />
-                    ) : (
-                      <div class="w-full h-full bg-zinc-800 flex items-center justify-center text-zinc-400 text-4xl">
-                        👤
-                      </div>
-                    )}
-                  </div>
-                  <div class="space-y-1.5 text-center">
-                    <p class="text-sm font-black text-zinc-100 group-hover/cast:text-blue-400 transition-colors line-clamp-1 leading-tight">{person.name}</p>
-                    <p class="text-[11px] text-zinc-500 font-bold uppercase tracking-wider line-clamp-1 opacity-80">{person.character}</p>
-                  </div>
-                </a>
-              ))}
-            </div>
-          </div>
-        )}
+        <!-- Cast / Guest Stars -->
+        <div class="mt-2 border-zinc-900 pt-16">
+          <div class="flex items-center gap-8 mb-10">
+            <h2
+              id="cast-tab"
+              class="text-3xl font-black tracking-tighter uppercase text-red-500 cursor-pointer"
+            >
+              Cast
+            </h2>
 
-        <CommentsSection
-          mediaType="series"
-          tmdbId={show.tmdb_id}
-        />
+            <h2
+              id="guest-stars-tab"
+              class="text-3xl font-black tracking-tighter uppercase text-zinc-500 cursor-pointer"
+            >
+              Guest Stars
+            </h2>
+          </div>
+
+          <!-- Cast -->
+          <div id="cast-panel">
+            {show.cast?.length > 0 && (
+              <div class="flex gap-6 overflow-x-auto pb-4">
+                {show.cast.slice(0, 12).map((person) => (
+                  <a
+                    href={`/person/${person.tmdb_id}`}
+                    class="group/cast shrink-0 w-[240px] sm:w-[260px] bg-zinc-900/20 border border-zinc-800/40 p-4 rounded-3xl active:scale-95 active:opacity-70"
+                  >
+                    <div class="aspect-square w-full rounded-2xl overflow-hidden mb-5 ring-2 ring-zinc-800/50 shadow-lg">
+                      {person.profile_path ? (
+                        <img
+                          src={person.profile_path}
+                          alt={person.name}
+                          class="w-full h-full object-cover"
+                          loading="lazy"
+                          decoding="async"
+                        />
+                      ) : (
+                        <div class="w-full h-full bg-zinc-800 flex items-center justify-center text-zinc-400 text-4xl">
+                          👤
+                        </div>
+                      )}
+                    </div>
+
+                    <div class="space-y-1.5 text-center">
+                      <p title={person.name} class="text-sm font-black text-zinc-100 line-clamp-1 leading-tight">
+                        {person.name}
+                      </p>
+                      <p
+                        class="text-[11px] text-zinc-500 font-bold uppercase tracking-wider line-clamp-1 opacity-80"
+                        title={`${person.character} · ${person.episode_count} episodes`}
+                      >
+                        {person.character} · {person.episode_count} episodes
+                      </p>
+                    </div>
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <!-- Guest Stars -->
+          <div id="guest-stars-panel" class="hidden">
+            {show.guest_stars?.length > 0 && (
+              <div class="flex gap-6 overflow-x-auto pb-4">
+                {show.guest_stars.map((person) => (
+                  <a
+                    href={`/person/${person.tmdb_id}`}
+                    class="group/cast shrink-0 w-[240px] sm:w-[260px] bg-zinc-900/20 border border-zinc-800/40 p-4 rounded-3xl active:scale-95 active:opacity-70"
+                  >
+                    <div class="aspect-square w-full rounded-2xl overflow-hidden mb-5 ring-2 ring-zinc-800/50 shadow-lg">
+                      {person.profile_path ? (
+                        <img
+                          src={person.profile_path}
+                          alt={person.name}
+                          class="w-full h-full object-cover"
+                          loading="lazy"
+                          decoding="async"
+                        />
+                      ) : (
+                        <div class="w-full h-full bg-zinc-800 flex items-center justify-center text-zinc-400 text-4xl">
+                          👤
+                        </div>
+                      )}
+                    </div>
+
+                    <div class="space-y-1.5 text-center">
+                      <p title={person.name} class="text-sm font-black text-zinc-100 line-clamp-1 leading-tight">
+                        {person.name}
+                      </p>
+                      <p
+                        class="text-[11px] text-zinc-500 font-bold uppercase tracking-wider line-clamp-1 opacity-80"
+                        title={`${person.character} · ${person.episode_count} episodes`}
+                      >
+                        {person.character} · {person.episode_count} episodes
+                      </p>
+                    </div>
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <CrewSection crew={show.crew} showEpisodeCounts />
 
         <div id="recommendations-container" data-type="series" data-id={show.tmdb_id}></div>
       </div>
@@ -378,6 +618,43 @@ const originalLanguage = show?.original_language
     </button>
   </div>
 )}
+
+<style>
+  .character-hover {
+    position: relative;
+  }
+
+  .character-short {
+    display: block;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: center;
+  }
+
+  .character-full {
+    display: none;
+    position: absolute;
+    left: 50%;
+    bottom: 100%;
+    transform: translateX(-50%);
+    z-index: 50;
+    width: max-content;
+    max-width: 240px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: #18181b;
+    border: 1px solid #3f3f46;
+    color: #f4f4f5;
+    font-size: 11px;
+    font-weight: 700;
+    text-align: center;
+  }
+
+  .character-hover:hover .character-full {
+    display: block;
+  }
+</style>
 
 <script>
   const zoomBtn = document.getElementById('poster-zoom-btn');
@@ -446,5 +723,68 @@ const originalLanguage = show?.original_language
         setTimeout(() => { label.textContent = 'Refresh Metadata'; }, 3000);
       }
     });
+  }
+</script>
+
+<script>
+  const castTab = document.getElementById('cast-tab');
+  const guestStarsTab = document.getElementById('guest-stars-tab');
+  const castPanel = document.getElementById('cast-panel');
+  const guestStarsPanel = document.getElementById('guest-stars-panel');
+
+  castTab?.addEventListener('click', () => {
+    castPanel?.classList.remove('hidden');
+    guestStarsPanel?.classList.add('hidden');
+
+    castTab.classList.remove('text-zinc-500');
+    castTab.classList.add('text-red-500');
+
+    guestStarsTab?.classList.remove('text-red-500');
+    guestStarsTab?.classList.add('text-zinc-500');
+  });
+
+  guestStarsTab?.addEventListener('click', () => {
+    guestStarsPanel?.classList.remove('hidden');
+    castPanel?.classList.add('hidden');
+
+    guestStarsTab.classList.remove('text-zinc-500');
+    guestStarsTab.classList.add('text-red-500');
+
+    castTab?.classList.remove('text-red-500');
+    castTab?.classList.add('text-zinc-500');
+  });
+</script>
+
+<script define:vars={{ tvdbId: show?.tvdb_id, token: Astro.locals.token }}>
+  const awardsBanner = document.getElementById('awards-banner');
+  const awardsCount = document.getElementById('awards-count');
+
+  if (awardsBanner && awardsCount && tvdbId) {
+    fetch(`/api/proxy/shows/tvdb/${tvdbId}/awards`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          throw new Error(`Awards request failed: ${res.status}`);
+        }
+        return res.json();
+      })
+      .then((data) => {
+        const awards = data.awards ?? [];
+
+        if (!awards.length) return;
+
+        const wins = awards.filter((a) => a.is_winner).length;
+
+        awardsCount.textContent =
+          `${wins} Wins | ${awards.length} Nominations`;
+
+        awardsBanner.classList.remove('hidden');
+      })
+      .catch((err) => {
+        console.error('Failed to load awards:', err);
+      });
   }
 </script>

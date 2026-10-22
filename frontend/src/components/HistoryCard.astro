@@ -8,145 +8,236 @@ interface Props {
 }
 
 const { event, use24h = false } = Astro.props;
-const { media, watched_at } = event;
 
-const timeString = watched_at
-  ? new Date(watched_at + 'Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: !use24h })
-  : 'Unknown';
+const media = event.media;
 
-const isEpisode = media.type === 'episode';
-const showOrMovieTitle = isEpisode ? (media.show_title || media.title) : media.title;
-const year = media.release_date?.slice(0, 4);
+const isEpisode =
+  media.type === "episode" ||
+  media.season_number != null ||
+  media.episode_number != null;
 
-const rawPoster = isEpisode ? (media.show_poster_path || media.poster_path) : media.poster_path;
-const posterPath = tmdbImageUrl(rawPoster, "w500");
+const showOrMovieTitle = isEpisode
+  ? (media.show_title || media.title)
+  : media.title;
+
+const posterPath = tmdbImageUrl(
+  isEpisode && media.show_poster_path
+    ? media.show_poster_path
+    : media.poster_path,
+  "w500",
+);
 
 const href = isEpisode
-  ? media.show_tmdb_id
+  ? media.show_tmdb_id && media.season_number != null && media.episode_number != null
     ? `/show/${media.show_tmdb_id}/season/${media.season_number}/${media.episode_number}`
-    : media.show_tvdb_id
-      ? `/show/tvdb/${media.show_tvdb_id}/season/${media.season_number}/${media.episode_number}`
-      : `/media/episode/${media.tmdb_id}`
+    : "#"
   : `/media/movie/${media.tmdb_id}`;
+
+const watchedAt = event.watched_at
+  ? new Date(event.watched_at + "Z")
+  : null;
+
+const timeString = watchedAt
+  ? watchedAt.toLocaleTimeString("en-US", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: !use24h,
+    })
+  : "";
+
+const year = media.release_date
+  ? media.release_date.slice(0, 4)
+  : null;
+
+const episodeNumber =
+  isEpisode &&
+  media.season_number != null &&
+  media.episode_number != null
+    ? `${String(media.season_number).padStart(2, "0")}x${String(media.episode_number).padStart(2, "0")}`
+    : null;
 ---
 
-<div
-  class="flex gap-5 p-4 bg-zinc-900/40 hover:bg-zinc-800/60 border border-zinc-800/50 hover:border-blue-500/30 rounded-2xl transition-all duration-300 shadow-sm hover:shadow-xl hover:shadow-blue-900/10 cursor-pointer group/card"
-  data-href={href}
+<a
+  href={href}
+  class="history-card block"
   data-event-id={event.id}
 >
-  <!-- Poster -->
-  <div class="w-20 shrink-0 aspect-[2/3] rounded-xl overflow-hidden bg-zinc-950 shadow-2xl ring-1 ring-white/5 group-hover/card:ring-blue-500/30 transition-all duration-300">
+  <div class="poster-wrap">
     {posterPath ? (
       <img
         src={posterPath}
         alt={showOrMovieTitle}
-        class="w-full h-full object-cover group-hover/card:scale-110 transition-transform duration-500"
+        class="poster"
         loading="lazy"
         decoding="async"
       />
     ) : (
-      <div class="w-full h-full flex flex-col items-center justify-center text-xs text-zinc-700 p-2 text-center bg-zinc-900">
-        <span class="text-xl mb-1 opacity-20">🎬</span>
-        <span class="font-bold uppercase tracking-tighter truncate w-full">{showOrMovieTitle}</span>
+      <div class="poster-placeholder">
+        <span>🎬</span>
+        <span>{showOrMovieTitle}</span>
       </div>
     )}
   </div>
 
-  <!-- Content -->
-  <div class="flex flex-col min-w-0 flex-1">
-    <!-- Row 1: timestamp + rating (if any) + delete button -->
-    <div class="flex items-center justify-between gap-3">
-      <div class="flex items-center gap-2 min-w-0">
-        <span class="text-xs font-bold text-zinc-400 bg-zinc-950/50 border border-zinc-800 px-2 py-1 rounded-lg uppercase tracking-wider shrink-0">
-          {timeString}
-        </span>
-        {media.user_rating != null && (
-          <span class="flex items-center gap-0.5 text-xs font-bold text-amber-400">
-            <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
-            {media.user_rating % 1 === 0 ? media.user_rating : media.user_rating.toFixed(1)}
-          </span>
-        )}
+  <div class="content">
+
+    {timeString && (
+      <div class="time">
+        {timeString}
       </div>
-      <button
-        class="delete-history-event w-7 h-7 shrink-0 rounded-lg flex items-center justify-center bg-zinc-950/50 border border-zinc-800 text-zinc-500 hover:text-red-400 hover:border-red-500/40 hover:bg-red-500/10 transition-all duration-200 cursor-pointer"
-        title="Delete this entry"
-        aria-label="Delete history entry"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
-        </svg>
-      </button>
-    </div>
+    )}
 
-    <!-- Rows 2 + 3 grouped, centered in the remaining vertical space -->
-    <div class="flex-1 flex flex-col justify-center gap-1.5 min-w-0">
-      <p class="text-lg font-black text-zinc-100 group-hover/card:text-blue-400 transition-colors truncate tracking-tight leading-tight">
-        {showOrMovieTitle}
-      </p>
+    {event.watch_source && (
+      <div class="watch-source">
+        {event.watch_source}
+      </div>
+    )}
 
-      {isEpisode ? (
-        <p class="text-xs font-bold text-zinc-400 flex items-center gap-2">
-          <span class="text-blue-500 tracking-tighter uppercase bg-blue-500/10 px-1.5 py-0.5 rounded border border-blue-500/20 shrink-0">
-            S{media.season_number?.toString().padStart(2, '0')}E{media.episode_number?.toString().padStart(2, '0')}
-          </span>
-          <span class="truncate font-medium text-zinc-500">{media.title}</span>
-        </p>
-      ) : (
-        <p class="text-xs font-bold text-zinc-500 uppercase tracking-widest">
+    <h3 class="title">
+      {showOrMovieTitle}
+    </h3>
+
+    {isEpisode ? (
+      <div class="episode">
+        <span class="episode-number">
+          {episodeNumber}
+        </span>
+
+        <span class="episode-title">
+          {media.title}
+        </span>
+      </div>
+    ) : (
+      year && (
+        <div class="year">
           {year}
-        </p>
-      )}
-    </div>
+        </div>
+      )
+    )}
+
+    {media.user_rating != null && (
+      <div class="rating">
+        ★ {media.user_rating % 1 === 0
+          ? media.user_rating
+          : media.user_rating.toFixed(1)}
+      </div>
+    )}
+
   </div>
-</div>
+</a>
 
-<script>
-  document.querySelectorAll<HTMLElement>('[data-event-id]').forEach(card => {
-    const btn = card.querySelector<HTMLButtonElement>('.delete-history-event');
+<style>
+.history-card {
+  display: block;
+  width: 100%;
+  text-decoration: none;
+}
 
-    card.addEventListener('click', (e) => {
-      if ((e.target as HTMLElement).closest('.delete-history-event')) return;
-      const href = card.dataset.href;
-      if (href) window.location.href = href;
-    });
+.poster-wrap {
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  overflow: hidden;
+  border-radius: 14px;
+  background: #0b0b0b;
+  border: 1px solid #27272a;
+}
 
-    if (!btn) return;
+.poster {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
 
-    btn.addEventListener('click', async (e) => {
-      e.stopPropagation();
+.poster-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px;
+  text-align: center;
+  color: #52525b;
+  background: #18181b;
+}
 
-      const eventId = card.dataset.eventId;
-      const token = (window as any).__AUTH_TOKEN__ ?? '';
+.poster-placeholder span:first-child {
+  font-size: 28px;
+  opacity: 0.4;
+}
 
-      btn.disabled = true;
-      btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="animate-spin"><circle cx="12" cy="12" r="10" stroke-opacity="0.25"/><path d="M12 2a10 10 0 0 1 10 10" /></svg>`;
+.poster-placeholder span:last-child {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
 
-      try {
-        const res = await fetch(`/api/proxy/history/event/${eventId}`, {
-          method: 'DELETE',
-          headers: { 'Authorization': `Bearer ${token}` },
-        });
-        if (!res.ok) throw new Error('Failed');
-        card.style.transition = 'opacity 0.25s, transform 0.25s';
-        card.style.opacity = '0';
-        card.style.transform = 'scale(0.97)';
-        setTimeout(() => {
-          const grid = card.parentElement;
-          const dateGroup = grid?.parentElement;
-          card.remove();
-          if (grid && dateGroup && grid.querySelectorAll('[data-event-id]').length === 0) {
-            dateGroup.style.transition = 'opacity 0.2s';
-            dateGroup.style.opacity = '0';
-            setTimeout(() => dateGroup.remove(), 200);
-          }
-        }, 250);
-      } catch {
-        btn.disabled = false;
-        btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>`;
-        btn.classList.add('text-red-400', 'border-red-500/40');
-        setTimeout(() => btn.classList.remove('text-red-400', 'border-red-500/40'), 1500);
-      }
-    });
-  });
-</script>
+.content {
+  padding: 10px 2px 0;
+}
+
+.time {
+  color: #a1a1aa;
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 5px;
+}
+
+.watch-source {
+  color: #71717a;
+  font-size: 11px;
+  font-weight: 600;
+  margin: -2px 0 5px;
+}
+
+.title {
+  color: #ffffff;
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 1.15;
+  margin: 0 0 5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.episode {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+  line-height: 1.2;
+}
+
+.episode-number {
+  color: #e50914;
+  font-size: 13px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.episode-title {
+  color: #71717a;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.year {
+  color: #71717a;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.rating {
+  color: #e50914;
+  font-size: 12px;
+  font-weight: 800;
+  margin-top: 5px;
+}
+</style>

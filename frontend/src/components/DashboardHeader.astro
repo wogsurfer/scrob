@@ -1,0 +1,349 @@
+---
+import { tmdbImageUrl } from "../lib/api";
+
+const { posters = [], stats } = Astro.props;
+
+function formatDuration(minutes: number) {
+  const total = Math.round(minutes);
+  const days = Math.floor(total / 1440);
+  const hours = Math.floor((total % 1440) / 60);
+  const mins = total % 60;
+
+  if (days > 0) return `${days}d ${hours}h ${mins}m`;
+  if (hours > 0) return `${hours}h ${mins}m`;
+  return `${mins}m`;
+}
+---
+
+<section class="dashboard-header">
+
+  <div class="poster-wall">
+
+    {posters.map((poster) => (
+      <img
+        src={tmdbImageUrl(poster, "w342")}
+        alt=""
+        class="hero-poster"
+      />
+    ))}
+
+  </div>
+
+  <div class="dashboard-overlay">
+
+    <div class="dashboard-top">
+
+      <div class="dashboard-greeting">
+
+        <h1>Hello, David</h1>
+
+        <p>WATCHING SINCE 1989</p>
+
+      </div>
+
+      <div class="dashboard-links">
+
+        <a href="/stats/all-time">ALL TIME →</a>
+
+        <a href="/stats/ytd">YEAR TO DATE →</a>
+
+      </div>
+
+    </div>
+
+    <div class="dashboard-stats">
+
+      <div class="stat">
+
+        <div class="stat-icon">
+          <svg xmlns="http://www.w3.org/2000/svg"
+               fill="none"
+               viewBox="0 0 24 24"
+               stroke-width="1.8"
+               stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round"
+              d="M3 7.5A1.5 1.5 0 0 1 4.5 6h15A1.5 1.5 0 0 1 21 7.5v9A1.5 1.5 0 0 1 19.5 18h-15A1.5 1.5 0 0 1 3 16.5v-9Z"/>
+            <path stroke-linecap="round" stroke-linejoin="round"
+              d="M8 21h8"/>
+          </svg>
+        </div>
+
+        <div class="stat-text">
+
+          <div class="line1">
+            <strong>{formatDuration(stats.tv.minutes)}</strong> watched
+          </div>
+
+          <div class="line2">
+            <a href="/history?type=episode"><strong>{stats.tv.episodes.toLocaleString()}</strong> episodes</a>
+            (<a href="/history?type=episode"><strong>{(stats.tv.plays ?? stats.tv.episodes).toLocaleString()}</strong> plays</a>
+            of
+            <a href="/history?type=show&sort=last_watched"><strong>{stats.tv.shows.toLocaleString()}</strong> shows</a>)
+          </div>
+
+        </div>
+
+      </div>
+
+      <div class="stat">
+
+        <div class="stat-icon">
+         <svg xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke-width="1.8"
+            stroke="currentColor">
+         <path stroke-linecap="round"
+               stroke-linejoin="round"
+               d="M3.75 7.5A2.25 2.25 0 0 1 6 5.25h12A2.25 2.25 0 0 1 20.25 7.5v9A2.25 2.25 0 0 1 18 18.75H6A2.25 2.25 0 0 1 3.75 16.5v-9Z"/>
+         <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 5.25v13.5"/>
+         <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25v13.5"/>
+         <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 9.75h4.5"/>
+         <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9.75h4.5"/>
+         <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 14.25h4.5"/>
+         <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 14.25h4.5"/>
+       </svg>
+     </div>
+
+        <div class="stat-text">
+
+          <div class="line1">
+            <strong>{formatDuration(stats.movies.minutes)}</strong> watched
+          </div>
+
+          <div class="line2">
+            <a href="/history?type=movie"><strong>{stats.movies.movies.toLocaleString()}</strong> movies</a>
+            (<a href="/history?type=movie"><strong>{stats.movies.plays.toLocaleString()}</strong> plays</a>)
+          </div>
+
+        </div>
+
+      </div>
+
+      <div class="stat">
+
+        <div class="stat-icon">
+            <svg xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke-width="1.8"
+                stroke="currentColor">
+                <path stroke-linecap="round"
+                    stroke-linejoin="round"
+                    d="M6.75 3.75h10.5A2.25 2.25 0 0 1 19.5 6v12a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 18V6a2.25 2.25 0 0 1 2.25-2.25Z"/>
+                <path stroke-linecap="round"
+                    stroke-linejoin="round"
+                    d="M8.25 7.5h7.5"/>
+                <path stroke-linecap="round"
+                    stroke-linejoin="round"
+                    d="M8.25 11.25h7.5"/>
+                <path stroke-linecap="round"
+                    stroke-linejoin="round"
+                    d="M8.25 15h4.5"/>
+            </svg>
+            </div>
+
+        <div class="stat-text">
+
+          <div class="line1">
+            <strong>{stats.library.shows.toLocaleString()}</strong> TV shows
+          </div>
+
+          <div class="line2">
+            <strong>{stats.library.movies.toLocaleString()}</strong> movies in library
+          </div>
+
+        </div>
+
+      </div>
+
+    </div>
+
+  </div>
+
+</section>
+
+<style>
+
+.dashboard-header{
+
+    position:relative;
+    height:275px;
+
+    border-radius:20px;
+
+    overflow:hidden;
+
+    margin-bottom:40px;
+
+    background:#1b1b1b;
+
+}
+
+.poster-wall{
+
+    position:absolute;
+    inset:0;
+
+    display:grid;
+
+    grid-template-columns:repeat(auto-fill,minmax(72px,1fr));
+    grid-auto-rows:108px;
+
+    gap:6px;
+
+    padding:8px;
+
+    overflow:hidden;
+
+    opacity:.35;
+
+    filter:blur(.8px);
+
+}
+
+.hero-poster{
+
+    width:100%;
+    height:108px;
+
+    object-fit:cover;
+
+    border-radius:6px;
+
+}
+
+.dashboard-overlay{
+
+    position:absolute;
+
+    inset:0;
+
+    display:flex;
+
+    flex-direction:column;
+
+    justify-content:space-between;
+
+    background: linear-gradient(
+        to top,
+        rgba(0,0,0,.55),
+        rgba(0,0,0,.25),
+        rgba(0,0,0,.10)
+    );
+
+}
+
+.dashboard-top{
+
+    display:flex;
+
+    justify-content:space-between;
+
+    align-items:flex-start;
+
+    padding:46px 42px 32px;
+
+}
+
+.dashboard-greeting h1{
+    font-size:36px;
+    line-height:1;
+    margin-bottom:10px;
+}
+
+.dashboard-greeting p{
+
+    margin-top:8px;
+
+    letter-spacing:3px;
+
+    opacity:.7;
+
+}
+
+.dashboard-links{
+
+    display:flex;
+
+    flex-direction:column;
+
+    gap:16px;
+
+}
+
+.dashboard-links a{
+
+    text-decoration:none;
+
+}
+
+.dashboard-stats{
+
+    display:grid;
+
+    grid-template-columns:repeat(3,minmax(max-content,1fr));
+
+    border-top:1px solid rgba(255,255,255,.08);
+
+    backdrop-filter:blur(18px);
+
+}
+
+.stat{
+
+    display:flex;
+
+    align-items:center;
+
+    gap:16px;
+
+    padding:16px 22px;
+
+}
+
+.stat:not(:last-child){
+
+    border-right:1px solid rgba(255,255,255,.08);
+
+}
+
+.stat-icon{
+    width:28px;
+    height:28px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    color:#d4d4d8;
+    flex-shrink:0;
+}
+
+.stat-icon svg{
+    width:100%;
+    height:100%;
+}
+
+.line1,
+.line2{
+    font-size:17px;
+    font-weight:400;
+    line-height:1.3;
+    white-space:nowrap;
+}
+
+.line1 strong,
+.line2 strong{
+    font-weight:700;
+    color:#fff;
+}
+
+.line2 a{
+    color:inherit;
+    text-decoration:none;
+}
+
+.line2 a:hover{
+    text-decoration:underline;
+}
+
+</style>

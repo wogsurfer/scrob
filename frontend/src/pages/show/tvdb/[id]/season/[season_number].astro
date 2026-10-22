@@ -1,32 +1,36 @@
 ---
-import Base from "../../../../../layouts/Base.astro";
-import ActionBar from "../../../../../components/ActionBar.astro";
-import CommentsSection from "../../../../../components/CommentsSection.astro";
-import { api, type TvdbSeason } from "../../../../../lib/api";
-import { formatSeasonTitle } from "../../../../../lib/media-format";
+import { api, type TvdbSeasonDetail } from "../../../../../lib/api";
+
 export const prerender = false;
 
 const { id, season_number } = Astro.params;
 const { token } = Astro.locals;
+
 Astro.response.headers.set("Cache-Control", "no-store");
 
-let season: TvdbSeason | null = null;
-let error = "";
+let season: TvdbSeasonDetail | null = null;
 
 try {
-  season = await api.shows.getTvdbSeason(Number(id), Number(season_number), token);
-} catch (e: any) {
-  error = e.message;
-}
+  season = await api.shows.getTvdbSeason(
+    Number(id),
+    Number(season_number),
+    token
+  );
+} catch {}
 
-if (!season && !error) {
+if (!season) {
   return Astro.redirect("/404");
 }
 
-const show = season?.show;
-const seasonTitle = season
-  ? formatSeasonTitle(Number(season_number), season.name)
-  : "Season Details";
+const tmdbShowId = season.show?.tmdb_id ?? null;
+
+if (!tmdbShowId) {
+  return Astro.redirect("/404");
+}
+
+return Astro.redirect(
+  `/show/${tmdbShowId}/season/${season_number}`
+);
 ---
 
 <Base title={season ? `${show?.title} — ${seasonTitle}` : "Season Details"}>
@@ -185,12 +189,6 @@ const seasonTitle = season
             )}
           </div>
         </div>
-
-        <CommentsSection
-          mediaType="series"
-          tmdbId={season.show.tmdb_id ?? Number(id)}
-          seasonNumber={Number(season_number)}
-        />
 
         <div class="space-y-4">
           <h2 class="text-3xl font-black text-zinc-100 tracking-tighter uppercase mb-8">Episodes</h2>

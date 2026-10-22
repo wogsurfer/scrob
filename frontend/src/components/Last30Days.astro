@@ -1,0 +1,218 @@
+---
+import SectionHeading from "./SectionHeading.astro";
+
+interface Props {
+    data: any;
+}
+
+const { data } = Astro.props;
+
+const days = Object.entries(data?.days ?? {}).sort(
+    ([a], [b]) => new Date(a).getTime() - new Date(b).getTime()
+);
+
+const totalHours = ((data?.runtime ?? 0) / 60).toFixed(1);
+---
+
+<section class="last30">
+
+    <div class="header">
+        <SectionHeading title="Last 30 Days" />
+
+    <div class="totals">
+        <span>{data?.episodes ?? 0} Episodes</span>
+        <span>•</span>
+        <span>{data?.movies ?? 0} Movies</span>
+        <span>•</span>
+        <span>{totalHours} Hours</span>
+    </div>
+</div>
+
+    <div class="chart">
+
+    {days.map(([date, values]) => (
+
+        <div class="day">
+
+            <div
+                class="bar"
+                style={`height:${Math.max(values.total * 12, 4)}px`}
+                data-date={date}
+                data-episodes={values.episodes}
+                data-movies={values.movies}
+                data-shows={values.shows ?? 0}
+            ></div>
+
+            <div id="last30-tooltip" class="tooltip hidden">
+                <div class="tooltip-date"></div>
+                <div>Episodes <span class="tooltip-episodes"></span></div>
+                <div>Movies <span class="tooltip-movies"></span></div>
+                <div>Shows <span class="tooltip-shows"></span></div>
+            </div>
+
+            <span class="label">
+                {new Date(date).getDate()}
+            </span>
+
+        </div>
+
+    ))}
+
+</div>
+
+</section>
+
+<style>
+
+.last30{
+    margin-top:48px;
+    margin-bottom:64px; /* space between the day chart and the genre strip */
+}
+
+.header{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-end;
+    margin-bottom:44px; /* space between the totals line and the bars */
+}
+
+.header h2{
+    color:#fff;
+    font-size:30px;
+    margin:0;
+}
+
+.totals{
+    color:#9ca3af;
+    display:flex;
+    align-items: center;
+    gap:10px;
+    font-size:15px;
+    transform: translateY(-8px);
+}
+
+.chart{
+    height:140px;
+    border-radius:0px;
+    background:transparent;
+    display:flex;
+    align-items:flex-end;
+    gap:6px;
+    padding:0px;
+}
+
+.day{
+    flex:1;
+    display:flex;
+    flex-direction:column;
+    justify-content:flex-end;
+    align-items:center;
+    gap:8px;
+}
+
+.bar{
+    width:100%;
+    background:#e50914;
+    border-radius:4px 4px 0 0;
+    transition:.2s;
+}
+
+.bar:hover{
+    opacity:.8;
+}
+
+.label{
+    color:#666;
+    font-size:11px;
+}
+
+.tooltip{
+    position:fixed;
+    background:#111;
+    border:1px solid #2b2b2b;
+    border-radius:12px;
+    padding:12px 16px;
+    color:#fff;
+    font-size:13px;
+    line-height:1.6;
+    pointer-events:none;
+    z-index:9999;
+    min-width:170px;
+    box-shadow:0 8px 30px rgba(0,0,0,.5);
+}
+
+.tooltip.hidden{
+    display:none;
+}
+
+.tooltip-date{
+    font-weight:700;
+    margin-bottom:8px;
+    color:#fff;
+}
+
+.tooltip span{
+    float:right;
+    margin-left:20px;
+    color:#e50914;
+}
+
+</style>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+
+    const tooltip = document.getElementById("last30-tooltip");
+
+    document.querySelectorAll(".bar").forEach(bar => {
+
+        bar.addEventListener("mouseenter", e => {
+
+            tooltip.classList.remove("hidden");
+
+            const d = new Date(bar.dataset.date);
+
+            const formattedDate = new Intl.DateTimeFormat("en-US", {
+                weekday: "long",
+                month: "long",
+                day: "numeric",
+            }).format(new Date(bar.dataset.date));
+
+tooltip.querySelector(".tooltip-date").textContent = formattedDate;
+
+            tooltip.querySelector(".tooltip-episodes").textContent =
+                bar.dataset.episodes;
+
+            tooltip.querySelector(".tooltip-movies").textContent =
+                bar.dataset.movies;
+
+            tooltip.querySelector(".tooltip-shows").textContent =
+                bar.dataset.shows;
+
+        });
+
+        bar.addEventListener("mousemove", e => {
+
+            const tooltipWidth = 190;
+
+            let left = e.clientX + 18;
+
+            if (left + tooltipWidth > window.innerWidth - 20) {
+                left = e.clientX - tooltipWidth - 18;
+            }
+
+            tooltip.style.left = left + "px";
+            tooltip.style.top = (e.clientY - 18) + "px";
+
+        });
+
+        bar.addEventListener("mouseleave", () => {
+
+            tooltip.classList.add("hidden");
+
+        });
+
+    });
+
+});
+</script>
