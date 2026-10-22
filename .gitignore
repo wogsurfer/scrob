@@ -78,3 +78,21 @@ test.http
 vuln.md
 vuln.env
 test.py
+
+# --- Local working files (Watchd) ---
+*.zip
+*.bak
+*.broken
+backend/data/imports/
+backend/package.json
+backend/package-lock.json
+# one-off DB inspection / fix scripts
+backend/check_*.py
+backend/fix_*.py
+backend/find_*.py
+backend/cleanup_*.py
+# design reference material, not used by the app
+frontend/src/assets/Screenshot */
+frontend/src/assets/Screenshot *.jpg
+frontend/src/assets/Show Logos/
+frontend/src/assets/Plex_logo_2022.svg
