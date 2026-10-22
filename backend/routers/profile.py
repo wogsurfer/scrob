@@ -869,7 +869,6 @@ async def get_user_stats(
         .where(WatchEvent.user_id == user_id, Media.media_type == "movie", *date_filters)
     )
     movies_watched = movies_q.scalar_one()
-
     episodes_q = await db.execute(
         select(func.count(func.distinct(WatchEvent.media_id)))
         .join(Media, WatchEvent.media_id == Media.id)
@@ -1148,4 +1147,1043 @@ async def get_user_stats(
         "movies_unwatched_collected": unwatched_movies,
         "shows_watched_collected": shows_watched_collected,
         "shows_unwatched_collected": max(shows_collected - shows_watched_collected, 0),
+    }
+
+
+# ── All-time dashboard data for the Watchd statistics page ───────────────────
+@router.get("/{user_id}/stats/all-time-dashboard")
+async def get_all_time_dashboard(
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_optional_user),
+):
+    """Return the richer, lifetime-only datasets used by the All Time dashboard."""
+    await _check_profile_access(user_id, current_user, db)
+
+    # Pull dated completed plays with their media and (for episodes) parent show.
+    plays_q = await db.execute(
+        select(WatchEvent, Media, ShowModel)
+        .join(Media, WatchEvent.media_id == Media.id)
+        .outerjoin(ShowModel, Media.show_id == ShowModel.id)
+        .where(WatchEvent.user_id == user_id, WatchEvent.completed == True)
+        .order_by(WatchEvent.watched_at.asc().nullsfirst())
+    )
+    plays = plays_q.all()
+
+    movies_by_id = {}
+    shows_by_id = {}
+    movie_years = defaultdict(int)
+    episode_years = defaultdict(int)
+    movie_genres = defaultdict(int)
+    show_genres = defaultdict(int)
+    movie_studios = defaultdict(int)
+    show_networks = defaultdict(int)
+    crew_counts = {
+        "actors": defaultdict(int), "actresses": defaultdict(int),
+        "directors": defaultdict(int), "writers": defaultdict(int),
+        "producers": defaultdict(int), "composers": defaultdict(int),
+        "cinematographers": defaultdict(int), "original_material": defaultdict(int),
+    }
+    total_minutes = 0
+    first_play = None
+    last_play = None
+
+    def json_list(data, key):
+        value = (data or {}).get(key, [])
+        return value if isinstance(value, list) else []
+
+    def label_of(item):
+        if isinstance(item, str):
+            return item.strip()
+        if isinstance(item, dict):
+            return str(item.get("name") or item.get("title") or "").strip()
+        return ""
+
+    def increment_people(data, keys, bucket):
+        for key in keys:
+            for item in json_list(data, key):
+                name = label_of(item)
+                if name:
+                    bucket[name] += 1
+
+    for event, media, show in plays:
+        when = event.watched_at
+        if when is not None:
+            stamp = when.isoformat()
+            play_item = {
+                "watched_at": stamp,
+                "media_type": media.media_type,
+                "title": media.title,
+                "poster_path": media.poster_path,
+                "backdrop_path": media.backdrop_path,
+                "runtime": media.runtime,
+                "season_number": media.season_number,
+                "episode_number": media.episode_number,
+                "show_title": show.title if show else None,
+                "show_poster_path": show.poster_path if show else None,
+                "show_backdrop_path": show.backdrop_path if show else None,
+            }
+            if first_play is None:
+                first_play = play_item
+            last_play = play_item
+
+        runtime = media.runtime
+        if runtime is None:
+            try:
+                runtime = int((media.tmdb_data or {}).get("runtime") or 0)
+            except (TypeError, ValueError):
+                runtime = 0
+        total_minutes += max(int(runtime or 0), 0)
+
+        if media.media_type == "movie":
+            key = media.tmdb_id or media.id
+            if key not in movies_by_id:
+                movies_by_id[key] = {
+                    "title": media.title, "poster_path": media.poster_path,
+                    "tmdb_id": media.tmdb_id, "year": (media.release_date.year if media.release_date else None),
+                    "plays": 0, "tmdb_data": media.tmdb_data or {},
+                }
+            movies_by_id[key]["plays"] += 1
+            year = movies_by_id[key]["year"]
+            if year:
+                movie_years[str(year)] += 1
+            data = media.tmdb_data or {}
+            for item in json_list(data, "genres"):
+                name = label_of(item)
+                if name:
+                    movie_genres[name] += 1
+            for item in json_list(data, "production_companies"):
+                name = label_of(item)
+                if name:
+                    movie_studios[name] += 1
+            credits = data.get("credits") if isinstance(data.get("credits"), dict) else data
+            cast = json_list(credits, "cast")
+            for person in cast:
+                name = label_of(person)
+                if name:
+                    gender = person.get("gender") if isinstance(person, dict) else None
+                    crew_counts["actresses" if gender == 1 else "actors"][name] += 1
+            crew = json_list(credits, "crew")
+            for person in crew:
+                if not isinstance(person, dict):
+                    continue
+                name = label_of(person)
+                job = str(person.get("job") or "").lower()
+                dept = str(person.get("department") or "").lower()
+                if not name:
+                    continue
+                if job == "director":
+                    crew_counts["directors"][name] += 1
+                if job in ("writer", "screenplay", "story", "author"):
+                    crew_counts["writers"][name] += 1
+                if job == "producer":
+                    crew_counts["producers"][name] += 1
+                if job in ("original music composer", "composer") or dept == "sound":
+                    if "compos" in job:
+                        crew_counts["composers"][name] += 1
+                if job == "director of photography" or job == "cinematographer":
+                    crew_counts["cinematographers"][name] += 1
+                if job in ("based on", "original story", "characters"):
+                    crew_counts["original_material"][name] += 1
+
+        elif media.media_type == "episode" and show:
+            key = show.tmdb_id or show.id
+            if key not in shows_by_id:
+                shows_by_id[key] = {
+                    "title": show.title, "poster_path": show.poster_path,
+                    "tmdb_id": show.tmdb_id, "year": (show.first_air_date.year if show.first_air_date else None),
+                    "plays": 0, "tmdb_data": show.tmdb_data or {},
+                }
+            shows_by_id[key]["plays"] += 1
+            year = shows_by_id[key]["year"]
+            if year:
+                episode_years[str(year)] += 1
+            data = show.tmdb_data or {}
+            for item in json_list(data, "genres"):
+                name = label_of(item)
+                if name:
+                    show_genres[name] += 1
+            for item in json_list(data, "networks"):
+                name = label_of(item)
+                if name:
+                    show_networks[name] += 1
+            credits = data.get("credits") if isinstance(data.get("credits"), dict) else data
+            for person in json_list(credits, "cast"):
+                name = label_of(person)
+                if name:
+                    gender = person.get("gender") if isinstance(person, dict) else None
+                    crew_counts["actresses" if gender == 1 else "actors"][name] += 1
+            for person in json_list(credits, "crew"):
+                if not isinstance(person, dict):
+                    continue
+                name = label_of(person)
+                job = str(person.get("job") or "").lower()
+                if not name:
+                    continue
+                if job == "director":
+                    crew_counts["directors"][name] += 1
+                if job in ("writer", "screenplay", "story", "creator"):
+                    crew_counts["writers"][name] += 1
+                if job == "producer":
+                    crew_counts["producers"][name] += 1
+                if "compos" in job:
+                    crew_counts["composers"][name] += 1
+                if job in ("director of photography", "cinematographer"):
+                    crew_counts["cinematographers"][name] += 1
+
+    def top_counts(counter, limit=25):
+        return [{"name": name, "count": count} for name, count in sorted(counter.items(), key=lambda pair: (-pair[1], pair[0].casefold()))[:limit]]
+
+    def top_media(items, limit=10):
+        return [
+            {k: v for k, v in item.items() if k != "tmdb_data"}
+            for item in sorted(items.values(), key=lambda item: (-item["plays"], (item["title"] or "").casefold()))[:limit]
+        ]
+
+    # Existing stats endpoint supplies the canonical collection and rating totals.
+    rating_q = await db.execute(
+        select(Rating.rating, func.count(Rating.id))
+        .where(Rating.user_id == user_id, Rating.rating.isnot(None))
+        .group_by(Rating.rating).order_by(Rating.rating)
+    )
+    rating_distribution = [{"rating": float(rating), "count": count} for rating, count in rating_q.all()]
+
+    movies_count = len(movies_by_id)
+    episodes_count_q = await db.execute(
+        select(func.count(func.distinct(WatchEvent.media_id)))
+        .join(Media, WatchEvent.media_id == Media.id)
+        .where(WatchEvent.user_id == user_id, WatchEvent.completed == True, Media.media_type == "episode")
+    )
+    episodes_count = episodes_count_q.scalar_one()
+
+    return {
+        "movies_watched": movies_count,
+        "episodes_watched": episodes_count,
+        "shows_watched": len(shows_by_id),
+        "total_watch_minutes": total_minutes,
+        "first_play": first_play,
+        "last_play": last_play,
+        "top_movies": top_media(movies_by_id),
+        "top_shows": top_media(shows_by_id),
+        "movie_years": [{"year": k, "count": v} for k, v in sorted(movie_years.items())],
+        "episode_years": [{"year": k, "count": v} for k, v in sorted(episode_years.items())],
+        "movie_genres": top_counts(movie_genres, 20),
+        "show_genres": top_counts(show_genres, 20),
+        "movie_studios": top_counts(movie_studios, 25),
+        "show_networks": top_counts(show_networks, 25),
+        "crew": {key: top_counts(value, 100) for key, value in crew_counts.items()},
+        "rating_distribution": rating_distribution,
+    }
+
+
+
+# ── Stats overview ───────────────────────────────────────────────────────────
+# One endpoint behind the All Time, Year to Date and per-year statistics pages.
+# Append this to the end of routers/profile.py.
+
+from zoneinfo import ZoneInfo as _ZoneInfo
+from datetime import timezone as _Timezone
+
+
+def _so_year(value):
+    if not value:
+        return None
+    if hasattr(value, "year"):
+        return value.year
+    try:
+        return int(str(value)[:4])
+    except (TypeError, ValueError):
+        return None
+
+
+def _so_label(item):
+    if isinstance(item, str):
+        return item.strip()
+    if isinstance(item, dict):
+        return str(item.get("name") or item.get("title") or "").strip()
+    return ""
+
+
+def _so_utc_iso(value):
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.isoformat() + "Z"
+    return value.astimezone(_Timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+_SO_CREW_CATEGORIES = {
+    "directors": lambda job: job == "director",
+    "writers": lambda job: job in {"writer", "screenplay", "story", "teleplay", "creator"},
+    "producers": lambda job: job == "producer",
+    "composers": lambda job: "compos" in job,
+    "cinematographers": lambda job: job in {"director of photography", "cinematographer"},
+    "original_material": lambda job: job in {
+        "novel", "characters", "original story", "author", "comic book", "based on", "book",
+    },
+}
+
+
+def _so_crew_cats(jobs):
+    return [cat for cat, matches in _SO_CREW_CATEGORIES.items() if any(matches(j) for j in jobs if j)]
+
+
+_CREDITS_TABLE_READY = False
+
+
+async def _ensure_credits_table():
+    """Create episode_credits on demand so no restart/migration is needed."""
+    global _CREDITS_TABLE_READY
+    if _CREDITS_TABLE_READY:
+        return
+    from db import engine
+    from models.episode_credits import EpisodeCredits
+    async with engine.begin() as conn:
+        await conn.run_sync(EpisodeCredits.__table__.create, checkfirst=True)
+    _CREDITS_TABLE_READY = True
+
+
+async def _so_episode_credit_rows(db, episodes_by_show, show_tmdb):
+    """Return ({(tmdb_show, season): {ep_number: {...}}}, watched map, pending season count).
+
+    watched map: {show_id: {(season, ep_number): media_id}}
+    """
+    from models.episode_credits import EpisodeCredits
+
+    await _ensure_credits_table()
+    all_ids = [m for ids in episodes_by_show.values() for m in ids]
+    watched = defaultdict(dict)
+    for start in range(0, len(all_ids), 1000):
+        res = await db.execute(
+            select(Media.id, Media.show_id, Media.season_number, Media.episode_number)
+            .where(Media.id.in_(all_ids[start:start + 1000]))
+        )
+        for mid, sid, sn, en in res.all():
+            if sid is not None and sn is not None and en is not None:
+                watched[sid][(sn, en)] = mid
+    needed = {(show_tmdb[sid], sn) for sid, eps in watched.items() if sid in show_tmdb for (sn, _en) in eps}
+    cached = {}
+    if needed:
+        res = await db.execute(select(EpisodeCredits.tmdb_show_id, EpisodeCredits.season_number, EpisodeCredits.data))
+        for tid, sn, data in res.all():
+            if (tid, sn) in needed:
+                cached[(tid, sn)] = (data or {}).get("eps") or {}
+    return cached, watched, len(needed - set(cached))
+
+
+async def _so_build_people(db, movie_info, show_info, episodes_by_show):
+    """Most-watched cast & crew, counting title-level credits plus guest roles and
+    one-off crew credits on the individual episodes that were watched.
+
+    movie_info: {media_id: (title, year)}   show_info: {show_id: (title, year)}
+    Returns {} when no credits are stored, so the page simply hides the section.
+    """
+    categories = ["actors", "actresses", *_SO_CREW_CATEGORIES.keys()]
+    acc = {cat: {} for cat in categories}
+
+    def add(cat, person, title_key, title, year, count=0, ep_ids=None):
+        pid = person.get("id") or person.get("name")
+        if not pid or not person.get("name"):
+            return
+        entry = acc[cat].setdefault(
+            pid, {"name": person["name"], "profile_path": None, "titles": {}}
+        )
+        if not entry["profile_path"] and person.get("profile_path"):
+            entry["profile_path"] = person["profile_path"]
+        t = entry["titles"].setdefault(
+            title_key, {"title": title, "year": year, "count": 0, "ep_ids": set(), "kind": title_key[0]}
+        )
+        t["count"] = max(t["count"], count)
+        if ep_ids:
+            t["ep_ids"].update(ep_ids)
+
+    def read(credits, aggregate, cast_top, crew_top):
+        credits = credits if isinstance(credits, dict) else {}
+        aggregate = aggregate if isinstance(aggregate, dict) else {}
+        cast = credits.get("cast") or aggregate.get("cast") or cast_top or []
+        crew = credits.get("crew") or aggregate.get("crew") or crew_top or []
+        return (cast if isinstance(cast, list) else []), (crew if isinstance(crew, list) else [])
+
+    def consume(cast, crew, title_key, title, year, episodes):
+        for person in cast:
+            if not isinstance(person, dict):
+                continue
+            cat = "actresses" if person.get("gender") == 1 else "actors"
+            add(cat, person, title_key, title, year, episodes)
+        for person in crew:
+            if not isinstance(person, dict):
+                continue
+            jobs = [
+                str(j.get("job") or "").lower()
+                for j in (person.get("jobs") or [])
+                if isinstance(j, dict)
+            ] or [str(person.get("job") or "").lower()]
+            for cat in _so_crew_cats(jobs):
+                add(cat, person, title_key, title, year, episodes)
+
+    movie_ids = list(movie_info.keys())
+    for start in range(0, len(movie_ids), 500):
+        chunk = movie_ids[start:start + 500]
+        res = await db.execute(
+            select(
+                Media.id,
+                Media.tmdb_data["credits"],
+                Media.tmdb_data["aggregate_credits"],
+                Media.tmdb_data["cast"],
+                Media.tmdb_data["crew"],
+            ).where(Media.id.in_(chunk))
+        )
+        for media_id, credits, aggregate, cast_top, crew_top in res.all():
+            cast, crew = read(credits, aggregate, cast_top, crew_top)
+            title, year = movie_info[media_id]
+            consume(cast, crew, f"m{media_id}", title, year, 0)
+
+    show_ids = list(show_info.keys())
+    show_tmdb = {}
+    for start in range(0, len(show_ids), 500):
+        chunk = show_ids[start:start + 500]
+        res = await db.execute(
+            select(
+                ShowModel.id,
+                ShowModel.tmdb_id,
+                ShowModel.tmdb_data["credits"],
+                ShowModel.tmdb_data["aggregate_credits"],
+                ShowModel.tmdb_data["cast"],
+                ShowModel.tmdb_data["crew"],
+            ).where(ShowModel.id.in_(chunk))
+        )
+        for show_id, tmdb_id, credits, aggregate, cast_top, crew_top in res.all():
+            if tmdb_id:
+                show_tmdb[show_id] = tmdb_id
+            cast, crew = read(credits, aggregate, cast_top, crew_top)
+            title, year = show_info[show_id]
+            consume(cast, crew, f"s{show_id}", title, year, len(episodes_by_show.get(show_id, ())))
+
+    # Guest roles and one-off crew credits on the individual watched episodes
+    pending = 0
+    try:
+        # Savepoint: a failure here (e.g. table not created yet) must not poison the outer transaction.
+        async with db.begin_nested():
+            cached, watched, pending = await _so_episode_credit_rows(db, episodes_by_show, show_tmdb)
+        for show_id, eps in watched.items():
+            tid = show_tmdb.get(show_id)
+            if not tid or show_id not in show_info:
+                continue
+            title, year = show_info[show_id]
+            key = f"s{show_id}"
+            for (sn, en), media_id in eps.items():
+                ep = (cached.get((tid, sn)) or {}).get(str(en))
+                if not ep:
+                    continue
+                for g in ep.get("g") or []:
+                    person = {"id": g[0], "name": g[1], "profile_path": g[2]}
+                    add("actresses" if g[3] == 1 else "actors", person, key, title, year, 0, {media_id})
+                for c in ep.get("c") or []:
+                    person = {"id": c[0], "name": c[1], "profile_path": c[2]}
+                    for cat in _so_crew_cats([str(c[3]).lower()]):
+                        add(cat, person, key, title, year, 0, {media_id})
+    except Exception as exc:
+        print(f"[stats] episode credits skipped: {exc}")
+
+    out = {}
+    for cat, people in acc.items():
+        rows = []
+        for entry in people.values():
+            titles = list(entry["titles"].values())
+            movies = sum(1 for t in titles if t["kind"] == "m")
+            shows = sum(1 for t in titles if t["kind"] == "s")
+            for t in titles:
+                t["episodes"] = max(t["count"], len(t["ep_ids"]))
+            episodes = sum(t["episodes"] for t in titles)
+            titles.sort(key=lambda t: (t["year"] or 0, t["title"] or ""), reverse=True)
+            rows.append({
+                "name": entry["name"],
+                "profile_path": entry["profile_path"],
+                "movies": movies,
+                "shows": shows,
+                "episodes": episodes,
+                "titles": [
+                    {"title": t["title"], "year": t["year"], "episodes": t["episodes"]}
+                    for t in titles[:40]
+                ],
+            })
+        rows.sort(key=lambda r: (-(r["movies"] + r["shows"]), -r["movies"], r["name"].casefold()))
+        out[cat] = rows[:50]
+
+    if any(out.values()):
+        out["_pending"] = pending
+        return out
+    return {}
+
+
+# ── Episode credits backfill (guest stars / one-off crew for Cast & Crew stats) ──
+
+_CREDITS_BACKFILL: dict[int, dict] = {}
+
+
+@router.post("/me/credits/backfill")
+async def start_credits_backfill(
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    user_id = current_user.id
+    if _CREDITS_BACKFILL.get(user_id, {}).get("running"):
+        raise HTTPException(status_code=409, detail="Credits fetch already running")
+    from routers.media import get_user_tmdb_key
+    tmdb_key = await get_user_tmdb_key(db, user_id)
+    if not tmdb_key:
+        raise HTTPException(status_code=400, detail="TMDB API key not configured")
+    await _ensure_credits_table()
+    _CREDITS_BACKFILL[user_id] = {"running": True, "progress": 0, "total": 0, "done": False, "error": None}
+    background_tasks.add_task(_run_credits_backfill, user_id, tmdb_key)
+    return {"status": "started"}
+
+
+@router.get("/me/credits/backfill/status")
+async def get_credits_backfill_status(current_user: User = Depends(get_current_user)):
+    return _CREDITS_BACKFILL.get(current_user.id) or {
+        "running": False, "progress": 0, "total": 0, "done": False, "error": None,
+    }
+
+
+@router.delete("/me/credits/backfill")
+async def abort_credits_backfill(current_user: User = Depends(get_current_user)):
+    state = _CREDITS_BACKFILL.get(current_user.id)
+    if state and state.get("running"):
+        state["abort"] = True
+    return {"status": "ok"}
+
+
+async def _run_credits_backfill(user_id: int, tmdb_key: str) -> None:
+    from models.episode_credits import EpisodeCredits
+    from datetime import datetime as _DT, timedelta as _TD
+
+    state = _CREDITS_BACKFILL[user_id]
+    try:
+        async with AsyncSessionLocal() as db:
+            res = await db.execute(
+                select(ShowModel.tmdb_id, Media.season_number, Media.episode_number)
+                .join(Media, Media.show_id == ShowModel.id)
+                .where(
+                    Media.media_type == "episode",
+                    Media.season_number.isnot(None),
+                    Media.episode_number.isnot(None),
+                    ShowModel.tmdb_id.isnot(None),
+                    Media.id.in_(
+                        select(WatchEvent.media_id).where(
+                            WatchEvent.user_id == user_id, WatchEvent.completed == True
+                        )
+                    ),
+                )
+                .distinct()
+            )
+            wanted = defaultdict(set)
+            for tid, sn, en in res.all():
+                wanted[(tid, sn)].add(en)
+            cres = await db.execute(
+                select(EpisodeCredits.tmdb_show_id, EpisodeCredits.season_number,
+                       EpisodeCredits.data, EpisodeCredits.fetched_at)
+            )
+            cached = {(t, s): (d, f) for t, s, d, f in cres.all()}
+
+        recent = _DT.utcnow() - _TD(days=7)
+        todo = []
+        for key, eps in wanted.items():
+            hit = cached.get(key)
+            if hit:
+                have = (hit[0] or {}).get("eps") or {}
+                if all(str(e) in have for e in eps) or (hit[1] and hit[1] > recent):
+                    continue
+            todo.append(key)
+
+        state["total"] = len(todo)
+        if not todo:
+            return
+
+        sem = asyncio.Semaphore(5)
+        results = []
+
+        async def fetch(key):
+            async with sem:
+                if not state.get("abort"):
+                    try:
+                        data = await tmdb_client.get_season(key[0], key[1], api_key=tmdb_key)
+                        eps = {}
+                        for ep in data.get("episodes") or []:
+                            g = [[p.get("id"), p.get("name"), p.get("profile_path"), p.get("gender")]
+                                 for p in (ep.get("guest_stars") or []) if p.get("id") and p.get("name")]
+                            c = [[p.get("id"), p.get("name"), p.get("profile_path"), p.get("job")]
+                                 for p in (ep.get("crew") or [])
+                                 if p.get("id") and p.get("name") and p.get("job")
+                                 and _so_crew_cats([str(p["job"]).lower()])]
+                            eps[str(ep.get("episode_number"))] = {"g": g, "c": c}
+                        results.append((key, {"eps": eps}))
+                    except Exception:
+                        pass
+            state["progress"] += 1
+
+        await asyncio.gather(*[fetch(k) for k in todo])
+
+        async with AsyncSessionLocal() as db:
+            for (tid, sn), data in results:
+                row = await db.get(EpisodeCredits, (tid, sn))
+                if row:
+                    row.data = data
+                    row.fetched_at = _DT.utcnow()
+                else:
+                    db.add(EpisodeCredits(tmdb_show_id=tid, season_number=sn, data=data))
+            await db.commit()
+    except Exception as exc:
+        state["error"] = str(exc)
+    finally:
+        state["running"] = False
+        state["done"] = not state.get("error") and not state.get("abort")
+
+
+@router.get("/{user_id}/stats/top-shows")
+async def get_stats_top_shows(
+    user_id: int,
+    since: Optional[DateType] = None,
+    until: Optional[DateType] = None,
+    page: int = 1,
+    page_size: int = 60,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_optional_user),
+):
+    """Every show the user has watched, ranked by distinct episodes watched.
+
+    Paged (60 per page by default) so the full ranking can be browsed.
+    """
+    await _check_profile_access(user_id, current_user, db)
+
+    page_size = max(1, min(int(page_size), 120))
+    page = max(1, int(page))
+
+    filters = [
+        WatchEvent.user_id == user_id,
+        WatchEvent.completed == True,
+        Media.media_type == "episode",
+        Media.show_id.isnot(None),
+    ]
+    if since:
+        filters.append(WatchEvent.watched_at >= since)
+    if until:
+        filters.append(WatchEvent.watched_at < until + TimeDelta(days=1))
+
+    counts = (
+        select(
+            Media.show_id.label("show_id"),
+            func.count(func.distinct(Media.id)).label("episodes"),
+        )
+        .select_from(WatchEvent)
+        .join(Media, Media.id == WatchEvent.media_id)
+        .where(*filters)
+        .group_by(Media.show_id)
+        .subquery()
+    )
+
+    total_shows = (await db.execute(select(func.count()).select_from(counts))).scalar() or 0
+    total_episodes = (
+        await db.execute(select(func.coalesce(func.sum(counts.c.episodes), 0)))
+    ).scalar() or 0
+
+    pages = max(1, -(-total_shows // page_size))
+    page = min(page, pages)
+    offset = (page - 1) * page_size
+
+    rows = await db.execute(
+        select(
+            ShowModel.tmdb_id,
+            ShowModel.tvdb_id,
+            ShowModel.title,
+            ShowModel.poster_path,
+            ShowModel.first_air_date,
+            counts.c.episodes,
+        )
+        .join(counts, counts.c.show_id == ShowModel.id)
+        .order_by(counts.c.episodes.desc(), func.lower(ShowModel.title))
+        .limit(page_size)
+        .offset(offset)
+    )
+
+    results = [
+        {
+            "rank": offset + i + 1,
+            "tmdb_id": tmdb_id,
+            "tvdb_id": tvdb_id,
+            "title": title,
+            "poster_path": poster,
+            "year": _so_year(first_air),
+            "episodes": int(episodes),
+        }
+        for i, (tmdb_id, tvdb_id, title, poster, first_air, episodes) in enumerate(rows.all())
+    ]
+
+    return {
+        "results": results,
+        "page": page,
+        "page_size": page_size,
+        "pages": pages,
+        "total_shows": int(total_shows),
+        "total_episodes": int(total_episodes),
+    }
+
+
+@router.get("/{user_id}/stats/overview")
+async def get_stats_overview(
+    user_id: int,
+    since: Optional[DateType] = None,
+    until: Optional[DateType] = None,
+    tz: str = "UTC",
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_optional_user),
+):
+    await _check_profile_access(user_id, current_user, db)
+
+    try:
+        from core.genres import normalise_genre
+    except Exception:  # fall back to the raw genre name
+        def normalise_genre(name):
+            return name
+
+    try:
+        zone = _ZoneInfo(tz)
+    except Exception:
+        zone = _ZoneInfo("UTC")
+
+    play_filters = [WatchEvent.user_id == user_id, WatchEvent.completed == True]
+    if since:
+        play_filters.append(WatchEvent.watched_at >= since)
+    if until:
+        play_filters.append(WatchEvent.watched_at < until + TimeDelta(days=1))
+
+    # Same runtime rule as the dashboard header: an episode with no runtime of its
+    # own counts as its show's average, so the hours on both pages agree.
+    show_avg = (
+        select(
+            Media.show_id.label("show_id"),
+            func.avg(Media.runtime).label("avg_runtime"),
+        )
+        .where(Media.media_type == "episode", Media.runtime.isnot(None))
+        .group_by(Media.show_id)
+        .subquery()
+    )
+
+    events_q = await db.execute(
+        select(
+            WatchEvent.watched_at,
+            Media.media_type,
+            Media.id,
+            Media.tmdb_id,
+            Media.show_id,
+            func.coalesce(Media.runtime, show_avg.c.avg_runtime, 0),
+            WatchEvent.watch_source,
+        )
+        .select_from(WatchEvent)
+        .join(Media, Media.id == WatchEvent.media_id)
+        .outerjoin(show_avg, show_avg.c.show_id == Media.show_id)
+        .where(*play_filters, Media.media_type.in_(["movie", "episode"]))
+    )
+
+    def new_bucket():
+        return {
+            "plays": 0,
+            "minutes": 0.0,
+            "year": defaultdict(int),
+            "month": [0] * 12,
+            "weekday": [0] * 7,
+            "hour": [0] * 24,
+            "sources": defaultdict(int),
+        }
+
+    tv, mv = new_bucket(), new_bucket()
+    episodes_by_show = defaultdict(set)
+    movie_plays = defaultdict(int)
+    movie_media_by_key = {}
+    first_event = None
+    last_event = None
+
+    for watched_at, mtype, media_id, tmdb_id, show_id, minutes, source in events_q.all():
+        is_movie = str(getattr(mtype, "value", mtype)) == "movie"
+        bucket = mv if is_movie else tv
+        bucket["plays"] += 1
+        bucket["minutes"] += float(minutes or 0)
+        if source:
+            bucket["sources"][str(source)] += 1
+
+        if is_movie:
+            key = tmdb_id or media_id
+            movie_plays[key] += 1
+            movie_media_by_key.setdefault(key, media_id)
+        elif show_id:
+            episodes_by_show[show_id].add(media_id)
+
+        if watched_at is not None:
+            stamp = watched_at if watched_at.tzinfo else watched_at.replace(tzinfo=_Timezone.utc)
+            local = stamp.astimezone(zone)
+            bucket["year"][local.year] += 1
+            bucket["month"][local.month - 1] += 1
+            bucket["weekday"][local.weekday()] += 1
+            bucket["hour"][local.hour] += 1
+            if first_event is None or stamp < first_event[0]:
+                first_event = (stamp, media_id)
+            if last_event is None or stamp > last_event[0]:
+                last_event = (stamp, media_id)
+
+    # ── Shows ────────────────────────────────────────────────────────────────
+    show_ids = list(episodes_by_show.keys())
+    show_rows = []
+    for start in range(0, len(show_ids), 500):
+        res = await db.execute(
+            select(
+                ShowModel.id, ShowModel.tmdb_id, ShowModel.tvdb_id, ShowModel.title,
+                ShowModel.poster_path, ShowModel.first_air_date,
+                ShowModel.tmdb_data["genres"], ShowModel.tmdb_data["networks"],
+            ).where(ShowModel.id.in_(show_ids[start:start + 500]))
+        )
+        show_rows.extend(res.all())
+
+    show_genres = defaultdict(int)
+    show_networks = defaultdict(int)
+    network_logos = {}
+    tv_release_years = defaultdict(int)
+    show_info = {}
+    show_cards = []
+
+    for sid, s_tmdb, s_tvdb, s_title, s_poster, s_first_air, s_genres, s_networks in show_rows:
+        year = _so_year(s_first_air)
+        show_info[sid] = (s_title, year)
+        if year:
+            tv_release_years[year] += 1
+        seen = set()
+        for g in s_genres or []:
+            name = _so_label(g)
+            name = normalise_genre(name) if name else None
+            if name and name not in seen:
+                seen.add(name)
+                show_genres[name] += 1
+        for n in s_networks or []:
+            name = _so_label(n)
+            if name:
+                show_networks[name] += 1
+                if isinstance(n, dict) and n.get("logo_path") and name not in network_logos:
+                    network_logos[name] = n["logo_path"]
+        show_cards.append({
+            "id": sid, "tmdb_id": s_tmdb, "tvdb_id": s_tvdb, "title": s_title,
+            "poster_path": s_poster, "year": year,
+            "episodes": len(episodes_by_show[sid]),
+        })
+
+    show_cards.sort(key=lambda c: (-c["episodes"], (c["title"] or "").casefold()))
+    top_shows = [
+        {k: v for k, v in c.items() if k != "id"} for c in show_cards[:10]
+    ]
+
+    # ── Movies ───────────────────────────────────────────────────────────────
+    movie_media_ids = list(movie_media_by_key.values())
+    movie_rows = []
+    for start in range(0, len(movie_media_ids), 500):
+        res = await db.execute(
+            select(
+                Media.id, Media.tmdb_id, Media.title, Media.poster_path, Media.release_date,
+                Media.tmdb_data["genres"], Media.tmdb_data["production_companies"],
+            ).where(Media.id.in_(movie_media_ids[start:start + 500]))
+        )
+        movie_rows.extend(res.all())
+
+    movie_genres = defaultdict(int)
+    movie_studios = defaultdict(int)
+    movie_release_years = defaultdict(int)
+    movie_info = {}
+    movie_cards = []
+
+    for mid, m_tmdb, m_title, m_poster, m_release, m_genres, m_companies in movie_rows:
+        year = _so_year(m_release)
+        movie_info[mid] = (m_title, year)
+        if year:
+            movie_release_years[year] += 1
+        seen = set()
+        for g in m_genres or []:
+            name = _so_label(g)
+            name = normalise_genre(name) if name else None
+            if name and name not in seen:
+                seen.add(name)
+                movie_genres[name] += 1
+        for company in m_companies or []:
+            name = _so_label(company)
+            if name:
+                movie_studios[name] += 1
+        key = m_tmdb or mid
+        movie_cards.append({
+            "tmdb_id": m_tmdb, "title": m_title, "poster_path": m_poster,
+            "year": year, "plays": movie_plays.get(key, 0),
+        })
+
+    movie_cards.sort(key=lambda c: (-c["plays"], (c["title"] or "").casefold()))
+    top_movies = movie_cards[:10]
+
+    # ── Ratings (show-level and movie ratings only) ──────────────────────────
+    rating_filters = [
+        Rating.user_id == user_id,
+        Rating.rating.isnot(None),
+        Rating.season_number.is_(None),
+    ]
+    if since:
+        rating_filters.append(Rating.rated_at >= since)
+    if until:
+        rating_filters.append(Rating.rated_at < until + TimeDelta(days=1))
+
+    rating_q = await db.execute(
+        select(
+            Rating.rating, Rating.rated_at, Media.media_type,
+            Media.tmdb_id, Media.title, Media.poster_path,
+        )
+        .join(Media, Media.id == Rating.media_id)
+        .where(*rating_filters, Media.media_type.in_(["movie", "series"]))
+        .order_by(Rating.rated_at.desc())
+    )
+    scores = {"movie": [], "series": []}
+    tens = {"movie": [], "series": []}
+    for rating, rated_at, mtype, r_tmdb, r_title, r_poster in rating_q.all():
+        kind = "movie" if str(getattr(mtype, "value", mtype)) == "movie" else "series"
+        value = float(rating)
+        scores[kind].append(value)
+        if value >= 10:
+            tens[kind].append({"tmdb_id": r_tmdb, "title": r_title, "poster_path": r_poster})
+
+    # Series ratings can lack a poster on the Media row; use the Show row instead
+    series_ids = [t["tmdb_id"] for t in tens["series"] if t["tmdb_id"]]
+    if series_ids:
+        poster_q = await db.execute(
+            select(ShowModel.tmdb_id, ShowModel.poster_path)
+            .where(ShowModel.tmdb_id.in_(series_ids))
+        )
+        posters = {tmdb: poster for tmdb, poster in poster_q.all()}
+        for t in tens["series"]:
+            t["poster_path"] = posters.get(t["tmdb_id"]) or t["poster_path"]
+
+    def rating_block(values):
+        dist = defaultdict(int)
+        for v in values:
+            dist[v] += 1
+        return {
+            "count": len(values),
+            "average": round(sum(values) / len(values), 2) if values else None,
+            "tens": sum(1 for v in values if v >= 10),
+            "distribution": [{"rating": k, "count": c} for k, c in sorted(dist.items())],
+        }
+
+    # ── Years that have plays (drives the year switcher) ─────────────────────
+    years_q = await db.execute(
+        select(func.extract("year", WatchEvent.watched_at))
+        .where(
+            WatchEvent.user_id == user_id,
+            WatchEvent.completed == True,
+            WatchEvent.watched_at.isnot(None),
+        )
+        .distinct()
+    )
+    years = sorted({int(y) for (y,) in years_q.all() if y is not None}, reverse=True)
+
+    # ── Cast & crew (optional; empty when no credits are stored) ─────────────
+    people = {}
+    try:
+        people = await _so_build_people(db, movie_info, show_info, episodes_by_show)
+    except Exception as exc:  # never take the whole page down for this section
+        print(f"[stats] cast & crew skipped: {exc}")
+
+    # ── First and last play cards ────────────────────────────────────────────
+    async def play_card(event):
+        if not event:
+            return None
+        stamp, media_id = event
+        res = await db.execute(
+            select(Media, ShowModel)
+            .outerjoin(ShowModel, Media.show_id == ShowModel.id)
+            .where(Media.id == media_id)
+        )
+        row = res.first()
+        if not row:
+            return None
+        media, show = row
+        return {
+            "watched_at": _so_utc_iso(stamp),
+            "media_type": str(getattr(media.media_type, "value", media.media_type)),
+            "title": media.title,
+            "poster_path": media.poster_path,
+            "backdrop_path": media.backdrop_path,
+            "season_number": media.season_number,
+            "episode_number": media.episode_number,
+            "tmdb_id": media.tmdb_id,
+            "show_title": show.title if show else None,
+            "show_poster_path": show.poster_path if show else None,
+            "show_backdrop_path": show.backdrop_path if show else None,
+            "show_tmdb_id": show.tmdb_id if show else None,
+        }
+
+    first_play = await play_card(first_event)
+    last_play = await play_card(last_event)
+
+    def series(counter):
+        return [{"label": str(k), "count": v} for k, v in sorted(counter.items())]
+
+    def ranked(counter, limit):
+        return [
+            {"name": name, "count": count}
+            for name, count in sorted(counter.items(), key=lambda p: (-p[1], p[0].casefold()))[:limit]
+        ]
+
+    def bucket_out(bucket):
+        return {
+            "plays": bucket["plays"],
+            "minutes": round(bucket["minutes"]),
+            "by_year": series(bucket["year"]),
+            "by_month": bucket["month"],
+            "by_weekday": bucket["weekday"],  # Monday first
+            "by_hour": bucket["hour"],
+            "sources": ranked(bucket["sources"], 12),
+        }
+
+    tv_out = bucket_out(tv)
+    tv_out.update({
+        "episodes": sum(len(v) for v in episodes_by_show.values()),
+        "shows": len(episodes_by_show),
+        "top_shows": top_shows,
+        "genres": ranked(show_genres, 30),
+        "release_years": series(tv_release_years),
+        "networks": [
+            {"name": n["name"], "count": n["count"], "logo_path": network_logos.get(n["name"])}
+            for n in ranked(show_networks, 25)
+        ],
+    })
+
+    movies_out = bucket_out(mv)
+    movies_out.update({
+        "movies": len(movie_plays),
+        "top_movies": top_movies,
+        "genres": ranked(movie_genres, 30),
+        "release_years": series(movie_release_years),
+        "studios": ranked(movie_studios, 20),
+    })
+
+    return {
+        "years": years,
+        "first_play": first_play,
+        "last_play": last_play,
+        "totals": {
+            "plays": tv["plays"] + mv["plays"],
+            "minutes": round(tv["minutes"] + mv["minutes"]),
+        },
+        "tv": tv_out,
+        "movies": movies_out,
+        "ratings": {
+            "shows": rating_block(scores["series"]),
+            "movies": rating_block(scores["movie"]),
+        },
+        "top_rated": {
+            "shows": tens["series"][:10],
+            "movies": tens["movie"][:10],
+        },
+        "people": people,
     }

@@ -1,5 +1,10 @@
+import asyncio
+import csv
+import io
 import logging
-from fastapi import APIRouter, Depends, HTTPException
+import re
+import unicodedata
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,6 +20,8 @@ from models.users import UserSettings
 from dependencies import get_current_user
 from models.users import User
 from routers.media import enrich_with_state
+from routers.media import get_user_tmdb_key
+from core import tmdb
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +45,139 @@ class ListItemAdd(BaseModel):
     media_type: MediaType
 
 
-def _format_list(lst: ListModel) -> dict:
+def _normalise_title(value: str) -> str:
+    decomposed = unicodedata.normalize("NFKD", value)
+    ascii_text = "".join(ch for ch in decomposed if not unicodedata.combining(ch))
+    return re.sub(r"[^a-z0-9]+", "", ascii_text.lower())
+
+
+@router.post("/{list_id}/import-letterboxd")
+async def import_letterboxd_list(
+    list_id: int,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Import Letterboxd watchlist.csv into a user's custom list."""
+    owned_list = await db.execute(
+        select(ListModel).where(ListModel.id == list_id, ListModel.user_id == current_user.id)
+    )
+    target_list = owned_list.scalar_one_or_none()
+    if not target_list:
+        raise HTTPException(status_code=404, detail="List not found")
+    if target_list.name.strip().casefold() != "movies":
+        raise HTTPException(status_code=400, detail="Letterboxd import is only available on the Movies list.")
+    if not (file.filename or "").lower().endswith(".csv"):
+        raise HTTPException(status_code=400, detail="Please choose a CSV file.")
+
+    contents = await file.read(5_000_001)
+    if len(contents) > 5_000_000:
+        raise HTTPException(status_code=413, detail="CSV file must be 5 MB or smaller.")
+    try:
+        reader = csv.DictReader(io.StringIO(contents.decode("utf-8-sig")))
+        if not reader.fieldnames:
+            raise ValueError("The CSV is empty.")
+        headers = {header.strip().lower(): header for header in reader.fieldnames if header}
+        name_header = headers.get("name") or headers.get("title")
+        year_header = headers.get("year")
+        if not name_header:
+            raise ValueError("Couldn't find a Name column in this CSV.")
+        rows = []
+        for row in reader:
+            title = (row.get(name_header) or "").strip()
+            if not title:
+                continue
+            year_text = (row.get(year_header) or "").strip() if year_header else ""
+            year = int(year_text) if year_text.isdigit() and len(year_text) == 4 else None
+            rows.append({"title": title, "year": year})
+            if len(rows) > 2500:
+                raise HTTPException(status_code=400, detail="CSV is limited to 2,500 films per import.")
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="CSV must use UTF-8 encoding.")
+    except csv.Error as exc:
+        raise HTTPException(status_code=400, detail=f"Couldn't read CSV: {exc}")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    api_key = await get_user_tmdb_key(db, current_user.id)
+    if not api_key:
+        raise HTTPException(status_code=400, detail="A TMDB API key is required to match Letterboxd films.")
+    semaphore = asyncio.Semaphore(5)
+
+    async def find_match(row: dict) -> tuple[str, str, dict | None]:
+        async with semaphore:
+            response = await tmdb.search_movies(row["title"], year=row["year"], api_key=api_key)
+        wanted = _normalise_title(row["title"])
+        exact = [
+            result for result in response.get("results", [])
+            if wanted and wanted in {
+                _normalise_title(result.get("title") or ""),
+                _normalise_title(result.get("original_title") or ""),
+            }
+            and (not row["year"] or (result.get("release_date") or "").startswith(str(row["year"])))
+        ]
+        if len(exact) == 1:
+            return "matched", row["title"], exact[0]
+        return ("ambiguous" if exact else "unmatched"), row["title"], None
+
+    try:
+        outcomes = await asyncio.gather(*(find_match(row) for row in rows))
+    except Exception:
+        raise HTTPException(status_code=502, detail="TMDB search failed during import; no films were added. Please retry.")
+
+    matched: dict[int, dict] = {}
+    unmatched: list[str] = []
+    ambiguous: list[str] = []
+    for status, title, result in outcomes:
+        if status == "matched" and result:
+            matched[result["id"]] = result
+        elif status == "ambiguous":
+            ambiguous.append(title)
+        else:
+            unmatched.append(title)
+
+    imported = 0
+    already_present = 0
+    for tmdb_id in matched:
+        try:
+            await add_list_item(
+                list_id,
+                ListItemAdd(tmdb_id=tmdb_id, media_type=MediaType.movie),
+                db,
+                current_user,
+            )
+            imported += 1
+        except HTTPException as exc:
+            if exc.status_code == 409:
+                already_present += 1
+            else:
+                raise
+
+    return {
+        "imported": imported,
+        "already_present": already_present,
+        "unmatched": unmatched,
+        "ambiguous": ambiguous,
+        "rows_read": len(rows),
+    }
+
+
+async def _list_show_poster_map(db: AsyncSession, lists: list[ListModel]) -> dict[int, ShowModel]:
+    tmdb_ids = {
+        item.media.tmdb_id
+        for lst in lists
+        for item in lst.items
+        if item.media.media_type == MediaType.series
+        and not item.media.poster_path
+        and item.media.tmdb_id
+    }
+    if not tmdb_ids:
+        return {}
+    result = await db.execute(select(ShowModel).where(ShowModel.tmdb_id.in_(tmdb_ids)))
+    return {show.tmdb_id: show for show in result.scalars().all()}
+
+
+def _format_list(lst: ListModel, show_poster_map: dict[int, ShowModel] | None = None) -> dict:
     preview_posters: list[dict] = []
     for item in sorted(lst.items, key=lambda x: (x.sort_order, x.added_at)):
         if len(preview_posters) >= 3:
@@ -47,12 +186,18 @@ def _format_list(lst: ListModel) -> dict:
             poster = item.media.poster_path
             if not poster and item.media.show:
                 poster = item.media.show.poster_path
+            if not poster and item.media.tmdb_data:
+                poster = item.media.tmdb_data.get("poster_path")
+            if not poster and item.media.media_type == MediaType.series and show_poster_map:
+                show = show_poster_map.get(item.media.tmdb_id)
+                poster = show.poster_path if show else None
             if poster:
                 preview_posters.append({"url": poster, "adult": item.media.adult})
         except Exception:
             pass
     return {
         "id": lst.id,
+        "trakt_slug": lst.trakt_slug,
         "name": lst.name,
         "description": lst.description,
         "privacy_level": lst.privacy_level,
@@ -108,10 +253,11 @@ async def get_public_lists(
         .limit(3)
     )
     rows = result.all()
+    show_poster_map = await _list_show_poster_map(db, [lst for lst, _ in rows])
     return {
         "lists": [
             {
-                **_format_list(lst),
+                **_format_list(lst, show_poster_map),
                 "username": username,
             }
             for lst, username in rows
@@ -131,7 +277,8 @@ async def get_lists(
         .order_by(ListModel.updated_at.desc())
     )
     lists = result.scalars().all()
-    return {"lists": [_format_list(lst) for lst in lists]}
+    show_poster_map = await _list_show_poster_map(db, lists)
+    return {"lists": [_format_list(lst, show_poster_map) for lst in lists]}
 
 
 @router.post("", status_code=201)
@@ -214,8 +361,9 @@ async def get_list(
     media_dicts = [item["media"] for item in formatted_items]
     await enrich_with_state(db, current_user.id, media_dicts)
 
+    show_poster_map = await _list_show_poster_map(db, [lst])
     return {
-        **_format_list(lst),
+        **_format_list(lst, show_poster_map),
         "items": formatted_items,
         "is_owner": lst.user_id == current_user.id,
     }

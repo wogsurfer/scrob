@@ -1,10 +1,13 @@
 import asyncio
-from datetime import datetime, date
+from datetime import datetime, date, timedelta, timezone
+from zoneinfo import ZoneInfo
 from pydantic import BaseModel
 from fastapi import APIRouter, BackgroundTasks, Depends, Query, HTTPException
+from models import show
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy import select, update, func, case, cast as sa_cast, Text, or_, and_
 from sqlalchemy.orm import aliased
+import os
 
 from models.events import WatchEvent
 from models.collection import Collection, CollectionFile
@@ -23,6 +26,7 @@ from routers.media import format_media, get_user_tmdb_key, check_tmdb_key, enric
 
 from dependencies import get_current_user
 from core import tmdb
+from core.config import settings
 from core import tvdb as tvdb_client
 from core.episode_order import ensure_episode_order_mapping, get_episode_order, validate_episode_order
 from core.translations import (
@@ -34,8 +38,106 @@ from core.translations import (
     apply_media_translations,
     apply_show_translations,
 )
+from routers.calendar import get_tvmaze_episodes
+
+MALTA_TZ = ZoneInfo("Europe/Malta")
 
 router = APIRouter()
+
+
+def _format_show_crew(data: dict) -> list[dict]:
+    """Flatten TMDB aggregate episode crew into person/job credits."""
+    crew = []
+    seen = set()
+    for person in (data.get("aggregate_credits") or {}).get("crew", []):
+        person_id = person.get("id")
+        if not person_id or not person.get("name"):
+            continue
+        for credit in person.get("jobs", []):
+            job = credit.get("job")
+            if not job or (person_id, job) in seen:
+                continue
+            seen.add((person_id, job))
+            crew.append({
+                "tmdb_id": person_id,
+                "name": person["name"],
+                "job": job,
+                "department": person.get("department"),
+                "profile_path": tmdb.poster_url(person.get("profile_path"), size="w185"),
+                "episode_count": credit.get("episode_count") or person.get("total_episode_count"),
+            })
+
+    # TMDB lists show creators separately from aggregate episode crew.
+    for creator in data.get("created_by", []):
+        person_id = creator.get("id")
+        if not person_id or not creator.get("name") or (person_id, "Creator") in seen:
+            continue
+        seen.add((person_id, "Creator"))
+        crew.append({
+            "tmdb_id": person_id,
+            "name": creator["name"],
+            "job": "Creator",
+            "department": "Creator",
+            "profile_path": tmdb.poster_url(creator.get("profile_path"), size="w185"),
+            "episode_count": None,
+        })
+    return crew
+
+
+def _format_aggregate_show_cast(data: dict) -> tuple[list[dict], list[dict]]:
+    """Build cast and guest-star lists from one aggregate TMDB response."""
+    credits = data.get("credits") or {}
+    main_cast_ids = {
+        person.get("id") for person in credits.get("cast", []) if person.get("id")
+    }
+    aggregate_cast = (data.get("aggregate_credits") or {}).get("cast", [])
+
+    if not aggregate_cast:
+        cast = [
+            {
+                "tmdb_id": person.get("id"),
+                "name": person.get("name"),
+                "character": person.get("character"),
+                "profile_path": tmdb.poster_url(person.get("profile_path")),
+                "episode_count": None,
+            }
+            for person in credits.get("cast", [])[:12]
+            if person.get("id") and person.get("name")
+        ]
+        return cast, []
+
+    cast, guest_stars = [], []
+    for person in aggregate_cast:
+        person_id = person.get("id")
+        if not person_id or not person.get("name"):
+            continue
+        roles = person.get("roles") or []
+        characters = list(dict.fromkeys(
+            role["character"] for role in roles
+            if role.get("character")
+        ))
+        entry = {
+            "tmdb_id": person_id,
+            "name": person["name"],
+            "character": " / ".join(characters),
+            "profile_path": tmdb.poster_url(person.get("profile_path")),
+            "episode_count": person.get("total_episode_count") or sum(
+                role.get("episode_count", 0) for role in roles
+            ),
+        }
+        (cast if person_id in main_cast_ids else guest_stars).append(entry)
+
+    if not main_cast_ids:
+        all_cast = sorted(
+            cast + guest_stars,
+            key=lambda person: person["episode_count"],
+            reverse=True,
+        )
+        cast, guest_stars = all_cast[:12], all_cast[12:]
+
+    cast.sort(key=lambda person: person["episode_count"], reverse=True)
+    guest_stars.sort(key=lambda person: person["episode_count"], reverse=True)
+    return cast[:12], guest_stars
 
 
 async def get_user_tvdb_key(db: AsyncSession, user_id: int) -> str | None:
@@ -46,7 +148,11 @@ async def get_user_tvdb_key(db: AsyncSession, user_id: int) -> str | None:
         return s.tvdb_api_key
     gs_result = await db.execute(select(GlobalSettings).where(GlobalSettings.id == 1))
     gs = gs_result.scalar_one_or_none()
-    return gs.tvdb_api_key if gs else None
+
+    if gs and gs.tvdb_api_key:
+        return gs.tvdb_api_key
+
+    return os.getenv("TVDB_API_KEY")
 
 
 async def _enrich_tvdb_seasons(
@@ -166,16 +272,104 @@ def format_show(show: ShowModel) -> dict:
         "poster_path": show.poster_path,
         "backdrop_path": show.backdrop_path,
         "tmdb_rating": show.tmdb_rating,
+        "imdb_rating": (show.tmdb_data or {}).get("imdb_rating"),
         "status": show.status,
         "tagline": show.tagline,
         "first_air_date": show.first_air_date,
         "last_air_date": show.last_air_date,
         "genres": [g["name"] if isinstance(g, dict) else g for g in (show.tmdb_data or {}).get("genres", [])],
         "seasons_meta": (show.tmdb_data or {}).get("seasons", []),
+        "networks": [
+            {
+                **n,
+                "logo_path": tmdb.poster_url(n.get("logo_path")),
+            }
+            for n in (show.tmdb_data or {}).get("networks", [])
+        ],
         "original_language": (show.tmdb_data or {}).get("original_language"),
         "adult": (show.tmdb_data or {}).get("adult", False),
     }
 
+async def build_show_info(
+    show: ShowModel,
+    db: AsyncSession,
+    user_id: int,
+    *,
+    tmdb_data: dict | None = None,
+) -> dict:
+    """Build consistent show metadata using Watchd + TMDB + TVDB."""
+    show_info = format_show(show)
+
+    show_info["genres"] = [
+        g
+        for g in show_info.get("genres", [])
+        if g.lower() not in {"family", "kids", "children"}
+    ]
+
+    # TVDB is the source of truth for show genres.
+    tvdb_api_key = await get_user_tvdb_key(db, user_id)
+    metadata_lang = await get_user_metadata_language(db, user_id)
+
+    if tvdb_api_key and show.tvdb_id:
+        try:
+            tvdb_raw = await tvdb_client.get_series(
+                show.tvdb_id,
+                tvdb_api_key,
+            )
+            tvdb_formatted = tvdb_client.format_series(
+                tvdb_raw,
+                language=tvdb_client.tvdb_language(metadata_lang),
+            )
+
+            show_info["genres"] = [
+                g
+                for g in tvdb_formatted.get("genres", [])
+                if g.lower() not in {"family", "kids", "children"}
+            ]
+        except Exception as e:
+            print(f"TVDB genre fetch failed for {show.tvdb_id}: {e}")
+
+    # Use live TMDB data for fields that should reflect the selected
+    # metadata language.
+    if tmdb_data:
+        for field, tmdb_key in [
+            ("title", "name"),
+            ("overview", "overview"),
+            ("tagline", "tagline"),
+        ]:
+            value = tmdb_data.get(tmdb_key)
+            if value:
+                show_info[field] = value
+
+        if tmdb_data.get("networks"):
+            show_info["networks"] = [
+                {
+                    "id": n["id"],
+                    "name": n["name"],
+                    "logo_path": tmdb.poster_url(n.get("logo_path"), size="w500")
+                    if n.get("logo_path")
+                    else None,
+                    "origin_country": n.get("origin_country"),
+                }
+                for n in tmdb_data.get("networks", [])
+            ]
+
+        show_info["age_rating"] = _extract_show_content_rating(tmdb_data)
+
+        if tmdb_data.get("external_ids"):
+            show_info["imdb_id"] = tmdb_data["external_ids"].get("imdb_id")
+
+        show_info["original_language"] = (
+            show_info.get("original_language")
+            or tmdb_data.get("original_language")
+        )
+
+        show_info["adult"] = tmdb_data.get(
+            "adult",
+            show_info.get("adult", False),
+        )
+
+    return show_info
 
 @router.get("")
 async def list_shows(
@@ -234,77 +428,46 @@ async def list_shows(
         base_query = base_query.where(or_(*[ShowModel.first_air_date.like(f'{y}%') for y in year]))
     if status:
         base_query = base_query.where(ShowModel.status.in_(status))
+
     watched_states = set(watched)
+
     if watched_states and watched_states != {"watched", "unwatched"}:
-        # "Watched" here means the user has watched at least one episode
-        # (started); "unwatched" means zero episodes watched (not started).
-        # This is deliberately not "fully watched" — that needs per-show aired
-        # counts from TMDB, which enrich_with_state only computes for the
-        # current page, not the full filtered/paginated set.
+
         watched_show_ids = (
             select(Media.show_id)
             .join(WatchEvent, WatchEvent.media_id == Media.id)
             .where(
                 WatchEvent.user_id == current_user.id,
-                WatchEvent.completed == True,
+                WatchEvent.completed.is_(True),
                 Media.media_type == MediaType.episode,
                 Media.show_id.isnot(None),
                 Media.season_number.isnot(None),
                 Media.season_number != 0,
+                Media.episode_number.isnot(None),
             )
             .distinct()
             .subquery()
         )
-        if "watched" in watched_states:
-            base_query = base_query.where(ShowModel.id.in_(select(watched_show_ids)))
-        else:
-            base_query = base_query.where(ShowModel.id.notin_(select(watched_show_ids)))
 
-    # Count total
-    count_query = select(func.count()).select_from(base_query.subquery())
-    total_result = await db.execute(count_query)
-    total_count = total_result.scalar_one()
-    total_pages = (total_count + page_size - 1) // page_size
+        if "unwatched" in watched_states:
+            # No completed episodes.
+            base_query = base_query.where(
+                ShowModel.id.notin_(select(watched_show_ids))
+            )
 
-    # Sort and Paginate
-    if sort == "rating":
-        q = base_query.order_by(ShowModel.tmdb_rating.desc().nulls_last())
-    elif sort == "release_date":
-        q = base_query.order_by(ShowModel.first_air_date.desc().nulls_last())
-    elif sort == "created_at":
-        q = base_query.order_by(ShowModel.created_at.desc().nulls_last())
-    elif sort == "last_watched":
-        last_watched_sq = (
-            select(Media.show_id, func.max(WatchEvent.watched_at).label("last_watched_at"))
-            .join(WatchEvent, WatchEvent.media_id == Media.id)
-            .where(WatchEvent.user_id == current_user.id, Media.show_id.isnot(None))
-            .group_by(Media.show_id)
-            .subquery()
-        )
-        q = (
-            base_query
-            .outerjoin(last_watched_sq, last_watched_sq.c.show_id == ShowModel.id)
-            .order_by(last_watched_sq.c.last_watched_at.desc().nulls_last())
-        )
-    else:
-        q = base_query.order_by(func.lower(ShowModel.title).asc())
+        elif "watched" in watched_states:
+            # We'll handle fully-watched vs in-progress after
+            # enrich_with_state(), because watch_pct is calculated there.
+            base_query = base_query.where(
+                ShowModel.id.in_(select(watched_show_ids))
+            )
 
-    result = await db.execute(q.limit(page_size).offset(offset))
-    results = [format_show(s) for s in result.scalars().all()]
-    await enrich_with_state(db, current_user.id, results)
-    lang = await get_user_metadata_language(db, current_user.id)
-    if lang:
-        show_ids = [r["id"] for r in results if r.get("id")]
-        translations = await get_show_translations(db, show_ids, lang)
-        apply_show_translations(results, translations)
-    return {
-        "page": page,
-        "page_size": page_size,
-        "total_results": total_count,
-        "total_pages": total_pages,
-        "results": results,
-    }
-
+        elif "in_progress" in watched_states:
+            # Started shows are narrowed here.
+            # The final 100% check happens after enrichment.
+            base_query = base_query.where(
+                ShowModel.id.in_(select(watched_show_ids))
+            )
 
 @router.get("/years")
 async def list_show_years(
@@ -534,6 +697,779 @@ async def get_active_episode_order_job(
     )
     return result.scalar_one_or_none()
 
+    # Count total
+    count_query = select(func.count()).select_from(base_query.subquery())
+    total_result = await db.execute(count_query)
+    total_count = total_result.scalar_one()
+    total_pages = (total_count + page_size - 1) // page_size
+
+    # Sort and Paginate
+    if sort == "rating":
+        q = base_query.order_by(ShowModel.tmdb_rating.desc().nulls_last())
+    elif sort == "release_date":
+        q = base_query.order_by(ShowModel.first_air_date.desc().nulls_last())
+    elif sort == "created_at":
+        q = base_query.order_by(ShowModel.created_at.desc().nulls_last())
+    elif sort == "last_watched":
+        last_watched_sq = (
+            select(Media.show_id, func.max(WatchEvent.watched_at).label("last_watched_at"))
+            .join(WatchEvent, WatchEvent.media_id == Media.id)
+            .where(WatchEvent.user_id == current_user.id, Media.show_id.isnot(None))
+            .group_by(Media.show_id)
+            .subquery()
+        )
+        q = (
+            base_query
+            .outerjoin(last_watched_sq, last_watched_sq.c.show_id == ShowModel.id)
+            .order_by(last_watched_sq.c.last_watched_at.desc().nulls_last())
+        )
+    else:
+        q = base_query.order_by(func.lower(ShowModel.title).asc())
+
+    # Fetch all matching shows first so watch_pct can be calculated
+    # before applying Watch Status filtering.
+    result = await db.execute(q)
+    results = [format_show(s) for s in result.scalars().all()]
+
+    await enrich_with_state(db, current_user.id, results)
+
+    # Apply Watch Status using the existing watch_pct value.
+    if watched_states and watched_states != {"watched", "unwatched"}:
+        if "unwatched" in watched_states:
+            results = [
+                show for show in results
+                if show.get("watch_pct", 0) == 0
+            ]
+
+        elif "in_progress" in watched_states:
+            results = [
+                show for show in results
+                if 0 < show.get("watch_pct", 0) < 100
+            ]
+
+        elif "watched" in watched_states:
+            results = [
+                show for show in results
+                if show.get("watch_pct", 0) >= 100
+            ]
+
+    # Correct pagination after filtering.
+    total = len(results)
+    total_pages = (total + page_size - 1) // page_size
+
+    results = results[offset:offset + page_size]
+
+@router.get("/progress")
+async def list_progress_shows(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """List shows the user has started watching, with progress data."""
+
+    # Find shows where the user has completed at least one episode.
+    watched_show_ids = (
+        select(Media.show_id)
+        .join(WatchEvent, WatchEvent.media_id == Media.id)
+        .where(
+            WatchEvent.user_id == current_user.id,
+            WatchEvent.completed.is_(True),
+            Media.media_type == MediaType.episode,
+            Media.show_id.isnot(None),
+            Media.season_number.isnot(None),
+            Media.season_number != 0,
+            Media.episode_number.isnot(None),
+        )
+        .distinct()
+        .subquery()
+    )
+
+    result = await db.execute(
+        select(ShowModel)
+        .where(ShowModel.id.in_(select(watched_show_ids)))
+        .order_by(func.lower(ShowModel.title).asc())
+    )
+
+    shows = result.scalars().all()
+
+    if not shows:
+        return {
+            "results": [],
+            "total_results": 0,
+        }
+
+    show_ids = [show.id for show in shows]
+
+    # Get every episode belonging to these shows.
+    episode_result = await db.execute(
+        select(Media)
+        .where(
+            Media.show_id.in_(show_ids),
+            Media.media_type == MediaType.episode,
+            Media.season_number.isnot(None),
+            Media.season_number != 0,
+            Media.episode_number.isnot(None),
+        )
+        .order_by(
+            Media.show_id,
+            Media.season_number,
+            Media.episode_number,
+        )
+    )
+
+    episodes = episode_result.scalars().all()
+
+    # Get the local Media IDs for episodes completed by this user.
+    # WatchEvent.media_id is the direct, reliable relationship.
+    watched_result = await db.execute(
+        select(Media.id)
+        .join(WatchEvent, WatchEvent.media_id == Media.id)
+        .where(
+            WatchEvent.user_id == current_user.id,
+            WatchEvent.completed.is_(True),
+            Media.media_type == MediaType.episode,
+        )
+        .distinct()
+    )
+
+    watched_ids = set(watched_result.scalars().all())
+
+    # Get the most recent completed watch time for each show.
+    last_watched_result = await db.execute(
+        select(
+            Media.show_id,
+            func.max(WatchEvent.watched_at),
+        )
+        .join(WatchEvent, WatchEvent.media_id == Media.id)
+        .where(
+            WatchEvent.user_id == current_user.id,
+            WatchEvent.completed.is_(True),
+            Media.media_type == MediaType.episode,
+            Media.show_id.in_(show_ids),
+        )
+        .group_by(Media.show_id)
+    )
+
+    last_watched_by_show = {
+        show_id: watched_at
+        for show_id, watched_at in last_watched_result.all()
+    }
+
+    # Only consult TVMaze for episodes scheduled today whose local catalog
+    # entry has a date but no precise airing timestamp. TVMaze timestamps are
+    # converted to Malta time by the shared calendar helper.
+    now_malta = datetime.now(MALTA_TZ)
+    today_malta = now_malta.date()
+    today_iso = today_malta.isoformat()
+    adjacent_malta_days = {
+        today_malta,
+        today_malta - timedelta(days=1),
+    }
+    schedule_show_ids = set()
+    schedulable_statuses = {
+        "returning series",
+        "in production",
+        "planned",
+        "pilot",
+    }
+    for ep in episodes:
+        if ep.release_date and str(ep.release_date)[:10] in {
+            today_iso,
+            (today_malta - timedelta(days=1)).isoformat(),
+        }:
+            schedule_show_ids.add(ep.show_id)
+        if ep.first_aired_at:
+            stored_airtime = ep.first_aired_at
+            if stored_airtime.tzinfo is None:
+                stored_airtime = stored_airtime.replace(tzinfo=timezone.utc)
+            if stored_airtime.astimezone(MALTA_TZ).date() in adjacent_malta_days:
+                schedule_show_ids.add(ep.show_id)
+    for show in shows:
+        next_episode = (show.tmdb_data or {}).get("next_episode_to_air") or {}
+        try:
+            next_air_day = date.fromisoformat(str(next_episode.get("air_date"))[:10])
+        except (TypeError, ValueError):
+            next_air_day = None
+        # TMDB date-only values may reflect the broadcaster's US calendar
+        # date while the actual airtime falls on the next day in Malta.
+        # Include yesterday when looking up today's Malta-local schedule.
+        if (
+            (show.status or "").strip().lower() in schedulable_statuses
+            or (
+                next_air_day is not None
+                and next_air_day >= today_malta - timedelta(days=1)
+            )
+        ):
+            schedule_show_ids.add(show.id)
+    schedule_semaphore = asyncio.Semaphore(8)
+
+    async def fetch_progress_schedule(show):
+        async with schedule_semaphore:
+            return show.id, await get_tvmaze_episodes(
+                show.title,
+                today_malta,
+                date.max,
+            )
+
+    schedules = await asyncio.gather(*(
+        fetch_progress_schedule(show)
+        for show in shows
+        if show.id in schedule_show_ids
+    ))
+    schedules_by_show = {
+        show_id: {
+            (int(ep["season"]), int(ep["episode"])): ep.get("air_datetime")
+            for ep in scheduled
+            if ep.get("season") is not None and ep.get("episode") is not None
+        }
+        for show_id, scheduled in schedules
+    }
+    scheduled_seasons_by_show = {
+        show_id: {season_number for season_number, _episode_number in schedule}
+        for show_id, schedule in schedules_by_show.items()
+    }
+    # TMDB's next_episode_to_air is also a useful signal when TVMaze has no
+    # matching listing. Preserve the upcoming season's local aired episodes
+    # instead of letting stale season-size metadata truncate them.
+    for show in shows:
+        next_episode = (show.tmdb_data or {}).get("next_episode_to_air") or {}
+        try:
+            next_air_day = date.fromisoformat(
+                str(next_episode.get("air_date"))[:10]
+            )
+            next_season_number = int(next_episode["season_number"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if next_air_day >= today_malta and next_season_number > 0:
+            scheduled_seasons_by_show.setdefault(show.id, set()).add(
+                next_season_number
+            )
+
+    # Build the response.
+    show_data = []
+
+    def episode_runtime(ep):
+        if ep.runtime:
+            return int(ep.runtime)
+
+        tmdb_runtime = (ep.tmdb_data or {}).get("runtime")
+        if tmdb_runtime:
+            return int(tmdb_runtime)
+
+        return 0
+
+    for show in shows:
+        # The local episode table can contain extras or stale records. Use
+        # stored season sizes to constrain those rows, unless a precise
+        # schedule shows that the cached size for a season may be stale.
+        schedulable_statuses = {
+            "returning series",
+            "in production",
+            "planned",
+            "pilot",
+        }
+        is_schedulable_show = (
+            (show.status or "").strip().lower() in schedulable_statuses
+        )
+        season_ep_counts = {
+            int(s["season_number"]): int(s.get("episode_count", 0))
+            for s in (show.tmdb_data or {}).get("seasons", [])
+            if s.get("season_number") is not None
+            and int(s["season_number"]) > 0
+            and int(s.get("episode_count", 0) or 0) > 0
+        }
+
+        def has_aired(ep) -> bool:
+            # Use the same precise U.S. broadcast schedule as Next Up first,
+            # converted to Malta time. It must override stale dates or stored
+            # timestamps that would otherwise make a future episode look aired.
+            scheduled_at = schedules_by_show.get(show.id, {}).get(
+                (int(ep.season_number), int(ep.episode_number))
+            )
+            if scheduled_at is not None:
+                if scheduled_at.tzinfo is None:
+                    scheduled_at = scheduled_at.replace(tzinfo=MALTA_TZ)
+                return scheduled_at.astimezone(MALTA_TZ) <= now_malta
+
+            try:
+                release_day = (
+                    date.fromisoformat(str(ep.release_date)[:10])
+                    if ep.release_date
+                    else None
+                )
+            except (TypeError, ValueError):
+                release_day = None
+
+            # Fall back to the stored Trakt timestamp when the schedule has no
+            # entry for this episode. Historical naive values are UTC. If that
+            # timestamp conflicts with a release date several Malta days in
+            # the past, prefer the unambiguous past date instead of letting a
+            # stale future timestamp drop an episode that has already aired.
+            if ep.first_aired_at:
+                aired_at = ep.first_aired_at
+                if aired_at.tzinfo is None:
+                    aired_at = aired_at.replace(tzinfo=timezone.utc)
+                aired_at = aired_at.astimezone(MALTA_TZ)
+                if aired_at <= now_malta:
+                    return True
+                if release_day and release_day < today_malta - timedelta(days=1):
+                    return True
+                return False
+
+            # U.S. date-only releases can be a day behind Malta. Only use an
+            # exact converted schedule for the adjacent-day boundary.
+            if release_day and release_day < today_malta - timedelta(days=1):
+                return True
+            if release_day and release_day > today_malta + timedelta(days=1):
+                return False
+
+            if not ep.release_date:
+                ended_statuses = {"ended", "canceled", "cancelled"}
+                if (show.status or "").strip().lower() not in ended_statuses:
+                    return False
+                try:
+                    last_air_day = date.fromisoformat(
+                        str(show.last_air_date)[:10]
+                    )
+                except (TypeError, ValueError):
+                    return False
+                return last_air_day < today_malta - timedelta(days=1)
+            return False
+
+        # Collapse duplicate local records by episode position. If one copy is
+        # watched, prefer it so imported watch history is never lost.
+        episodes_by_position = {}
+        for ep in episodes:
+            if ep.show_id != show.id:
+                continue
+
+            season_number = int(ep.season_number)
+            episode_number = int(ep.episode_number)
+            canonical_season_count = season_ep_counts.get(season_number)
+            if (
+                canonical_season_count
+                and episode_number > canonical_season_count
+                and not is_schedulable_show
+                and season_number not in scheduled_seasons_by_show.get(show.id, set())
+            ):
+                continue
+            position = (season_number, episode_number)
+            current = episodes_by_position.get(position)
+            if current is None or (
+                has_aired(ep) and not has_aired(current)
+            ) or (
+                has_aired(ep) == has_aired(current)
+                and ep.id in watched_ids and current.id not in watched_ids
+            ) or (
+                has_aired(ep) == has_aired(current)
+                and (ep.id in watched_ids) == (current.id in watched_ids)
+                and not episode_runtime(current)
+                and episode_runtime(ep)
+            ):
+                episodes_by_position[position] = ep
+
+        all_show_episodes = list(episodes_by_position.values())
+        # A completed watch event is definitive proof that the user had access
+        # to the episode. Keep it in Progress even if stale airing metadata or
+        # a mismatched schedule incorrectly labels that watched episode as
+        # future; otherwise the episode page and Progress disagree.
+        show_episodes = [
+            ep for ep in all_show_episodes
+            if has_aired(ep) or ep.id in watched_ids
+        ]
+        local_season_counts = {}
+        for ep in show_episodes:
+            season_number = int(ep.season_number)
+            local_season_counts[season_number] = (
+                local_season_counts.get(season_number, 0) + 1
+            )
+        season_air_dates = {
+            int(season["season_number"]): season.get("air_date")
+            for season in (show.tmdb_data or {}).get("seasons", [])
+            if season.get("season_number") is not None
+            and int(season["season_number"]) > 0
+        }
+        tmdb_data = show.tmdb_data or {}
+        last_episode = tmdb_data.get("last_episode_to_air") or {}
+        next_episode = tmdb_data.get("next_episode_to_air") or {}
+
+        # TMDB's last_episode_to_air can lag behind an overnight release.
+        # Use a precise TVMaze airtime for next_episode_to_air when available
+        # so Progress counts the episode as soon as it has aired in Malta.
+        aired_through: dict[int, int] = {}
+
+        def record_aired_position(episode_data: dict) -> None:
+            try:
+                season_number = int(episode_data["season_number"])
+                episode_number = int(episode_data["episode_number"])
+            except (KeyError, TypeError, ValueError):
+                return
+            if season_number > 0 and episode_number > 0:
+                aired_through[season_number] = max(
+                    aired_through.get(season_number, 0), episode_number
+                )
+
+        # TVMaze schedule timestamps represent the U.S. broadcast moment in
+        # an explicit timezone and are converted to Malta time by the shared
+        # helper. Count any returned episode whose U.S. airtime has passed,
+        # even when TMDB's cached next/last episode fields are stale.
+        for position, scheduled_at in schedules_by_show.get(show.id, {}).items():
+            if scheduled_at is None:
+                continue
+            if scheduled_at.tzinfo is None:
+                scheduled_at = scheduled_at.replace(tzinfo=MALTA_TZ)
+            if scheduled_at.astimezone(MALTA_TZ) <= now_malta:
+                record_aired_position({
+                    "season_number": position[0],
+                    "episode_number": position[1],
+                })
+
+        # TMDB's last_episode_to_air can itself be stale or point at an
+        # episode whose U.S. release date is today/tomorrow. Trust it only
+        # when no exact TVMaze schedule exists and its date is safely in the
+        # past relative to Malta. Exact schedule timestamps were handled above.
+        try:
+            last_episode_position = (
+                int(last_episode["season_number"]),
+                int(last_episode["episode_number"]),
+            )
+            last_air_day = date.fromisoformat(
+                str(last_episode.get("air_date"))[:10]
+            )
+        except (KeyError, TypeError, ValueError):
+            last_episode_position = None
+            last_air_day = None
+        if (
+            last_episode_position
+            and last_episode_position not in schedules_by_show.get(show.id, {})
+            and last_air_day
+            and last_air_day < today_malta - timedelta(days=1)
+        ):
+            record_aired_position(last_episode)
+
+        future_scheduled_seasons = {
+            season_number
+            for (season_number, _episode_number), scheduled_at
+            in schedules_by_show.get(show.id, {}).items()
+            if scheduled_at is not None
+            and (
+                scheduled_at.replace(tzinfo=MALTA_TZ)
+                if scheduled_at.tzinfo is None
+                else scheduled_at.astimezone(MALTA_TZ)
+            ) > now_malta
+        }
+        try:
+            next_air_day = date.fromisoformat(str(next_episode.get("air_date"))[:10])
+        except (TypeError, ValueError):
+            next_air_day = None
+
+        next_position = None
+        try:
+            next_position = (
+                int(next_episode["season_number"]),
+                int(next_episode["episode_number"]),
+            )
+        except (KeyError, TypeError, ValueError):
+            pass
+
+        if next_air_day and next_air_day >= today_malta and next_position:
+            future_scheduled_seasons.add(next_position[0])
+
+        next_episode_has_aired = bool(
+            next_air_day and next_air_day < today_malta - timedelta(days=1)
+        )
+        if next_position and next_air_day in {
+            today_malta,
+            today_malta - timedelta(days=1),
+        }:
+            scheduled_at = schedules_by_show.get(show.id, {}).get(next_position)
+            if scheduled_at is not None:
+                if scheduled_at.tzinfo is None:
+                    scheduled_at = scheduled_at.replace(tzinfo=MALTA_TZ)
+                next_episode_has_aired = scheduled_at.astimezone(MALTA_TZ) <= now_malta
+        if next_position and next_episode_has_aired:
+            record_aired_position(next_episode)
+
+        # Use metadata counts for aired seasons as well as local episode rows.
+        # The local catalog can be incomplete (especially for older seasons),
+        # but absent rows are still unwatched episodes and must count toward
+        # the user's progress.
+        effective_season_counts: dict[int, int] = {}
+        ended_statuses = {"ended", "canceled", "cancelled"}
+        show_ended = (show.status or "").strip().lower() in ended_statuses
+        latest_aired_season = max(aired_through, default=0)
+        for season_number in set(season_ep_counts) | set(local_season_counts):
+            metadata_count = season_ep_counts.get(season_number, 0)
+            local_count = local_season_counts.get(season_number, 0)
+            expected_count = 0
+
+            if season_number in aired_through:
+                # The schedule is the freshest source for an actively airing
+                # season. A stale season episode_count must not cap it.
+                expected_count = max(
+                    local_count,
+                    aired_through[season_number],
+                )
+            elif season_number in future_scheduled_seasons:
+                # A season with a precise future U.S. broadcast must not be
+                # treated as fully released just because stale season metadata
+                # has an old air date. Count only episodes known to have aired.
+                expected_count = local_count
+            elif latest_aired_season and season_number < latest_aired_season:
+                expected_count = metadata_count
+            else:
+                try:
+                    season_first_air = date.fromisoformat(
+                        str(season_air_dates.get(season_number))[:10]
+                    )
+                except (TypeError, ValueError):
+                    season_first_air = None
+
+                # A fully historic season has completed; its metadata gives
+                # the correct total even when some episode rows are absent.
+                if season_first_air and season_first_air < today_malta - timedelta(days=1):
+                    expected_count = metadata_count
+                elif show_ended and (
+                    season_first_air is None or season_first_air <= today_malta
+                ):
+                    expected_count = metadata_count
+
+            effective_count = max(local_count, expected_count)
+            if effective_count > 0:
+                effective_season_counts[season_number] = effective_count
+
+        season_numbers = set(effective_season_counts)
+
+        has_upcoming_episodes = any(
+            not has_aired(ep) for ep in all_show_episodes
+        )
+        if next_air_day and next_air_day > today_malta:
+            has_upcoming_episodes = True
+        elif next_air_day in {today_malta, today_malta - timedelta(days=1)}:
+            scheduled_at = schedules_by_show.get(show.id, {}).get(next_position)
+            if scheduled_at is not None and scheduled_at > now_malta:
+                has_upcoming_episodes = True
+
+        # Returning shows stay in Progress when the user has watched every
+        # aired episode. Future episodes remain excluded from counts; this
+        # flag keeps the caught-up show discoverable until its run ends.
+        if (show.status or "").strip().lower() in {
+            "returning series",
+            "in production",
+        }:
+            has_upcoming_episodes = True
+
+        total_count = sum(effective_season_counts.values())
+
+        watched_episodes = [
+            ep for ep in show_episodes
+            if ep.id in watched_ids
+        ]
+
+        watched_positions_by_season: dict[int, set[int]] = {}
+        for ep in watched_episodes:
+            season_number = int(ep.season_number)
+            episode_number = int(ep.episode_number)
+            if episode_number <= effective_season_counts.get(season_number, 0):
+                watched_positions_by_season.setdefault(season_number, set()).add(
+                    episode_number
+                )
+        watched_count = sum(
+            len(positions) for positions in watched_positions_by_season.values()
+        )
+        remaining_count = max(total_count - watched_count, 0)
+
+        watched_runtime = sum(
+            episode_runtime(ep)
+            for ep in watched_episodes
+        )
+
+        # Unwatched episodes may not have individual runtime metadata yet.
+        # Estimate those from known episode runtimes (or the show's published
+        # episode_run_time) so missing data never turns real remaining time
+        # into a misleading zero.
+        known_runtimes = [
+            episode_runtime(ep)
+            for ep in all_show_episodes
+            if episode_runtime(ep) > 0
+        ]
+        if not known_runtimes:
+            show_runtimes = (show.tmdb_data or {}).get("episode_run_time") or []
+            known_runtimes = [
+                int(runtime)
+                for runtime in show_runtimes
+                if isinstance(runtime, (int, float)) and runtime > 0
+            ]
+        estimated_episode_runtime = (
+            sorted(known_runtimes)[len(known_runtimes) // 2]
+            if known_runtimes
+            else None
+        )
+        unwatched_episodes = [
+            ep for ep in show_episodes if ep.id not in watched_ids
+        ]
+        missing_episode_count = sum(
+            max(
+                0,
+                effective_season_counts.get(season_number, 0)
+                - local_season_counts.get(season_number, 0),
+            )
+            for season_number in effective_season_counts
+        )
+        missing_unwatched_runtime = any(
+            episode_runtime(ep) <= 0 for ep in unwatched_episodes
+        ) or missing_episode_count > 0
+        cannot_estimate_runtime = (
+            estimated_episode_runtime is None
+            and (
+                missing_episode_count > 0
+                or any(episode_runtime(ep) <= 0 for ep in unwatched_episodes)
+            )
+        )
+        remaining_runtime = (
+            None
+            if cannot_estimate_runtime
+            else sum(
+                episode_runtime(ep) or estimated_episode_runtime or 0
+                for ep in unwatched_episodes
+            ) + missing_episode_count * (estimated_episode_runtime or 0)
+        )
+        total_runtime = watched_runtime + (remaining_runtime or 0)
+        remaining_runtime_estimated = bool(
+            missing_unwatched_runtime and estimated_episode_runtime
+        )
+        watch_pct = (
+            round((watched_count / total_count) * 100)
+            if total_count
+            else 0
+        )
+
+        # Group episodes into seasons.
+        seasons = {}
+        season_states = {}
+
+        for ep in show_episodes:
+            season_number = int(ep.season_number)
+            is_watched = ep.id in watched_ids
+
+            if season_number not in seasons:
+                seasons[season_number] = []
+
+            seasons[season_number].append({
+                "id": ep.id,
+                "tmdb_id": ep.tmdb_id,
+                "title": ep.title,
+                "season": season_number,
+                "episode": int(ep.episode_number),
+                "runtime": ep.runtime,
+                "watched": is_watched,
+                "poster_path": ep.poster_path,
+                "backdrop_path": ep.backdrop_path,
+            })
+
+        for season_number in season_numbers:
+            season_total = effective_season_counts.get(season_number, 0)
+            season_watched = len(watched_positions_by_season.get(season_number, set()))
+
+            season_states[season_number] = {
+                "watched_count": season_watched,
+                "episode_count": season_total,
+                "has_aired": True,
+                "watch_pct": (
+                    round((season_watched / season_total) * 100)
+                    if season_total
+                    else 0
+                ),
+            }
+
+        show_info = format_show(show)
+
+        # Watching dates + source
+        watch_dates_q = await db.execute(
+            select(
+                func.min(WatchEvent.watched_at),
+                func.max(WatchEvent.watched_at),
+            )
+            .join(Media, Media.id == WatchEvent.media_id)
+            .where(
+                WatchEvent.user_id == user_id,
+                WatchEvent.completed == True,
+                Media.show_id == show.id,
+                Media.media_type == MediaType.episode,
+                WatchEvent.watched_at.isnot(None),
+            )
+        )
+
+        first_watched, last_watched = watch_dates_q.one()
+
+        show_info["watch_start_date"] = (
+            first_watched.date().isoformat() if first_watched else None
+        )
+        show_info["watch_end_date"] = (
+            last_watched.date().isoformat() if last_watched else None
+        )
+
+        first_watched, last_watched = watch_dates_q.one()
+
+        show_info["watch_start_date"] = (
+            first_watched.date().isoformat() if first_watched else None
+        )
+        show_info["watch_end_date"] = (
+            last_watched.date().isoformat() if last_watched else None
+        )    
+        
+        first_watched, last_watched = watch_dates_q.one()
+
+        show_info["watch_start_date"] = (
+            first_watched.date().isoformat() if first_watched else None
+        )
+        show_info["watch_end_date"] = (
+            last_watched.date().isoformat() if last_watched else None
+        )
+
+        watch_source_q = await db.execute(
+            select(WatchEvent.watch_source)
+            .join(Media, Media.id == WatchEvent.media_id)
+            .where(
+                WatchEvent.user_id == user_id,
+                WatchEvent.completed == True,
+                Media.show_id == show.id,
+                Media.media_type == MediaType.episode,
+                WatchEvent.watched_at.isnot(None),
+                WatchEvent.watch_source.isnot(None),
+            )
+            .distinct()
+            .order_by(WatchEvent.watch_source.asc())
+        )
+
+        watch_sources = [source for source in watch_source_q.scalars().all() if source]
+
+        show_info["watch_sources"] = watch_sources
+
+        show_info.update({
+            "episode_count": total_count,
+            "watched_count": watched_count,
+            "remaining_count": remaining_count,
+            "last_watched_at": (
+                last_watched_by_show.get(show.id).isoformat()
+                if last_watched_by_show.get(show.id)
+                else None
+            ),
+            "total_runtime": total_runtime,
+            "watched_runtime": watched_runtime,
+            "remaining_runtime": remaining_runtime,
+            "remaining_runtime_estimated": remaining_runtime_estimated,
+            "has_upcoming_episodes": has_upcoming_episodes,
+            "watch_pct": watch_pct,
+            "seasons": seasons,
+            "season_states": season_states,
+        })
+
+        show_data.append(show_info)
+
+    return {
+        "results": show_data,
+        "total_results": len(show_data),
+    }
 
 @router.get("/{series_tmdb_id}")
 async def get_show(
@@ -577,12 +1513,55 @@ async def get_show(
         networks = []
         recommendations = []
         cast = []
+        awards = []
         tmdb_extra: dict | None = None
         api_key = await get_user_tmdb_key(db, current_user.id)
+        tvdb_api_key = await get_user_tvdb_key(db, current_user.id)
         metadata_lang = await get_user_metadata_language(db, current_user.id)
+        tmdb_show_task = (
+            asyncio.create_task(
+                tmdb.get_show(
+                    series_tmdb_id,
+                    api_key=api_key,
+                    language=metadata_lang,
+                )
+            )
+            if check_tmdb_key(api_key)
+            else None
+        )
+
+        tvdb_genres = []
+        if tvdb_api_key and show.tvdb_id:
+            try:
+                tvdb_raw = await tvdb_client.get_series(
+                    show.tvdb_id,
+                    tvdb_api_key,
+                )
+                tvdb_formatted = tvdb_client.format_series(
+                    tvdb_raw,
+                    language=tvdb_client.tvdb_language(metadata_lang),
+                )
+                tvdb_genres = [
+                    g
+                    for g in tvdb_formatted.get("genres", [])
+                    if g.lower() not in {"family", "kids", "children"}
+                ]
+            except Exception as e:
+                print(f"TVDB genre fetch failed for {show.tvdb_id}: {e}")
+
         if check_tmdb_key(api_key):
             try:
-                tmdb_extra = await tmdb.get_show(series_tmdb_id, api_key=api_key, language=metadata_lang)
+                tmdb_extra = await tmdb_show_task
+
+                production_countries = [
+                    {
+                        "iso_3166_1": c.get("iso_3166_1"),
+                        "name": c.get("name"),
+                    }
+                    for c in tmdb_extra.get("production_countries", [])
+                ]
+
+                
                 networks = [
                     {
                         "id": n["id"],
@@ -617,15 +1596,9 @@ async def get_show(
                     ]
                 ]
                 await enrich_with_state(db, current_user.id, recommendations)
-                cast = [
-                    {
-                        "tmdb_id": c.get("id"),
-                        "name": c.get("name"),
-                        "character": c.get("character"),
-                        "profile_path": tmdb.poster_url(c.get("profile_path")),
-                    }
-                    for c in tmdb_extra.get("credits", {}).get("cast", [])[:12]
-                ]
+
+                cast, guest_stars = _format_aggregate_show_cast(tmdb_extra)
+
                 if metadata_lang:
                     try:
                         await upsert_show_translation(
@@ -685,6 +1658,21 @@ async def get_show(
             select(Media).where(Media.tmdb_id == series_tmdb_id, Media.media_type == MediaType.series)
         )
         show_media = show_media_q.scalar_one_or_none()
+
+        # Show-level user rating
+        show_user_rating = None
+        if show_media:
+            rating_q = await db.execute(
+                select(Rating.rating)
+                .where(
+                    Rating.media_id == show_media.id,
+                    Rating.user_id == current_user.id,
+                    Rating.season_number.is_(None),
+                    Rating.episode_order.is_(None),
+                )
+            )
+            show_user_rating = rating_q.scalar_one_or_none()
+
         if show_media and not show_media.adult and (tmdb_extra or {}).get("adult", False):
             show_media.adult = True
             await db.commit()
@@ -766,7 +1754,69 @@ async def get_show(
                 for ep_list in seasons.values():
                     apply_media_translations(ep_list, ep_trans)
 
+                # First and last time the user watched this show
+                watch_dates_q = await db.execute(
+                    select(
+                        func.min(WatchEvent.watched_at),
+                        func.max(WatchEvent.watched_at),
+                    )
+                    .join(Media, Media.id == WatchEvent.media_id)
+                    .join(ShowModel, ShowModel.id == Media.show_id)
+                    .where(
+                        WatchEvent.user_id == current_user.id,
+                        WatchEvent.completed.is_(True),
+                        ShowModel.tmdb_id == series_tmdb_id,
+                        Media.media_type == MediaType.episode,
+                        Media.season_number.isnot(None),
+                        Media.episode_number.isnot(None),
+                    )
+                )
+                watch_start_date, watch_end_date = watch_dates_q.one()
+                # First and last time the user watched this show
+                watch_dates_q = await db.execute(
+                    select(
+                        func.min(WatchEvent.watched_at),
+                        func.max(WatchEvent.watched_at),
+                    )
+                    .join(Media, Media.id == WatchEvent.media_id)
+                    .join(ShowModel, ShowModel.id == Media.show_id)
+                    .where(
+                        WatchEvent.user_id == current_user.id,
+                        WatchEvent.completed.is_(True),
+                        ShowModel.tmdb_id == series_tmdb_id,
+                        Media.media_type == MediaType.episode,
+                        Media.season_number.isnot(None),
+                        Media.episode_number.isnot(None),
+                    )
+                )
+                watch_start_date, watch_end_date = watch_dates_q.one()
+
+                watch_sources_q = await db.execute(
+                    select(WatchEvent.watch_source)
+                    .join(Media, Media.id == WatchEvent.media_id)
+                    .join(ShowModel, ShowModel.id == Media.show_id)
+                    .where(
+                        WatchEvent.user_id == current_user.id,
+                        WatchEvent.completed.is_(True),
+                        ShowModel.tmdb_id == series_tmdb_id,
+                        Media.media_type == MediaType.episode,
+                        WatchEvent.watched_at.isnot(None),
+                        WatchEvent.watch_source.isnot(None),
+                    )
+                    .distinct()
+                    .order_by(WatchEvent.watch_source.asc())
+                )
+
+                watch_sources = [
+                    source for source in watch_sources_q.scalars().all()
+                    if source
+                ]
+
+
         show_dict = format_show(show)
+
+        if tvdb_genres:
+            show_dict["genres"] = tvdb_genres
         if metadata_lang and tmdb_extra:
             for field, tmdb_key in [("title", "name"), ("overview", "overview"), ("tagline", "tagline")]:
                 val = tmdb_extra.get(tmdb_key)
@@ -783,11 +1833,27 @@ async def get_show(
             ),
             "seasons_meta": enhanced_seasons_meta,
             "original_language": (show.tmdb_data or {}).get("original_language") or (tmdb_extra or {}).get("original_language"),
+            "first_air_date": (tmdb_extra or show.tmdb_data or {}).get("first_air_date"),
+            "last_air_date": (tmdb_extra or show.tmdb_data or {}).get("last_air_date"),
+            "production_countries": (tmdb_extra or show.tmdb_data or {}).get("production_countries", []),
+            "production_companies": [
+    {
+                    "id": c.get("id"),
+                    "name": c.get("name"),
+                    "logo_path": tmdb.poster_url(c.get("logo_path"), size="w500")
+                    if c.get("logo_path")
+                    else None,
+                }
+                for c in (tmdb_extra or show.tmdb_data or {}).get("production_companies", [])
+            ],
             "age_rating": _extract_show_content_rating(tmdb_extra) if tmdb_extra else None,
             "imdb_id": (tmdb_extra or show.tmdb_data or {}).get("external_ids", {}).get("imdb_id"),
             "adult": (tmdb_extra or show.tmdb_data or {}).get("adult", False),
             "in_library": state_item.get("collection_pct", 0) > 0 if state_item else False,
             "watched": state_item.get("watched", False) if state_item else False,
+            "watch_start_date": watch_start_date.isoformat() if watch_start_date else None,
+            "watch_end_date": watch_end_date.isoformat() if watch_end_date else None,
+            "watch_sources": watch_sources,
             "in_lists": state_item.get("in_lists", []),
             "collection_pct": state_item.get("collection_pct", 0),
             "watch_pct": state_item.get("watch_pct", 0),
@@ -798,10 +1864,13 @@ async def get_show(
             "season_states": season_states,
             "seasons": {f"season_{k}": v for k, v in sorted(seasons.items())},
             "created_by": [
-                {"tmdb_id": c["id"], "name": c["name"]}
+                {"tmdb_id": c["id"], "name": c["name"], "profile_path": tmdb.poster_url(c.get("profile_path"), size="w185")}
                 for c in (tmdb_extra or show.tmdb_data or {}).get("created_by", [])
             ],
+            "crew": _format_show_crew(tmdb_extra or show.tmdb_data or {}),
             "cast": cast,
+            "guest_stars": guest_stars,
+            "awards": awards,
             "networks": networks,
             "where_to_watch": where_to_watch,
         }
@@ -816,15 +1885,7 @@ async def get_show(
     try:
         data = await tmdb.get_show(series_tmdb_id, api_key=api_key)
 
-        cast = [
-            {
-                "tmdb_id": c.get("id"),
-                "name": c.get("name"),
-                "character": c.get("character"),
-                "profile_path": tmdb.poster_url(c.get("profile_path")),
-            }
-            for c in data.get("credits", {}).get("cast", [])[:12]
-        ]
+        cast, guest_stars = _format_aggregate_show_cast(data)
 
         networks = [
             {
@@ -863,6 +1924,7 @@ async def get_show(
             "tagline": data.get("tagline"),
             "first_air_date": data.get("first_air_date"),
             "last_air_date": data.get("last_air_date"),
+            "production_countries": data.get("production_countries", []),
             "genres": [g["name"] for g in data.get("genres", [])],
             "original_language": data.get("original_language"),
             "age_rating": _extract_show_content_rating(data),
@@ -877,10 +1939,12 @@ async def get_show(
             "request_status": state_item_tmdb.get("request_status"),
             "user_rating": state_item_tmdb.get("user_rating"),
             "created_by": [
-                {"tmdb_id": c["id"], "name": c["name"]}
+                {"tmdb_id": c["id"], "name": c["name"], "profile_path": tmdb.poster_url(c.get("profile_path"), size="w185")}
                 for c in data.get("created_by", [])
             ],
+            "crew": _format_show_crew(data),
             "cast": cast,
+            "guest_stars": guest_stars,
             "networks": networks,
             "seasons_meta": [
                 {
@@ -983,12 +2047,18 @@ async def get_show_season(
                     "backdrop_path": tmdb.poster_url(
                         tmdb_show_data.get("backdrop_path"), size="w1280"
                     ),
+                    "networks": tmdb_show_data.get("networks", []),
+                    "imdb_id": tmdb_show_data.get("external_ids", {}).get("imdb_id"),
                 }
             else:
                 tmdb_data = await tmdb.get_season(
                     series_tmdb_id, season_number, api_key=api_key, language=metadata_lang
                 )
                 show_info = format_show(show)
+                show_info["imdb_id"] = (show.tmdb_data or {}).get("external_ids", {}).get("imdb_id")
+
+            imdb_id = (show_info or {}).get("imdb_id")
+            imdb_rating = await tmdb.get_imdb_rating(imdb_id) if imdb_id else None
 
             # Bulk fetch watched state and ratings for episodes in this season
             tmdb_episodes = tmdb_data.get("episodes", [])
@@ -1002,44 +2072,26 @@ async def get_show_season(
                 ep.get("id") for ep in tmdb_episodes if ep.get("id")
             ]
 
-            watched_ep_ids: set = set()
+            watched_ep_tmdb_ids: set[int] = set()
             episode_ratings: dict = {}
 
-            # Find all local Media rows for these episodes (even if show_id is null)
-            # and map them by TMDB ID for easy lookup.
-            local_media_by_tmdb: dict[int, Media] = {}
             if season_ep_tmdb_ids:
-                media_q = await db.execute(
-                    select(Media).where(
-                        Media.media_type == MediaType.episode,
-                        Media.tmdb_id.in_(season_ep_tmdb_ids)
-                    )
-                )
-                for m in media_q.scalars().all():
-                    local_media_by_tmdb[m.tmdb_id] = m
-
-            local_media_ids = [m.id for m in local_media_by_tmdb.values()]
-
-            if local_media_ids:
                 watched_q = await db.execute(
-                    select(WatchEvent.media_id).where(
+                    select(Media.tmdb_id)
+                    .join(WatchEvent, WatchEvent.media_id == Media.id)
+                    .where(
                         WatchEvent.user_id == current_user.id,
-                        WatchEvent.media_id.in_(local_media_ids),
-                    ).distinct()
-                )
-                watched_ep_ids = {r[0] for r in watched_q.all()}
-
-                ep_ratings_q = await db.execute(
-                    select(Rating.media_id, Rating.rating).where(
-                        Rating.user_id == current_user.id,
-                        Rating.media_id.in_(local_media_ids),
-                        Rating.season_number.is_(None),
+                        WatchEvent.completed == True,
+                        Media.media_type == MediaType.episode,
+                        Media.tmdb_id.in_(season_ep_tmdb_ids),
                     )
+                    .distinct()
                 )
-                episode_ratings = {r[0]: r[1] for r in ep_ratings_q.all()}
+                watched_ep_tmdb_ids = {r[0] for r in watched_q.all()}
 
             # Fetch list membership per episode
             episode_in_lists: dict[int, list[int]] = {}
+            local_media_ids = [ep.id for ep in local_episodes] if local_episodes else []
             if local_media_ids:
                 user_lists_q = await db.execute(
                     select(UserList.id).where(UserList.user_id == current_user.id)
@@ -1096,6 +2148,31 @@ async def get_show_season(
                 )
                 user_collected_eps |= {(r[0], r[1]) for r in tmdb_id_coll_q.all()}
 
+            async def fetch_episode_imdb_rating(ep):
+                ep_num = ep.get("episode_number")
+                if ep_num is None:
+                    return None, None
+
+                try:
+                    external_ids = await tmdb.get_episode_external_ids(
+                        series_tmdb_id,
+                        season_number,
+                        ep_num,
+                        api_key=api_key,
+                    )
+
+                    imdb_id = external_ids.get("imdb_id")
+                    rating = await tmdb.get_imdb_rating(imdb_id) if imdb_id else None
+                    return ep_num, rating
+                except Exception:
+                    return ep_num, None
+
+            imdb_ratings = dict(
+                await asyncio.gather(
+                    *(fetch_episode_imdb_rating(ep) for ep in tmdb_episodes)
+                )
+            )
+
             episodes = []
             for ep in tmdb_episodes:
                 ep_num = ep.get("episode_number")
@@ -1118,9 +2195,10 @@ async def get_show_season(
                         "episode_number": ep_num,
                         "season_number": season_number,
                         "tmdb_rating": ep.get("vote_average"),
+                        "imdb_rating": imdb_ratings.get(ep_num),
                         "in_library": is_in_library,
                         "runtime": ep.get("runtime"),
-                        "watched": local_media_id in watched_ep_ids if local_media_id else False,
+                        "watched": ep.get("id") in watched_ep_tmdb_ids,
                         "user_rating": episode_ratings.get(local_media_id) if local_media_id else None,
                         "in_lists": episode_in_lists.get(ep.get("id"), []),
                     }
@@ -1247,8 +2325,10 @@ async def get_show_season(
                 "backdrop_path": tmdb.poster_url(
                     tmdb_data.get("backdrop_path"), size="w1280"
                 ),
+                "imdb_id": (show_info or {}).get("imdb_id"),
                 "air_date": tmdb_data.get("air_date"),
                 "tmdb_rating": tmdb_data.get("vote_average"),
+                "imdb_rating": imdb_rating,
                 "episodes": episodes,
                 "show": show_info,
                 "show_watched": show_state.get("watched", False),
@@ -1301,26 +2381,64 @@ async def get_episode_detail(
         show = show_result.scalar_one_or_none()
 
         if show:
-            ep_data = await tmdb.get_episode(
-                series_tmdb_id, season_number, episode_number, api_key=api_key, language=metadata_lang
-            )
-            show_info = format_show(show)
-        else:
             ep_data, show_tmdb = await asyncio.gather(
                 tmdb.get_episode(
                     series_tmdb_id, season_number, episode_number, api_key=api_key, language=metadata_lang
                 ),
-                tmdb.get_show(series_tmdb_id, api_key=api_key, language=metadata_lang),
-            )
-            show_info = {
-                "id": None,
-                "tmdb_id": series_tmdb_id,
-                "title": show_tmdb.get("name"),
-                "poster_path": tmdb.poster_url(show_tmdb.get("poster_path")),
-                "backdrop_path": tmdb.poster_url(
-                    show_tmdb.get("backdrop_path"), size="w1280"
+                tmdb.get_show(
+                    series_tmdb_id, api_key=api_key, language=metadata_lang
                 ),
-            }
+            )
+            show_info = await build_show_info(
+                show,
+                db,
+                current_user.id,
+                tmdb_data=show_tmdb,
+            )
+
+            external_ids = await tmdb.get_episode_external_ids(
+                series_tmdb_id,
+                season_number,
+                episode_number,
+                api_key=api_key,
+            )
+
+        # TVDB is used as the authoritative episode air-date source.
+        tvdb_air_date = None
+        tvdb_series_id = show.tvdb_id if show and show.tvdb_id else None
+
+        if not tvdb_series_id and show_tmdb:
+            tvdb_series_id = show_tmdb.get("external_ids", {}).get("tvdb_id")
+
+        tvdb_api_key = await get_user_tvdb_key(db, current_user.id)
+        if tvdb_api_key and tvdb_series_id:
+            try:
+                tvdb_raw = await tvdb_client.get_series_episodes(
+                    int(tvdb_series_id),
+                    season_number,
+                    tvdb_api_key,
+                    language=tvdb_client.tvdb_language(metadata_lang),
+                )
+                tvdb_eps = [
+                    tvdb_client.format_episode(e)
+                    for e in tvdb_raw
+                ]
+                tvdb_ep = next(
+                    (
+                        e for e in tvdb_eps
+                        if e.get("episode_number") == episode_number
+                    ),
+                    None,
+                )
+                if tvdb_ep:
+                    tvdb_air_date = tvdb_ep.get("air_date")
+            except Exception:
+                pass
+
+
+        imdb_id = external_ids.get("imdb_id")
+
+        imdb_rating = await tmdb.get_imdb_rating(imdb_id)
 
         # Check local library for this episode
         local_ep = None
@@ -1374,6 +2492,25 @@ async def get_episode_detail(
             for c in ep_data.get("guest_stars", [])[:6]
         ]
 
+        crew = [
+            {
+                "tmdb_id": c.get("id"),
+                "name": c.get("name"),
+                "department": c.get("department"),
+                "job": c.get("job"),
+                "profile_path": tmdb.poster_url(c.get("profile_path")),
+            }
+            for c in credits.get("crew", [])
+        ]
+
+        external_ids = await tmdb.get_episode_external_ids(
+            series_tmdb_id,
+            season_number,
+            episode_number,
+            api_key=api_key,
+        )
+        imdb_id = external_ids.get("imdb_id")
+
         # Store episode translation for library browsing
         if metadata_lang and local_ep:
             try:
@@ -1404,6 +2541,32 @@ async def get_episode_detail(
         ep_state: dict = {"tmdb_id": ep_tmdb_id, "type": "episode"}
         await enrich_with_state(db, current_user.id, [ep_state])
 
+        watch_history = []
+
+        if local_ep:
+            watch_history_q = await db.execute(
+                select(
+                    WatchEvent.id,
+                    WatchEvent.watched_at,
+                    WatchEvent.watch_source,
+                )
+                .where(
+                    WatchEvent.media_id == local_ep.id,
+                    WatchEvent.user_id == current_user.id,
+                    WatchEvent.completed.is_(True),
+                )
+                .order_by(WatchEvent.watched_at.desc())
+            )
+
+            watch_history = [
+                {
+                    "id": row.id,
+                    "watched_at": row.watched_at.isoformat() if row.watched_at else None,
+                    "watch_source": row.watch_source,
+                }
+                for row in watch_history_q.all()
+            ]
+
         return {
             "id": local_ep.id if local_ep else None,
             "tmdb_id": ep_tmdb_id,
@@ -1413,16 +2576,20 @@ async def get_episode_detail(
             "collection_pct": ep_state.get("collection_pct", 100 if local_ep else 0),
             "user_rating": ep_state.get("user_rating"),
             "play_count": ep_state.get("play_count", 0),
+            "watch_history": watch_history,
             "episode_number": episode_number,
             "season_number": season_number,
             "title": ep_data.get("name"),
             "overview": ep_data.get("overview"),
             "still_path": tmdb.poster_url(ep_data.get("still_path"), size="w780"),
-            "air_date": ep_data.get("air_date"),
+            "air_date": tvdb_air_date or ep_data.get("air_date"),
             "runtime": ep_data.get("runtime"),
             "tmdb_rating": ep_data.get("vote_average"),
+            "imdb_id": imdb_id,
+            "imdb_rating": imdb_rating,
             "cast": cast,
             "guest_stars": guest_stars,
+            "crew": crew,
             "show": show_info,
             "episodes": episodes_nav,
             "library": library_info,
@@ -1464,12 +2631,20 @@ async def refresh_show_metadata(
     show.tmdb_rating = data.get("vote_average")
     show.status = data.get("status")
     show.tagline = data.get("tagline")
+    show.tvdb_id = data.get("external_ids", {}).get("tvdb_id") or show.tvdb_id
     show.first_air_date = data.get("first_air_date")
     show.last_air_date = data.get("last_air_date")
     show.tmdb_data = {
+        **(show.tmdb_data or {}),
         "genres": [g["name"] for g in data.get("genres", [])],
         "external_ids": data.get("external_ids", {}),
+        "imdb_rating": await tmdb.get_imdb_rating(
+            data.get("external_ids", {}).get("imdb_id")
+        ),
         "original_language": data.get("original_language"),
+        "networks": data.get("networks", []),
+        "last_episode_to_air": data.get("last_episode_to_air"),
+        "next_episode_to_air": data.get("next_episode_to_air"),
         "seasons": [
             {
                 "season_number": s["season_number"],
@@ -1561,6 +2736,37 @@ async def refresh_show_metadata(
 
 # ── TVDB Show Endpoints ─────────────────────────────────────────────────────
 
+@router.get("/tvdb/{tvdb_id}/awards")
+async def get_tvdb_awards(
+    tvdb_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    api_key = await get_user_tvdb_key(db, current_user.id)
+
+    if not api_key:
+        raise HTTPException(
+            status_code=400,
+            detail="TVDB API key not configured",
+        )
+
+    try:
+        awards = await tvdb_client.get_series_awards(
+            tvdb_id,
+            api_key,
+        )
+
+        return {
+            "tvdb_id": tvdb_id,
+            "count": len(awards),
+            "awards": awards,
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"TVDB awards fetch failed: {e}",
+        )
 
 @router.get("/tvdb/{tvdb_id}")
 async def get_tvdb_show(

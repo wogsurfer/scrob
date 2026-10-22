@@ -399,6 +399,7 @@ async def _write_watch_event(
             progress_percent=1.0,
             completed=True,
             play_count=1,
+            watch_source="Digital file",
         ))
         # Remove any in-progress marker since it's now done
         await db.execute(
@@ -415,7 +416,65 @@ async def _write_watch_event(
 # ── Jellyfin ───────────────────────────────────────────────────────────────────
 
 def parse_jellyfin_payload(payload: dict) -> dict | None:
-    notification_type = payload.get("NotificationType") or payload.get("notificationType", "")
+    notification_type = (
+        payload.get("NotificationType")
+        or payload.get("notificationType")
+        or payload.get("Event")
+        or ""
+    )
+
+    # ── Emby Webhook format ────────────────────────────────────────────────
+    if payload.get("Event") and payload.get("Item"):
+        item = payload.get("Item") or {}
+        playback = payload.get("PlaybackInfo") or {}
+        session = payload.get("Session") or {}
+
+        item_type = item.get("Type")
+        if item_type not in ("Movie", "Episode"):
+            return None
+
+        position_ticks = playback.get("PositionTicks", 0) or 0
+        runtime_ticks = (
+            playback.get("RunTimeTicks", 0)
+            or item.get("RunTimeTicks", 0)
+            or 0
+        )
+
+        provider_ids = item.get("ProviderIds") or {}
+
+        return {
+            "notification_type": notification_type,
+            "jellyfin_id": item.get("Id"),
+            "title": item.get("Name"),
+            "year": item.get("ProductionYear"),
+            "media_type": "movie" if item_type == "Movie" else "episode",
+            "tmdb_id": provider_ids.get("Tmdb"),
+            "series_tmdb_id": None,
+            "series_name": item.get("SeriesName"),
+            "season_number": item.get("ParentIndexNumber"),
+            "episode_number": item.get("IndexNumber"),
+            "progress_percent": (
+                round(position_ticks / runtime_ticks, 4)
+                    if runtime_ticks else 0.0
+                ),
+                "progress_seconds": (
+                    int(position_ticks / 10_000_000)
+                    if position_ticks else 0
+                ),
+                "is_paused": notification_type in (
+                    "playback.pause",
+                    "PlaybackPause",
+                ),
+                "session_id": (
+                    session.get("Id")
+                    or playback.get("PlaySessionId")
+                ),
+                "username": (
+                    payload.get("User", {}).get("Name")
+                    or ""
+                ),
+                "quality": {},
+            }
 
     # ── Nested format (raw Jellyfin API / custom HTTP destination) ────────────
     item = payload.get("Item") or payload.get("item") or {}
@@ -513,7 +572,14 @@ async def find_or_create_media_jellyfin(data: dict, db: AsyncSession, api_key: s
     if data["media_type"] == "episode" and not series_tmdb_id and data.get("series_name"):
         # Flat format: no series_tmdb_id — try local Show table first, then TMDB search
         local_result = await db.execute(
-            select(Show).where(Show.title.ilike(data["series_name"]))
+            select(Show).where(
+                Show.title.ilike(data["series_name"])
+                | Show.title.ilike(
+                    data["series_name"].rsplit(" (", 1)[0]
+                    if " (" in data["series_name"]
+                    else data["series_name"]
+                )
+            )
         )
         local_show = local_result.scalars().first()
         if local_show:
@@ -802,6 +868,8 @@ async def _handle_emby_webhook(request: Request, db: AsyncSession, api_key: str,
         return {"status": "ignored", "reason": "invalid JSON"}
 
     data = parse_jellyfin_payload(payload)
+
+    
     if not data:
         return {"status": "ignored"}
 
@@ -904,14 +972,27 @@ async def _handle_jellyfin_scrobble_webhook(
     if not user:
         raise HTTPException(status_code=401, detail="Invalid API key")
 
-    body = await request.body()
-    if not body:
-        return {"status": "ignored", "reason": "empty body"}
-
     try:
-        payload = await request.json()
+        body = await request.body()
+
+        # Emby sends the JSON inside a multipart/form-data wrapper.
+        # Extract the JSON portion directly.
+        parts = body.split(b"\r\n\r\n", 1)
+
+        if len(parts) != 2:
+            print("🔥 EMBY WEBHOOK: could not locate JSON payload")
+            return {"status": "ignored", "reason": "invalid multipart body"}
+
+        json_body = parts[1]
+
+        # Remove the closing multipart boundary.
+        if b"\r\n--" in json_body:
+            json_body = json_body.split(b"\r\n--", 1)[0]
+
+        payload = json.loads(json_body.decode("utf-8"))
+
     except Exception:
-        return {"status": "ignored", "reason": "invalid JSON"}
+        return {"status": "ignored", "reason": "invalid multipart payload"}
 
     data = parse_jellyfin_payload(payload)
     if not data:
@@ -935,20 +1016,24 @@ async def _handle_jellyfin_scrobble_webhook(
 
     coll_source = CollectionSource.jellyfin if source == "jellyfin" else CollectionSource.emby
 
-    if notification_type in ("PlaybackStart", "PlaybackProgress", "PlaybackStop", "MarkPlayed", "playback.start", "playback.progress", "playback.stop", "item.markplayed"):
-        if conn.sync_collection:
-            await _ensure_collection_entry(
-                db, user.id, media.id, coll_source, data["jellyfin_id"], data.get("quality"),
-                connection_id=None,
+    if notification_type in ("PlaybackStart", "playback.start"):
+
+        if notification_type in ("PlaybackStart", "playback.start"):
+            if conn.sync_playback:
+                session = await _get_or_open_session(db, session_key, source, user.id, media.id)
+                session.state = "playing"
+                await db.commit()
+
+            print("🔥 SCROBBLE → TRAKT START")
+            await _maybe_trakt_scrobble(
+                settings, media, "start", data["progress_percent"], db=db
             )
 
-    if notification_type in ("PlaybackStart", "playback.start"):
-        if conn.sync_playback:
-            session = await _get_or_open_session(db, session_key, source, user.id, media.id)
-            session.state = "playing"
-            await db.commit()
-
-    elif notification_type in ("PlaybackProgress", "playback.progress"):
+    elif notification_type in (
+        "PlaybackProgress",
+        "playback.progress",
+        "playback.pause",
+    ):
         if conn.sync_playback:
             session = await _get_or_open_session(db, session_key, source, user.id, media.id)
             session.state = "paused" if data["is_paused"] else "playing"
@@ -957,23 +1042,114 @@ async def _handle_jellyfin_scrobble_webhook(
             session.updated_at = datetime.utcnow()
             await db.commit()
 
+        if data["is_paused"]:
+            print("🔥 SCROBBLE → TRAKT PAUSE")
+            await _maybe_trakt_scrobble(
+                settings, media, "pause", data["progress_percent"], db=db
+            )
+
     elif notification_type in ("PlaybackStop", "playback.stop"):
+        import logging
+        logger = logging.getLogger("scrob.emby.stop")
+
+        logger.warning(
+            "EMBY STOP RECEIVED | title=%s | item_id=%s | session_id=%s | "
+            "progress=%.1f%% | media_id=%s | conn=%s | sync_watched=%s",
+            data.get("title"),
+            data.get("jellyfin_id"),
+            data.get("session_id"),
+            data.get("progress_percent", 0) * 100,
+            media.id if media else None,
+            conn.id if conn else None,
+            conn.sync_watched if conn else None,
+        )
+
         session = await _close_session(db, session_key)
-        if conn.sync_playback:
-            progress_percent = data["progress_percent"] or (session.progress_percent if session else 0.0)
-            progress_seconds = data["progress_seconds"] or (session.progress_seconds if session else 0)
-            if conn.sync_watched and progress_percent > 0.05:
-                await _write_watch_event(db, user.id, media.id, progress_percent, progress_seconds, progress_percent >= 0.90)
+
+        logger.warning(
+            "EMBY STOP SESSION | title=%s | session_found=%s | "
+            "session_progress=%.1f%% | session_seconds=%s",
+            data.get("title"),
+            session is not None,
+            (session.progress_percent * 100) if session else 0,
+            session.progress_seconds if session else 0,
+        )
+
+        progress_percent = data["progress_percent"] or (
+            session.progress_percent if session else 0.0
+        )
+        progress_seconds = data["progress_seconds"] or (
+            session.progress_seconds if session else 0
+        )
+
+        if conn.sync_watched and progress_percent > 0.05:
+            logger.warning(
+                "EMBY STOP → WRITE WATCH | title=%s | media_id=%s | "
+                "progress=%.1f%% | completed=%s",
+                data.get("title"),
+                media.id,
+                progress_percent * 100,
+                progress_percent >= 0.90,
+            )
+
+            await _write_watch_event(
+                db,
+                user.id,
+                media.id,
+                progress_percent,
+                progress_seconds,
+                progress_percent >= 0.90,
+            )
             await db.commit()
+
+            logger.warning(
+                "EMBY STOP → WATCH COMMIT OK | title=%s | media_id=%s",
+                data.get("title"),
+                media.id,
+            )
+        else:
+            logger.warning(
+                "EMBY STOP → WATCH SKIPPED | title=%s | sync_watched=%s | "
+                "progress=%.1f%%",
+                data.get("title"),
+                conn.sync_watched,
+                progress_percent * 100,
+            )
+
+        logger.warning(
+            "EMBY STOP → TRAKT | title=%s | progress=%.1f%%",
+            data.get("title"),
+            progress_percent * 100,
+        )
+
+        await _maybe_trakt_scrobble(
+            settings, media, "stop", progress_percent, db=db
+        )
+
+        logger.warning(
+            "EMBY STOP COMPLETE | title=%s | media_id=%s",
+            data.get("title"),
+            media.id,
+        )
 
     elif notification_type in ("MarkPlayed", "item.markplayed"):
         await _close_session(db, session_key)
+
         if conn.sync_watched:
-            await _write_watch_event(db, user.id, media.id, 1.0, data["progress_seconds"], True)
+            await _write_watch_event(
+                db,
+                user.id,
+                media.id,
+                1.0,
+                data["progress_seconds"],
+                True,
+            )
             await db.commit()
 
-    return {"status": "ok", "event": notification_type, "title": data["title"]}
-
+        print("🔥 SCROBBLE → TRAKT STOP / WATCHED")
+        await _maybe_trakt_scrobble(
+            settings, media, "stop", 1.0, db=db
+        )
 
 @router.post("/emby")
 async def emby_webhook(
@@ -1001,7 +1177,8 @@ async def emby_webhook_connection(
     db: AsyncSession = Depends(get_db),
     api_key: str = Query(..., description="Scrob user API key"),
 ):
-    return await _handle_emby_webhook(request, db, api_key, connection_id)
+        body = await request.body()
+        return {"status": "received"}
 
 
 # ── Plex ───────────────────────────────────────────────────────────────────────
@@ -1347,11 +1524,15 @@ async def find_or_create_media_plex(data: dict, db: AsyncSession, api_key: str =
         except Exception:
             pass
 
-    # Don't create a row for an episode we can't identify at all — it can never
-    # be enriched or matched back to a real episode, and would inflate collection counts.
-    if data["media_type"] == "episode" and data["season_number"] is None and data["episode_number"] is None and not data["tmdb_id"]:
-        print(f"  Skipping unidentifiable episode '{data['title']}' (no season/episode/tmdb_id)")
-        return None
+        # Don't create an episode unless we can identify its show.
+        # An orphan episode can never be enriched or matched back to the real
+        # episode and would create duplicate/broken history entries.
+        if data["media_type"] == "episode" and show is None:
+            print(
+                f"  Skipping unidentified episode '{data['title']}' "
+                f"(show could not be resolved)"
+            )
+            return None
 
     # For episodes without a TMDB ID, look up by show+season+episode before creating
     # to avoid duplicate Media rows on repeated webhook events (e.g. episodes not yet

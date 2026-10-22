@@ -6,7 +6,27 @@ from contextlib import asynccontextmanager
 from sqlalchemy.ext.asyncio import AsyncSession
 from db import engine, Base
 import models # noqa: F401
-from routers import webhooks, media, history, ratings, sync, shows, auth, lists, oidc, profile, trakt, simkl, mdblist, comments, admin, compat
+from routers import (
+    webhooks,
+    media,
+    history,
+    dashboard,
+    calendar,
+    ratings,
+    sync,
+    shows,
+    auth,
+    lists,
+    oidc,
+    profile,
+    trakt,
+    simkl,
+    mdblist,
+    comments,
+    admin,
+    compat,
+    watchlist,
+)
 
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -303,6 +323,8 @@ async def _watchlist_poller():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from core.tmdb import start_http_client, close_http_client
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
@@ -318,6 +340,7 @@ async def lifespan(app: FastAPI):
         await db.execute(delete(PlaybackSession))
         await db.commit()
 
+    await start_http_client()
     scheduler_task = asyncio.create_task(_auto_sync_scheduler())
     watchlist_task = asyncio.create_task(_watchlist_poller())
     manual_session_task = asyncio.create_task(_manual_session_completer())
@@ -339,6 +362,7 @@ async def lifespan(app: FastAPI):
         await manual_session_task
     except asyncio.CancelledError:
         pass
+    await close_http_client()
 
 from core.config import settings
 
@@ -364,6 +388,8 @@ app.include_router(oidc.router, prefix="/auth/oidc", tags=["oidc"])
 app.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"])
 app.include_router(media.router, prefix="/media", tags=["media"])
 app.include_router(history.router, prefix="/history", tags=["history"])
+app.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])
+app.include_router(calendar.router, prefix="/calendar", tags=["calendar"])
 app.include_router(ratings.router, prefix="/ratings", tags=["ratings"])
 app.include_router(sync.router, prefix="/sync", tags=["sync"])
 app.include_router(shows.router, prefix="/shows", tags=["shows"])
@@ -375,6 +401,14 @@ app.include_router(mdblist.router, prefix="/mdblist", tags=["mdblist"])
 app.include_router(comments.router, prefix="/comments", tags=["comments"])
 app.include_router(admin.router, prefix="/admin", tags=["admin"])
 app.include_router(compat.router, tags=["compat"])
+app.include_router(
+    watchlist.router,
+    prefix="/watchlist",
+    tags=["Watchlist"],
+)
+
+for route in app.routes:
+    print(route.path, route.methods)
 
 @app.get("/health")
 async def health():
