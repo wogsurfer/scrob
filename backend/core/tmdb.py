@@ -127,10 +127,18 @@ async def get_show(tmdb_id: int, api_key: str = None, language: str | None = Non
     )
 
 
-async def get_season(tmdb_id: int, season_number: int, api_key: str = None, language: str | None = None) -> dict:
+async def get_season(
+    tmdb_id: int,
+    season_number: int,
+    api_key: str = None,
+    language: str | None = None,
+    append_to_response: str | None = None,
+) -> dict:
     params: dict = {}
     if language:
         params["language"] = language
+    if append_to_response:
+        params["append_to_response"] = append_to_response
     return await _get(
         f"{TMDB_BASE}/tv/{tmdb_id}/season/{season_number}",
         headers=get_headers(api_key),

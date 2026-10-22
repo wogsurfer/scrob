@@ -1443,9 +1443,15 @@ async def _ensure_credits_table():
     _CREDITS_TABLE_READY = True
 
 
-async def _so_episode_credit_rows(db, episodes_by_show, show_tmdb):
-    """Return ({(tmdb_show, season): {ep_number: {...}}}, watched map, pending season count).
+# Bump when the cached episode_credits payload shape changes; older rows are re-fetched.
+# v2 adds "r": the season's regular cast, so series regulars are credited per watched episode.
+_CREDITS_CACHE_VERSION = 2
 
+
+async def _so_episode_credit_rows(db, episodes_by_show, show_tmdb):
+    """Return ({(tmdb_show, season): season data}, watched map, pending season count).
+
+    season data: {"r": [regulars], "eps": {ep_number: {"g": [guests], "c": [crew]}}}
     watched map: {show_id: {(season, ep_number): media_id}}
     """
     from models.episode_credits import EpisodeCredits
@@ -1466,8 +1472,8 @@ async def _so_episode_credit_rows(db, episodes_by_show, show_tmdb):
     if needed:
         res = await db.execute(select(EpisodeCredits.tmdb_show_id, EpisodeCredits.season_number, EpisodeCredits.data))
         for tid, sn, data in res.all():
-            if (tid, sn) in needed:
-                cached[(tid, sn)] = (data or {}).get("eps") or {}
+            if (tid, sn) in needed and (data or {}).get("v") == _CREDITS_CACHE_VERSION:
+                cached[(tid, sn)] = data
     return cached, watched, len(needed - set(cached))
 
 
@@ -1481,7 +1487,7 @@ async def _so_build_people(db, movie_info, show_info, episodes_by_show):
     categories = ["actors", "actresses", *_SO_CREW_CATEGORIES.keys()]
     acc = {cat: {} for cat in categories}
 
-    def add(cat, person, title_key, title, year, count=0, ep_ids=None):
+    def add(cat, person, title_key, title, year, ep_ids=None):
         pid = person.get("id") or person.get("name")
         if not pid or not person.get("name"):
             return
@@ -1491,9 +1497,8 @@ async def _so_build_people(db, movie_info, show_info, episodes_by_show):
         if not entry["profile_path"] and person.get("profile_path"):
             entry["profile_path"] = person["profile_path"]
         t = entry["titles"].setdefault(
-            title_key, {"title": title, "year": year, "count": 0, "ep_ids": set(), "kind": title_key[0]}
+            title_key, {"title": title, "year": year, "ep_ids": set(), "kind": title_key[0]}
         )
-        t["count"] = max(t["count"], count)
         if ep_ids:
             t["ep_ids"].update(ep_ids)
 
@@ -1504,12 +1509,12 @@ async def _so_build_people(db, movie_info, show_info, episodes_by_show):
         crew = credits.get("crew") or aggregate.get("crew") or crew_top or []
         return (cast if isinstance(cast, list) else []), (crew if isinstance(crew, list) else [])
 
-    def consume(cast, crew, title_key, title, year, episodes):
+    def consume(cast, crew, title_key, title, year, ep_ids=None):
         for person in cast:
             if not isinstance(person, dict):
                 continue
             cat = "actresses" if person.get("gender") == 1 else "actors"
-            add(cat, person, title_key, title, year, episodes)
+            add(cat, person, title_key, title, year, ep_ids)
         for person in crew:
             if not isinstance(person, dict):
                 continue
@@ -1519,7 +1524,7 @@ async def _so_build_people(db, movie_info, show_info, episodes_by_show):
                 if isinstance(j, dict)
             ] or [str(person.get("job") or "").lower()]
             for cat in _so_crew_cats(jobs):
-                add(cat, person, title_key, title, year, episodes)
+                add(cat, person, title_key, title, year, ep_ids)
 
     movie_ids = list(movie_info.keys())
     for start in range(0, len(movie_ids), 500):
@@ -1536,10 +1541,15 @@ async def _so_build_people(db, movie_info, show_info, episodes_by_show):
         for media_id, credits, aggregate, cast_top, crew_top in res.all():
             cast, crew = read(credits, aggregate, cast_top, crew_top)
             title, year = movie_info[media_id]
-            consume(cast, crew, f"m{media_id}", title, year, 0)
+            consume(cast, crew, f"m{media_id}", title, year)
 
+    # TV is credited per watched episode, like Trakt: a person gets each show once,
+    # with the number of watched episodes they appear in (season regulars, guest stars
+    # and episode crew from the cached season credits). Episodes whose season hasn't
+    # been fetched yet fall back to the show-level credits for just those episodes.
     show_ids = list(show_info.keys())
     show_tmdb = {}
+    show_credits = {}
     for start in range(0, len(show_ids), 500):
         chunk = show_ids[start:start + 500]
         res = await db.execute(
@@ -1555,35 +1565,38 @@ async def _so_build_people(db, movie_info, show_info, episodes_by_show):
         for show_id, tmdb_id, credits, aggregate, cast_top, crew_top in res.all():
             if tmdb_id:
                 show_tmdb[show_id] = tmdb_id
-            cast, crew = read(credits, aggregate, cast_top, crew_top)
-            title, year = show_info[show_id]
-            consume(cast, crew, f"s{show_id}", title, year, len(episodes_by_show.get(show_id, ())))
+            show_credits[show_id] = read(credits, aggregate, cast_top, crew_top)
 
-    # Guest roles and one-off crew credits on the individual watched episodes
     pending = 0
+    cached, watched = {}, {}
     try:
         # Savepoint: a failure here (e.g. table not created yet) must not poison the outer transaction.
         async with db.begin_nested():
             cached, watched, pending = await _so_episode_credit_rows(db, episodes_by_show, show_tmdb)
-        for show_id, eps in watched.items():
-            tid = show_tmdb.get(show_id)
-            if not tid or show_id not in show_info:
-                continue
-            title, year = show_info[show_id]
-            key = f"s{show_id}"
-            for (sn, en), media_id in eps.items():
-                ep = (cached.get((tid, sn)) or {}).get(str(en))
-                if not ep:
-                    continue
-                for g in ep.get("g") or []:
-                    person = {"id": g[0], "name": g[1], "profile_path": g[2]}
-                    add("actresses" if g[3] == 1 else "actors", person, key, title, year, 0, {media_id})
-                for c in ep.get("c") or []:
-                    person = {"id": c[0], "name": c[1], "profile_path": c[2]}
-                    for cat in _so_crew_cats([str(c[3]).lower()]):
-                        add(cat, person, key, title, year, 0, {media_id})
     except Exception as exc:
         print(f"[stats] episode credits skipped: {exc}")
+
+    for show_id, (cast, crew) in show_credits.items():
+        title, year = show_info[show_id]
+        key = f"s{show_id}"
+        tid = show_tmdb.get(show_id)
+        eps = watched.get(show_id) or {}
+        unfetched = set(episodes_by_show.get(show_id, ())) - set(eps.values())
+        for (sn, en), media_id in eps.items():
+            season = cached.get((tid, sn)) if tid else None
+            if not season:
+                unfetched.add(media_id)
+                continue
+            ep = (season.get("eps") or {}).get(str(en)) or {}
+            for p in [*(season.get("r") or []), *(ep.get("g") or [])]:
+                person = {"id": p[0], "name": p[1], "profile_path": p[2]}
+                add("actresses" if p[3] == 1 else "actors", person, key, title, year, {media_id})
+            for c in ep.get("c") or []:
+                person = {"id": c[0], "name": c[1], "profile_path": c[2]}
+                for cat in _so_crew_cats([str(c[3]).lower()]):
+                    add(cat, person, key, title, year, {media_id})
+        if unfetched:
+            consume(cast, crew, key, title, year, unfetched)
 
     out = {}
     for cat, people in acc.items():
@@ -1593,7 +1606,7 @@ async def _so_build_people(db, movie_info, show_info, episodes_by_show):
             movies = sum(1 for t in titles if t["kind"] == "m")
             shows = sum(1 for t in titles if t["kind"] == "s")
             for t in titles:
-                t["episodes"] = max(t["count"], len(t["ep_ids"]))
+                t["episodes"] = len(t["ep_ids"])
             episodes = sum(t["episodes"] for t in titles)
             titles.sort(key=lambda t: (t["year"] or 0, t["title"] or ""), reverse=True)
             rows.append({
@@ -1604,11 +1617,11 @@ async def _so_build_people(db, movie_info, show_info, episodes_by_show):
                 "episodes": episodes,
                 "titles": [
                     {"title": t["title"], "year": t["year"], "episodes": t["episodes"]}
-                    for t in titles[:40]
+                    for t in titles
                 ],
             })
-        rows.sort(key=lambda r: (-(r["movies"] + r["shows"]), -r["movies"], r["name"].casefold()))
-        out[cat] = rows[:50]
+        rows.sort(key=lambda r: (-(r["movies"] + r["shows"]), -r["episodes"], r["name"].casefold()))
+        out[cat] = rows[:100]
 
     if any(out.values()):
         out["_pending"] = pending
@@ -1691,24 +1704,43 @@ async def _run_credits_backfill(user_id: int, tmdb_key: str) -> None:
         todo = []
         for key, eps in wanted.items():
             hit = cached.get(key)
-            if hit:
+            if hit and (hit[0] or {}).get("v") == _CREDITS_CACHE_VERSION:
                 have = (hit[0] or {}).get("eps") or {}
                 if all(str(e) in have for e in eps) or (hit[1] and hit[1] > recent):
                     continue
             todo.append(key)
 
         state["total"] = len(todo)
+        state["failed"] = 0
         if not todo:
             return
 
         sem = asyncio.Semaphore(5)
         results = []
 
+        async def save(batch):
+            async with AsyncSessionLocal() as db:
+                for (tid, sn), data in batch:
+                    row = await db.get(EpisodeCredits, (tid, sn))
+                    if row:
+                        row.data = data
+                        row.fetched_at = _DT.utcnow()
+                    else:
+                        db.add(EpisodeCredits(tmdb_show_id=tid, season_number=sn, data=data))
+                await db.commit()
+
         async def fetch(key):
             async with sem:
                 if not state.get("abort"):
                     try:
-                        data = await tmdb_client.get_season(key[0], key[1], api_key=tmdb_key)
+                        data = await tmdb_client.get_season(
+                            key[0], key[1], api_key=tmdb_key, append_to_response="credits"
+                        )
+                        regulars = [
+                            [p.get("id"), p.get("name"), p.get("profile_path"), p.get("gender")]
+                            for p in ((data.get("credits") or {}).get("cast") or [])
+                            if p.get("id") and p.get("name")
+                        ]
                         eps = {}
                         for ep in data.get("episodes") or []:
                             g = [[p.get("id"), p.get("name"), p.get("profile_path"), p.get("gender")]
@@ -1718,22 +1750,25 @@ async def _run_credits_backfill(user_id: int, tmdb_key: str) -> None:
                                  if p.get("id") and p.get("name") and p.get("job")
                                  and _so_crew_cats([str(p["job"]).lower()])]
                             eps[str(ep.get("episode_number"))] = {"g": g, "c": c}
-                        results.append((key, {"eps": eps}))
-                    except Exception:
-                        pass
+                        results.append(
+                            (key, {"v": _CREDITS_CACHE_VERSION, "r": regulars, "eps": eps})
+                        )
+                    except Exception as exc:
+                        state["failed"] += 1
+                        print(f"[credits] season fetch failed for tmdb {key[0]} S{key[1]}: {exc}")
             state["progress"] += 1
 
-        await asyncio.gather(*[fetch(k) for k in todo])
+        # Save in batches so a long run keeps its progress if it's aborted or crashes.
+        for start in range(0, len(todo), 50):
+            await asyncio.gather(*[fetch(k) for k in todo[start:start + 50]])
+            if results:
+                await save(results)
+                results.clear()
+            if state.get("abort"):
+                break
 
-        async with AsyncSessionLocal() as db:
-            for (tid, sn), data in results:
-                row = await db.get(EpisodeCredits, (tid, sn))
-                if row:
-                    row.data = data
-                    row.fetched_at = _DT.utcnow()
-                else:
-                    db.add(EpisodeCredits(tmdb_show_id=tid, season_number=sn, data=data))
-            await db.commit()
+        if state["failed"] and state["failed"] == state["total"]:
+            state["error"] = "Every TMDB season request failed; check the TMDB API key in Settings."
     except Exception as exc:
         state["error"] = str(exc)
     finally:
