@@ -1,5 +1,6 @@
 from pathlib import Path
 from typing import Optional
+from dotenv import load_dotenv
 from pydantic_settings import BaseSettings
 
 
@@ -39,6 +40,12 @@ class Settings(BaseSettings):
     trakt_client_id: Optional[str] = None
     trakt_client_secret: Optional[str] = None
 
+    # TMDB
+    tmdb_api_key: Optional[str] = None
+
+    # OMDb
+    omdb_api_key: Optional[str] = None
+
     require_email_validation: bool = False
     smtp_address: Optional[str] = None
     smtp_port: int = 587
@@ -46,6 +53,10 @@ class Settings(BaseSettings):
     smtp_username: Optional[str] = None
     smtp_password: Optional[str] = None
     from_email: Optional[str] = None
+
+    # Emby
+    emby_server: Optional[str] = None
+    emby_api_key: Optional[str] = None
 
     @property
     def db_url(self) -> str:
@@ -69,5 +80,8 @@ class Settings(BaseSettings):
         "extra": "ignore",
     }
 
+env_path = Path(__file__).parent.parent.parent / ".env"
+
+load_dotenv(env_path, override=True)
 
 settings = Settings()

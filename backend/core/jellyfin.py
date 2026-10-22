@@ -88,6 +88,23 @@ async def get_shows(library_id: str, url: str, token: str, user_id: str) -> list
     })
     return data.get("Items", [])
 
+async def find_show_by_tmdb_id(url: str, token: str, tmdb_id: int) -> Optional[Dict]:
+    """Find a series by TMDB ID and return its image metadata."""
+    try:
+        data = await _get(url, token, "Items", params={
+            "Recursive": True,
+            "IncludeItemTypes": "Series",
+            "AnyProviderIdEquals": f"Tmdb.{tmdb_id}",
+            "Fields": "ProviderIds,ImageTags",
+            "Limit": 1,
+        })
+        items = data.get("Items", [])
+        if not items:
+            return None
+        return items[0]
+    except Exception:
+        return None
+
 async def get_episodes(library_id: str, url: str, token: str, user_id: str) -> list:
     all_items = []
     start = 0

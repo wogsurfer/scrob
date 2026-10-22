@@ -1,5 +1,10 @@
 import asyncio
+import copy
+import hashlib
 import httpx
+import json
+import time
+from collections import OrderedDict
 from core.config import settings
 
 TMDB_BASE = "https://api.themoviedb.org/3"
@@ -7,7 +12,35 @@ TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p"
 
 # Errors that are worth retrying (transient). 404/4xx are permanent — don't retry.
 _RETRYABLE = (httpx.ConnectError, httpx.TimeoutException, httpx.RemoteProtocolError)
+_client: httpx.AsyncClient | None = None
+_response_cache: OrderedDict[str, tuple[float, dict]] = OrderedDict()
+_CACHE_TTL_SECONDS = 300
+_CACHE_MAX_ENTRIES = 128
 
+
+async def start_http_client() -> None:
+    """Start a shared connection pool for TMDB requests."""
+    global _client
+    if _client is None or _client.is_closed:
+        _client = httpx.AsyncClient(
+            timeout=httpx.Timeout(30.0),
+            limits=httpx.Limits(max_connections=50, max_keepalive_connections=20),
+        )
+
+
+async def close_http_client() -> None:
+    """Close the shared TMDB connection pool during application shutdown."""
+    global _client
+    if _client is not None and not _client.is_closed:
+        await _client.aclose()
+    _client = None
+
+
+def _cache_key(url: str, headers: dict | None, params: dict | None) -> str:
+    authorization = (headers or {}).get("Authorization", "")
+    credential_id = hashlib.sha256(authorization.encode()).hexdigest()[:16]
+    query = json.dumps(params or {}, sort_keys=True, separators=(",", ":"), default=str)
+    return f"{url}|{credential_id}|{query}"
 
 def get_headers(api_key: str = None) -> dict:
     key = api_key or getattr(settings, 'tmdb_api_key', None)
@@ -20,18 +53,39 @@ def get_headers(api_key: str = None) -> dict:
 
 
 async def _get(url: str, *, headers: dict = None, params: dict = None, max_retries: int = 3) -> dict:
-    """Shared GET helper with retry + exponential backoff for transient failures."""
+    """Shared, pooled GET helper with a short cache and retry for transient failures."""
+    global _client
+    await start_http_client()
+
+    cacheable = not url.endswith("/authentication")
+    key = _cache_key(url, headers, params) if cacheable else ""
+    now = time.monotonic()
+    cached = _response_cache.get(key) if cacheable else None
+    if cached:
+        cached_at, payload = cached
+        if now - cached_at < _CACHE_TTL_SECONDS:
+            _response_cache.move_to_end(key)
+            return copy.deepcopy(payload)
+        _response_cache.pop(key, None)
+
     last_exc: Exception = None
     for attempt in range(max_retries + 1):
         try:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as client:
-                r = await client.get(url, headers=headers or {}, params=params)
-                if r.status_code == 429:
-                    wait = int(r.headers.get("Retry-After", 2 ** (attempt + 1)))
-                    await asyncio.sleep(wait)
-                    continue
-                r.raise_for_status()
-                return r.json()
+            r = await _client.get(url, headers=headers or {}, params=params)
+            if r.status_code == 429:
+                if attempt == max_retries:
+                    r.raise_for_status()
+                wait = int(r.headers.get("Retry-After", 2 ** (attempt + 1)))
+                await asyncio.sleep(wait)
+                continue
+            r.raise_for_status()
+            payload = r.json()
+            if cacheable and isinstance(payload, dict):
+                _response_cache[key] = (time.monotonic(), copy.deepcopy(payload))
+                _response_cache.move_to_end(key)
+                while len(_response_cache) > _CACHE_MAX_ENTRIES:
+                    _response_cache.popitem(last=False)
+            return payload
         except _RETRYABLE as e:
             last_exc = e
             if attempt < max_retries:
@@ -63,7 +117,7 @@ async def get_movie(tmdb_id: int, api_key: str = None, language: str | None = No
 
 
 async def get_show(tmdb_id: int, api_key: str = None, language: str | None = None) -> dict:
-    params: dict = {"append_to_response": "credits,content_ratings,recommendations,external_ids"}
+    params: dict = {"append_to_response": "credits,aggregate_credits,content_ratings,recommendations,external_ids"}
     if language:
         params["language"] = language
     return await _get(
@@ -334,3 +388,28 @@ async def get_movie_watch_providers(movie_id: int, api_key: str = None) -> dict:
 
 async def get_show_watch_providers(show_id: int, api_key: str = None) -> dict:
     return await _get(f"{TMDB_BASE}/tv/{show_id}/watch/providers", headers=get_headers(api_key))
+
+async def get_imdb_rating(imdb_id: str) -> float | None:
+    if not imdb_id:
+        return None
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.get(
+            "https://api.agregarr.org/api/ratings",
+            params={"id": imdb_id},
+        )
+
+    if not response.is_success:
+        print("IMDb ratings HTTP error:", response.status_code, response.text)
+        return None
+
+    data = response.json()
+    if not isinstance(data, list) or not data:
+        return None
+
+    rating = data[0].get("rating")
+
+    try:
+        return float(rating) if rating is not None else None
+    except (TypeError, ValueError):
+        return None

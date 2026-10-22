@@ -13,6 +13,10 @@ TVDB_BASE = "https://api4.thetvdb.com/v4"
 _token_cache: dict[str, tuple[str, float]] = {}  # api_key -> (token, expires_at)
 _token_lock = asyncio.Lock()
 
+# In-memory awards cache keyed by tvdb_id
+_awards_cache: dict[tuple[int, str], tuple[float, list[dict]]] = {}
+_AWARDS_CACHE_TTL = 86400  # 24 hours
+
 TVDB_IMAGE_BASE = "https://artworks.thetvdb.com"
 
 # BCP 47 (metadata_language) → ISO 639-3 used by TVDB
@@ -133,6 +137,109 @@ async def get_series(tvdb_id: int, api_key: str) -> dict:
     data = await _get(f"/series/{tvdb_id}/extended", api_key, params={"meta": "translations,episodes"})
     return data.get("data") or {}
 
+async def get_series_awards(tvdb_id: int, api_key: str) -> list[dict]:
+    """Fetch TVDB award nominations/wins for a series."""
+
+    cached = _awards_cache.get(tvdb_id)
+    if cached:
+        cached_at, awards = cached
+        if time.time() - cached_at < _AWARDS_CACHE_TTL:
+            _awards_cache[tvdb_id] = (time.time(), awards)
+            return awards
+
+    awards = []
+
+    award_data = await _get("/awards", api_key)
+
+    # First fetch the extended data for all awards concurrently.
+    semaphore = asyncio.Semaphore(10)
+
+    async def fetch_award(award):
+        award_id = award.get("id")
+        if not award_id:
+            return None
+
+        async with semaphore:
+            try:
+                return award, await _get(
+                    f"/awards/{award_id}/extended",
+                    api_key,
+                )
+            except Exception:
+                return None
+
+    award_results = await asyncio.gather(
+        *(fetch_award(award) for award in award_data.get("data") or [])
+    )
+
+    # Collect only categories that actually apply to TV series.
+    categories = []
+
+    for result in award_results:
+        if not result:
+            continue
+
+        award, extended = result
+
+        for category in extended.get("data", {}).get("categories") or []:
+            if not category.get("id"):
+                continue
+
+            if not category.get("forSeries", False):
+                continue
+
+            categories.append((award, category))
+
+    # Fetch category nominees concurrently.
+    async def fetch_category(award, category):
+        category_id = category["id"]
+
+        async with semaphore:
+            try:
+                category_data = await _get(
+                    f"/awards/categories/{category_id}/extended",
+                    api_key,
+                )
+                return award, category, category_data
+            except Exception:
+                return None
+
+    category_results = await asyncio.gather(
+        *(fetch_category(award, category) for award, category in categories)
+    )
+
+    # Keep only nominees belonging to this series.
+    for result in category_results:
+        if not result:
+            continue
+
+        award, category, category_data = result
+
+        for nominee in (
+            category_data.get("data", {}).get("nominees") or []
+        ):
+            series = nominee.get("series") or {}
+
+            if str(series.get("id")) != str(tvdb_id):
+                continue
+
+            awards.append({
+                "award_id": award.get("id"),
+                "award_name": award.get("name"),
+                "category_id": category.get("id"),
+                "category_name": category.get("name"),
+                "year": nominee.get("year"),
+                "is_winner": nominee.get("isWinner", False),
+                "details": nominee.get("details"),
+                "person_name": nominee.get("name"),
+                "character": nominee.get("character"),
+                "episode": nominee.get("episode"),
+                "movie": nominee.get("movie"),
+                "series": nominee.get("series"),
+            })
+
+    _awards_cache[tvdb_id] = (time.time(), awards)
+    return awards
 
 async def get_season(season_id: int, api_key: str) -> dict:
     """Fetch extended season metadata, including translated names and overviews."""

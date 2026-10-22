@@ -233,6 +233,47 @@ async def get_ratings(client_id: str, access_token: str) -> dict:
     )
     return {"movies": movies, "shows": shows, "seasons": seasons}
 
+async def get_show_seasons(
+    client_id: str,
+    trakt_id: int,
+) -> list:
+
+    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+
+        resp = await client.get(
+            f"{TRAKT_BASE}/shows/{trakt_id}/seasons?extended=episodes",
+            headers={
+                "trakt-api-version": "2",
+                "trakt-api-key": client_id,
+            },
+        )
+
+        resp.raise_for_status()
+
+        return resp.json()
+
+async def get_episode(
+    client_id: str,
+    trakt_id: int,
+    season: int,
+    episode: int,
+) -> dict:
+
+    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+
+        resp = await client.get(
+            f"{TRAKT_BASE}/shows/{trakt_id}/seasons/{season}/episodes/{episode}",
+            params={"extended": "full"},
+            headers={
+                "trakt-api-version": "2",
+                "trakt-api-key": client_id,
+            },
+        )
+
+        resp.raise_for_status()
+
+        return resp.json()
+
 
 # ── Outbound Push ─────────────────────────────────────────────────────────────
 
@@ -749,3 +790,40 @@ async def scrobble_episode(
             headers=_headers(client_id, access_token),
         )
         resp.raise_for_status()
+
+async def get_show_by_tmdb(
+    client_id: str,
+    tmdb_id: int,
+) -> dict:
+    """Resolve a TMDB show ID to a Trakt show."""
+
+    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+        resp = await client.get(
+            f"{TRAKT_BASE}/search/tmdb/{tmdb_id}",
+            headers=_headers(client_id),
+            params={"type": "show"},
+        )
+        resp.raise_for_status()
+
+        results = resp.json()
+        if not results:
+            return {}
+
+        return results[0]["show"]
+
+async def get_episode(
+    client_id: str,
+    trakt_show_id: int,
+    season_number: int,
+    episode_number: int,
+) -> dict:
+    """Fetch episode details from Trakt."""
+
+    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+        resp = await client.get(
+            f"{TRAKT_BASE}/shows/{trakt_show_id}/seasons/{season_number}/episodes/{episode_number}",
+            headers=_headers(client_id),
+            params={"extended": "full"},
+        )
+        resp.raise_for_status()
+        return resp.json()
