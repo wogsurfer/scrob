@@ -25,6 +25,9 @@ from .image_cache import ImageCache
 from .media_translation import MediaTranslation
 from .show_translation import ShowTranslation
 from .episode_order import EpisodeOrderMapping, UserShowEpisodeOrder
+from .watchlist import MovieWatchlist
+from .emby_library import EmbyLibrary
+from .emby_library_stats import EmbyLibraryStats
 
 __all__ = [
     "Base",
@@ -54,4 +57,8 @@ __all__ = [
     "MediaTranslation",
     "ShowTranslation",
     "EpisodeOrderMapping", "UserShowEpisodeOrder",
+    "MovieWatchlist",
+    "EmbyLibrary",
+    "EmbyLibraryStats",
 ]
+from .episode_credits import EpisodeCredits

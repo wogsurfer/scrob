@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr, field_validator
-from typing import Optional
+from typing import Literal, Optional
 from datetime import datetime
 from models.base import UserRole, MediaType, PrivacyLevel
 
@@ -245,10 +245,21 @@ class WatchEventCreate(BaseModel):
     tmdb_id: int
     media_type: MediaType
     watched_at: Optional[datetime] = None  # omitted = now; explicit null = unknown date
+    watch_source: Optional[Literal[
+        "Cinema", "Blu-ray", "4K", "DVD", "Cable", "VHS", "TV",
+        "Netflix", "Amazon", "Disney+", "AppleTV", "PLEX", "Digital file",
+    ]] = None
     completed: bool = True
     series_tmdb_id: Optional[int] = None
     season_number: Optional[int] = None
     episode_number: Optional[int] = None
+
+
+class WatchEventSourceUpdate(BaseModel):
+    watch_source: Optional[Literal[
+        "Cinema", "Blu-ray", "4K", "DVD", "Cable", "VHS", "TV",
+        "Netflix", "Amazon", "Disney+", "AppleTV", "PLEX", "Digital file",
+    ]] = None
 
 
 class ManualSessionStart(BaseModel):

@@ -12,8 +12,10 @@ class Show(Base):
     __tablename__ = "shows"
 
     id             : Mapped[int]             = mapped_column(Integer, primary_key=True)
-    tmdb_id        : Mapped[Optional[int]]    = mapped_column(Integer, unique=True, nullable=True)
-    tvdb_id        : Mapped[Optional[int]]    = mapped_column(Integer, unique=True, nullable=True)
+    emby_id        : Mapped[Optional[str]]   = mapped_column(String(50), unique=True, nullable=True)
+    tmdb_id        : Mapped[Optional[int]]   = mapped_column(Integer, unique=True, nullable=True)
+    tvdb_id        : Mapped[Optional[int]]   = mapped_column(Integer, unique=True, nullable=True)
+    trakt_id       : Mapped[Optional[int]]   = mapped_column(Integer, unique=True, nullable=True)
     title          : Mapped[str]             = mapped_column(String(500), nullable=False)
     original_title : Mapped[Optional[str]]   = mapped_column(String(500))
     overview       : Mapped[Optional[str]]   = mapped_column(Text)
