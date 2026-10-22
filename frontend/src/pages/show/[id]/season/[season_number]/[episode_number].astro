@@ -1,9 +1,8 @@
 ---
 import Base from "../../../../../layouts/Base.astro";
 import ActionBar from "../../../../../components/ActionBar.astro";
-import CommentsSection from "../../../../../components/CommentsSection.astro";
 import VideoPlayer from "../../../../../components/VideoPlayer.astro";
-import ManualScrobble from "../../../../../components/ManualScrobble.astro";
+import CrewSection from "../../../../../components/CrewSection.astro";
 import { api, type EpisodeDetail } from "../../../../../lib/api";
 
 export const prerender = false;
@@ -33,7 +32,7 @@ const thumbnail = episode?.still_path || show?.poster_path || null;
 <Base title={episode ? `${show?.title} — ${episode.title}` : "Episode Details"}>
   {error && !episode && (
     <div class="max-w-md mx-auto mt-20 text-center">
-      <div class="bg-red-500/10 border border-red-500/20 text-red-500 p-6 rounded-2xl mb-6">
+      <div class="text-red-500 p-6 rounded-2xl mb-6">
         <p class="font-bold text-lg mb-2">Oops!</p>
         <p class="text-sm opacity-80">{error}</p>
       </div>
@@ -89,19 +88,53 @@ const thumbnail = episode?.still_path || show?.poster_path || null;
                 </div>
               )}
             </div>
+            <div class="mt-2">
+              <ActionBar
+                tmdbId={episode.tmdb_id}
+                mediaType="episode"
+                watched={episode.watched ?? false}
+                inLists={episode.in_lists ?? []}
+                inLibrary={episode.in_library ?? false}
+                collectionPct={episode.collection_pct ?? (episode.in_library ? 100 : 0)}
+                showTmdbId={Number(id)}
+                seasonNumber={Number(season_number)}
+                episodeNumber={Number(episode_number)}
+                mediaId={episode.id ?? null}
+                userRating={episode.user_rating ?? null}
+              />
+            </div>
+
+            {episode.show.genres?.length > 0 && (
+                  <div class="flex flex-wrap gap-2 mt-3">
+                    {episode.show.genres.map((genre) => (
+                      <span class="px-3 py-1.5 bg-zinc-900/40 border border-zinc-800/50 rounded-xl text-zinc-400 text-xs font-black uppercase tracking-widest">
+                        {genre}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
           </div>
 
           <!-- Info -->
           <div class="flex-1 min-w-0 pt-2">
             <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-4 mb-2">
               <div class="min-w-0">
-                <h1 class="text-3xl md:text-5xl font-black text-zinc-100 mb-2 tracking-tight leading-tight">{episode.title}</h1>
+                <div class="flex flex-wrap items-center gap-3 mb-2">
+                  <span class="text-red-500 text-3xl md:text-5xl font-black tracking-tight leading-tight">
+                    {String(season_number).padStart(2, '0')}x{String(episode_number).padStart(2, '0')}
+                  </span>
+
+                  <h1 class="text-3xl md:text-5xl font-black text-zinc-100 tracking-tight leading-tight">
+                    {episode.title}
+                  </h1>
+                </div>
+
                 <div class="flex flex-wrap items-center gap-3">
-                  <p class="text-lg text-blue-400 font-bold tracking-wide uppercase">{show?.title}</p>
-                   <span class="px-3 py-1 bg-blue-600/20 border border-blue-600/30 text-blue-400 text-[10px] font-black rounded-full uppercase tracking-widest">
-                     S{String(season_number).padStart(2, '0')}E{String(episode_number).padStart(2, '0')}
-                   </span>
-                 </div>
+                  <p class="text-lg text-red-500 font-bold tracking-wide uppercase">
+                    {show?.title}
+                  </p>
+                </div>
               </div>
               
               {episode.episodes && episode.episodes.length > 1 && (
@@ -125,7 +158,7 @@ const thumbnail = episode?.still_path || show?.poster_path || null;
                           </a>
                         )}
                         
-                        <span class="px-3 py-2 bg-blue-600/20 border border-blue-500/30 rounded-xl text-blue-400 text-sm font-black">
+                        <span class="px-3 py-2 rounded-xl text-red-500 text-sm font-black">
                           E{currentEpisode}
                         </span>
                         
@@ -144,52 +177,113 @@ const thumbnail = episode?.still_path || show?.poster_path || null;
               )}
             </div>
 
-            <div class="flex flex-wrap items-center gap-4 text-zinc-300 text-sm mb-8 bg-zinc-900/40 p-3 rounded-xl border border-zinc-800/50 backdrop-blur-sm inline-flex">
+          <div class="flex items-start gap-4 mb10">
+            <div class="flex flex-wrap items-center gap-4 text-zinc-300 text-sm mb-2 bg-zinc-900/40 p-3 rounded-xl border border-zinc-800/50 backdrop-blur-sm inline-flex">
               {episode.air_date && (
                 <span class="font-bold">
-                  {new Date(episode.air_date).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}
+                  {new Date(episode.air_date).toLocaleDateString(undefined, {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
+                  })}
                 </span>
               )}
+
+              {episode.show.age_rating && (
+                <span
+                  class="inline-flex items-center justify-center min-w-[52px] h-7 px-2 border-2 border-zinc-400 text-zinc-200 font-black text-xs tracking-tight rounded-sm"
+                  title={`Content rating: ${episode.show.age_rating}`}
+                >
+                  {episode.show.age_rating}
+                </span>
+              )}
+
               {rating && (
-                <span class="flex items-center gap-1.5 text-yellow-400 font-black">
-                  <span class="text-lg leading-none">★</span> {rating}
-                </span>
+                <a
+                  href={`https://www.themoviedb.org/tv/${episode.show.tmdb_id}/season/${season_number}/episode/${episode_number}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="flex items-center gap-2 text-[#01b4e4] font-black hover:opacity-80 transition-opacity"
+                  title="View on TMDB"
+                >
+                  <img
+                    src="/logos/tmdb.svg"
+                    alt="TMDB"
+                    class="w-9 h-5 object-contain"
+                  />
+                  <span>{rating}</span>
+                </a>
               )}
+
+              {episode.imdb_id && (
+                <a
+                  href={`https://www.imdb.com/title/${episode.imdb_id}/`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="flex items-center gap-2 text-[#f5c518] font-black hover:opacity-80 transition-opacity"
+                  title="View on IMDb"
+                >
+                  <img
+                    src="/logos/imdb.svg"
+                    alt="IMDb"
+                    class="w-9 h-5 object-contain"
+                  />
+                  <span>{episode.imdb_rating != null ? episode.imdb_rating.toFixed(1) : "—"}</span>
+                </a>
+              )}
+
               {episode.runtime && (
                 <span class="flex items-center gap-1.5 font-medium">
                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="w-4 h-4 text-zinc-500">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 2a10 10 0 1 0 0 20 10 10 0 1 0 0-20Zm0 4v6l4 2" />
                   </svg>
                   {episode.runtime} min
                 </span>
               )}
             </div>
 
-            <div class="mb-4">
-              <ActionBar
-                tmdbId={episode.tmdb_id}
-                mediaType="episode"
-                watched={episode.watched ?? false}
-                inLists={episode.in_lists ?? []}
-                inLibrary={episode.in_library ?? false}
-                collectionPct={episode.collection_pct ?? (episode.in_library ? 100 : 0)}
-                showTmdbId={Number(id)}
-                seasonNumber={Number(season_number)}
-                episodeNumber={Number(episode_number)}
-                mediaId={episode.id ?? null}
-                userRating={episode.user_rating ?? null}
-              />
+              {(() => {
+                const n = episode.show.networks?.find(n => n.logo_path);
+                return n ? (
+                  <div class="bg-zinc-900/40 p-3 rounded-xl border border-zinc-800/50 backdrop-blur-sm flex items-center">
+                    <img
+                      src={n.logo_path!}
+                      alt={n.name}
+                      title={n.name}
+                      class:list={[
+                        "h-5 max-w-[80px] object-contain",
+                        [
+                          "FOX",
+                          "Apple TV",
+                          "HBO",
+                          "FX",
+                          "CBS",
+                          "Nine Network",
+                          "The WB",
+                          "UPN",
+                          "FXX",
+                          "Citytv",
+                          "AMC",
+                          "Syfy",
+                          "CBS All Access",
+                          "TNT",
+                          "Spike",
+                          "Audience",
+                          "Cartoon Network",
+                          "TBS",
+                          "Adult Swim",
+                          "Amazon Freevee",
+                          "Rooster Teeth",
+                        ].includes(n.name) && "brightness-0 invert"
+                      ]}
+                      loading="lazy"
+                    />
+                  </div>
+                ) : null;
+              })()}
             </div>
 
-            <ManualScrobble
-              tmdbId={episode.tmdb_id}
-              mediaType="episode"
-              runtime={episode.runtime}
-              title={episode.title}
-              showTmdbId={Number(id)}
-              seasonNumber={Number(season_number)}
-              episodeNumber={Number(episode_number)}
-            />
+            
 
             <!-- Library info -->
             {episode.library && (
@@ -249,38 +343,99 @@ const thumbnail = episode?.still_path || show?.poster_path || null;
 
             {episode.overview && (
               <div>
-                <h2 class="text-xl font-black text-zinc-100 mb-4 flex items-center gap-2 uppercase tracking-tight">
-                  <span class="w-2 h-2 bg-blue-500 rounded-full"></span>
-                  Overview
-                </h2>
                 <p class="text-zinc-300 leading-relaxed text-lg max-w-3xl font-medium opacity-90">
                   {episode.overview}
                 </p>
               </div>
             )}
+
+            {episode.watch_history?.length > 0 && (
+              <div class="mt-4">
+                <div class="flex flex-col gap-2">
+                  {episode.watch_history.map((watch) => (
+                    <div class="flex items-center gap-3 text-sm text-zinc-400 whitespace-nowrap">
+                      <span class="font-bold text-zinc-300">Watched</span>
+
+                      {watch.watched_at && (
+                        <>
+                          <span class="flex items-center gap-1.5">
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              fill="none"
+                              viewBox="0 0 24 24"
+                              stroke-width="2"
+                              stroke="currentColor"
+                              class="w-4 h-4 text-zinc-500"
+                            >
+                              <path
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                d="M6.75 3v2.25M17.25 3v2.25M3.75 9.75h16.5M5.25 4.5h13.5a1.5 1.5 0 0 1 1.5 1.5V19.5A1.5 1.5 0 0 1 18.75 21H5.25a1.5 1.5 0 0 1-1.5-1.5V6a1.5 1.5 0 0 1 1.5-1.5Z"
+                              />
+                            </svg>
+
+                            {new Date(watch.watched_at).toLocaleDateString("en-US", {
+                              month: "short",
+                              day: "numeric",
+                              year: "numeric",
+                            })}
+                          </span>
+
+                          <span class="flex items-center gap-1.5">
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              fill="none"
+                              viewBox="0 0 24 24"
+                              stroke-width="2"
+                              stroke="currentColor"
+                              class="w-4 h-4 text-zinc-500"
+                            >
+                              <path
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                d="M12 6v6l4 2"
+                              />
+                              <circle cx="12" cy="12" r="9" />
+                            </svg>
+
+                            {new Date(watch.watched_at).toLocaleTimeString("en-US", {
+                              hour: "numeric",
+                              minute: "2-digit",
+                            })}
+                          </span>
+                        </>
+                      )}
+
+                      {watch.watch_source && (
+                        <span class="text-zinc-400">
+                          {watch.watch_source}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
-        <CommentsSection
-          mediaType="series"
-          tmdbId={Number(id)}
-          seasonNumber={Number(season_number)}
-          episodeNumber={Number(episode_number)}
-        />
+        <div class="flex items-center gap-8 mb10">
+          <h2 id="cast-tab" class="text-3xl font-black tracking-tighter uppercase text-red-500 cursor-pointer">Cast</h2>
+          <h2 id="guest-stars-tab" class="text-3xl font-black tracking-tighter uppercase text-zinc-500 cursor-pointer">Guest Stars</h2>
+        </div>
 
         <!-- Cast -->
         {episode.cast?.length > 0 && (
-          <div class="mt-8 border-t border-zinc-900 pt-16">
-            <h2 class="text-3xl font-black text-zinc-100 tracking-tighter uppercase mb-10">Top Cast</h2>
-            <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-6">
+          <div id="cast-panel" class="border-t border-zinc-900 pt-8">
+            <div class="flex gap-6 overflow-x-auto pb-4">
               {episode.cast.map((person) => (
-                <a href={`/person/${person.tmdb_id}`} class="group/cast bg-zinc-900/20 border border-zinc-800/40 p-4 rounded-3xl hover:bg-zinc-800/40 hover:border-blue-500/50 transition-all duration-500 hover:shadow-2xl hover:shadow-blue-900/10 active:scale-95 active:opacity-70">
-                  <div class="aspect-square w-full rounded-2xl overflow-hidden mb-5 ring-2 ring-zinc-800/50 group-hover/cast:ring-blue-500 transition-all duration-500 shadow-lg">
+                <a href={`/person/${person.tmdb_id}`} class="group/cast shrink-0 w-[240px] sm:w-[260px] bg-zinc-900/20 border border-zinc-800/40 p-4 rounded-3xl active:scale-95 active:opacity-70">
+                  <div class="aspect-square w-full rounded-2xl overflow-hidden mb-5 ring-2 ring-zinc-800/50 group-transition-all duration-500 shadow-lg">
                     {person.profile_path ? (
                       <img
                         src={person.profile_path}
                         alt={person.name}
-                        class="w-full h-full object-cover group-hover/cast:scale-110 transition-transform duration-700"
+                        class="w-full h-full object-cover transition-transform duration-700"
                         loading="lazy"
                         decoding="async"
                       />
@@ -289,8 +444,8 @@ const thumbnail = episode?.still_path || show?.poster_path || null;
                     )}
                   </div>
                   <div class="space-y-1.5 text-center">
-                    <p class="text-sm font-black text-zinc-100 group-hover/cast:text-blue-400 transition-colors line-clamp-1 leading-tight">{person.name}</p>
-                    <p class="text-[11px] text-zinc-500 font-bold uppercase tracking-wider line-clamp-1 opacity-80">{person.character}</p>
+                    <p title={person.name} class="text-sm font-black text-zinc-100 group-transition-colors line-clamp-1 leading-tight">{person.name}</p>
+                    <p title={person.character} class="text-[11px] text-zinc-500 font-bold uppercase tracking-wider line-clamp-1 opacity-80">{person.character}</p>
                   </div>
                 </a>
               ))}
@@ -300,17 +455,17 @@ const thumbnail = episode?.still_path || show?.poster_path || null;
 
         <!-- Guest Stars -->
         {episode.guest_stars?.length > 0 && (
-          <div class="mt-16">
-            <h2 class="text-3xl font-black text-zinc-100 tracking-tighter uppercase mb-10">Guest Stars</h2>
-            <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-6">
+          <div id="guest-stars-panel" class="border-t border-zinc-900 pt-8 hidden">
+            <h2 class="hidden">Guest Stars</h2>
+            <div class="flex gap-6 overflow-x-auto pb-4">
               {episode.guest_stars.map((person) => (
-                <a href={`/person/${person.tmdb_id}`} class="group/cast bg-zinc-900/20 border border-zinc-800/40 p-4 rounded-3xl hover:bg-zinc-800/40 hover:border-blue-500/50 transition-all duration-500 hover:shadow-2xl hover:shadow-blue-900/10 active:scale-95 active:opacity-70">
-                  <div class="aspect-square w-full rounded-2xl overflow-hidden mb-5 ring-2 ring-zinc-800/50 group-hover/cast:ring-blue-500 transition-all duration-500 shadow-lg">
+                <a href={`/person/${person.tmdb_id}`} class="group/cast shrink-0 w-[240px] sm:w-[260px] bg-zinc-900/20 border border-zinc-800/40 p-4 rounded-3xl active:scale-95 active:opacity-70">
+                  <div class="aspect-square w-full rounded-2xl overflow-hidden mb-5 ring-2 ring-zinc-800/50 group-transition-all duration-500 shadow-lg">
                     {person.profile_path ? (
                       <img
                         src={person.profile_path}
                         alt={person.name}
-                        class="w-full h-full object-cover group-hover/cast:scale-110 transition-transform duration-700"
+                        class="w-full h-full object-cover transition-transform duration-700"
                         loading="lazy"
                         decoding="async"
                       />
@@ -319,8 +474,8 @@ const thumbnail = episode?.still_path || show?.poster_path || null;
                     )}
                   </div>
                   <div class="space-y-1.5 text-center">
-                    <p class="text-sm font-black text-zinc-100 group-hover/cast:text-blue-400 transition-colors line-clamp-1 leading-tight">{person.name}</p>
-                    <p class="text-[11px] text-zinc-500 font-bold uppercase tracking-wider line-clamp-1 opacity-80">{person.character}</p>
+                    <p title={person.name} class="text-sm font-black text-zinc-100 group-transition-colors line-clamp-1 leading-tight">{person.name}</p>
+                    <p title={person.character} class="text-[11px] text-zinc-500 font-bold uppercase tracking-wider line-clamp-1 opacity-80">{person.character}</p>
                   </div>
                 </a>
               ))}
@@ -331,6 +486,8 @@ const thumbnail = episode?.still_path || show?.poster_path || null;
       </div>
     </div>
   )}
+
+        <CrewSection crew={episode?.crew} title="Episode Crew" />
 
 </Base>
 
@@ -403,4 +560,33 @@ const thumbnail = episode?.still_path || show?.poster_path || null;
       }
     });
   }
+</script>
+
+<script>
+  const castTab = document.getElementById('cast-tab');
+  const guestStarsTab = document.getElementById('guest-stars-tab');
+  const castPanel = document.getElementById('cast-panel');
+  const guestStarsPanel = document.getElementById('guest-stars-panel');
+
+  castTab?.addEventListener('click', () => {
+    castPanel?.classList.remove('hidden');
+    guestStarsPanel?.classList.add('hidden');
+
+    castTab.classList.remove('text-zinc-500');
+    castTab.classList.add('text-red-500');
+
+    guestStarsTab?.classList.remove('text-red-500');
+    guestStarsTab?.classList.add('text-zinc-500');
+  });
+
+  guestStarsTab?.addEventListener('click', () => {
+    guestStarsPanel?.classList.remove('hidden');
+    castPanel?.classList.add('hidden');
+
+    guestStarsTab.classList.remove('text-zinc-500');
+    guestStarsTab.classList.add('text-red-500');
+
+    castTab?.classList.remove('text-red-500');
+    castTab?.classList.add('text-zinc-500');
+  });
 </script>

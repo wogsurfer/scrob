@@ -1,0 +1,471 @@
+---
+import Base from "../layouts/Base.astro";
+import ActionBar from "../components/ActionBar.astro";
+import { api, tmdbImageUrl, type Show, type MediaItem } from "../lib/api";
+
+export const prerender = false;
+
+const { token } = Astro.locals;
+
+let shows: Show[] = [];
+
+const result = await api.shows.progress(token);
+
+const showResults = result?.results ?? [];
+
+const status = Astro.url.searchParams.get("status") ?? "in-progress";
+const sort = Astro.url.searchParams.get("sort") ?? "recent";
+
+// Keep shows with no aired episodes out of every Progress tab. The backend's
+// episode_count only includes episodes whose U.S. airtime has passed after
+// conversion to Malta time.
+shows = showResults.filter(show => Number(show.episode_count ?? 0) > 0);
+
+if (status === "in-progress") {
+  shows = shows.filter(show => {
+    // watch_pct is rounded for display, so it can reach 100 while an episode
+    // is still unwatched. Use the exact aired-episode count for tab membership.
+    if (show.remaining_count != null) {
+      return Number(show.remaining_count) > 0;
+    }
+    return Number(show.watch_pct ?? 0) < 100;
+  });
+} else if (status === "completed") {
+  shows = shows.filter(show => {
+    if (show.remaining_count != null) {
+      return Number(show.remaining_count) === 0;
+    }
+    return Number(show.watch_pct ?? 0) >= 100;
+  });
+}
+
+if (sort === "recent") {
+  shows.sort((a, b) => {
+    const aTime = a.last_watched_at
+      ? new Date(a.last_watched_at).getTime()
+      : 0;
+    const bTime = b.last_watched_at
+      ? new Date(b.last_watched_at).getTime()
+      : 0;
+    return bTime - aTime;
+  });
+} else if (sort === "oldest") {
+  shows.sort((a, b) => {
+    const aTime = a.last_watched_at
+      ? new Date(a.last_watched_at).getTime()
+      : Number.MAX_SAFE_INTEGER;
+    const bTime = b.last_watched_at
+      ? new Date(b.last_watched_at).getTime()
+      : Number.MAX_SAFE_INTEGER;
+    return aTime - bTime;
+  });
+} else if (sort === "title") {
+  shows.sort((a, b) =>
+    (a.title || "").localeCompare(b.title || "")
+  );
+} else if (sort === "progress") {
+  shows.sort(
+    (a, b) =>
+      Number(b.watch_pct ?? 0) - Number(a.watch_pct ?? 0)
+  );
+} else if (sort === "remaining") {
+  shows.sort(
+    (a, b) =>
+      Number(a.remaining_count ?? 0) - Number(b.remaining_count ?? 0)
+  );
+} else if (sort === "time") {
+  shows.sort(
+    (a, b) =>
+      Number(a.remaining_runtime ?? 0) -
+      Number(b.remaining_runtime ?? 0)
+  );
+}
+
+function allEpisodes(show: Show): MediaItem[] {
+  return Object.values(show.seasons || {}).flat();
+}
+
+function watchedEpisodes(show: Show): MediaItem[] {
+  return allEpisodes(show).filter(ep => ep.watched);
+}
+
+function episodeCount(show: Show): number {
+  return Number(show.episode_count ?? allEpisodes(show).length);
+}
+
+function watchedCount(show: Show): number {
+  return Number(show.watched_count ?? watchedEpisodes(show).length);
+}
+
+function watchedRuntimeMinutes(show: Show): number {
+  return Number(show.watched_runtime ?? 0);
+}
+
+function formatDuration(minutes: number | null): string {
+  if (minutes === null) return "Unknown";
+  if (!minutes) return "0m";
+
+  const days = Math.floor(minutes / 1440);
+  const hours = Math.floor((minutes % 1440) / 60);
+  const mins = minutes % 60;
+
+  const parts: string[] = [];
+
+  if (days) parts.push(`${days}d`);
+  if (hours) parts.push(`${hours}h`);
+  if (mins && days === 0) parts.push(`${mins}m`);
+
+  return parts.join(" ") || "0m";
+}
+
+function progress(show: Show): number {
+  const total = episodeCount(show);
+  if (!total) return 0;
+  return Math.round((watchedCount(show) / total) * 100);
+}
+
+function poster(path: string | null, size = "w342") {
+  return tmdbImageUrl(path, size);
+}
+
+function backdrop(path: string | null) {
+  return tmdbImageUrl(path, "w1280");
+}
+---
+
+<Base title="Progress">
+
+  <div class="max-w-[1400px] mx-auto px-6 py-10">
+
+    <div class="mb-10">
+  <div class="flex flex-wrap items-end justify-between gap-6">
+
+    <div>
+      <h1 class="text-4xl font-black text-zinc-100 tracking-tight">
+        Progress
+      </h1>
+      <p class="text-zinc-500 mt-2">
+        Continue tracking the shows you're watching.
+      </p>
+    </div>
+
+    <div class="flex flex-wrap items-center gap-3">
+
+      <!-- STATUS -->
+      <div class="flex items-center rounded-lg border border-zinc-800 bg-zinc-900 overflow-hidden">
+
+        <a
+          href="/progress?status=in-progress&sort={sort}"
+          class={`px-4 py-2 text-xs font-bold uppercase tracking-wider transition ${
+            status === "in-progress"
+              ? "bg-red-600 text-white"
+              : "text-zinc-400 hover:text-white hover:bg-zinc-800"
+          }`}
+        >
+          In Progress
+        </a>
+
+        <a
+          href="/progress?status=all&sort={sort}"
+          class={`px-4 py-2 text-xs font-bold uppercase tracking-wider transition ${
+            status === "all"
+              ? "bg-red-600 text-white"
+              : "text-zinc-400 hover:text-white hover:bg-zinc-800"
+          }`}
+        >
+          All
+        </a>
+
+        <a
+          href="/progress?status=completed&sort={sort}"
+          class={`px-4 py-2 text-xs font-bold uppercase tracking-wider transition ${
+            status === "completed"
+              ? "bg-red-600 text-white"
+              : "text-zinc-400 hover:text-white hover:bg-zinc-800"
+          }`}
+        >
+          Completed
+        </a>
+
+      </div>
+
+      <!-- SORT -->
+      <select
+        class="bg-zinc-900 border border-zinc-800 text-zinc-300 text-sm rounded-lg px-3 py-2 outline-none focus:border-zinc-600"
+        onchange={`window.location.href = '/progress?status=${status}&sort=' + this.value`}
+      >
+        <option value="recent" selected={sort === "recent"}>
+          Recently Watched
+        </option>
+        <option value="oldest" selected={sort === "oldest"}>
+          Oldest Watched
+        </option>
+        <option value="title" selected={sort === "title"}>
+          Title
+        </option>
+        <option value="progress" selected={sort === "progress"}>
+          Progress
+        </option>
+        <option value="remaining" selected={sort === "remaining"}>
+          Episodes Remaining
+        </option>
+        <option value="time" selected={sort === "time"}>
+          Time Remaining
+        </option>
+      </select>
+
+    </div>
+  </div>
+</div>
+
+    {shows.length === 0 ? (
+      <div class="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-12 text-center">
+        <div class="text-zinc-300 text-xl font-bold mb-2">
+          Nothing in progress
+        </div>
+        <div class="text-zinc-500">
+          Shows you start watching will appear here.
+        </div>
+      </div>
+    ) : (
+
+      <div class="space-y-8">
+
+        {shows.map((show) => {
+          const episodes = episodeCount(show);
+          const watched = watchedCount(show);
+          const remaining = Math.max(episodes - watched, 0);
+
+          const watchedMinutes = watchedRuntimeMinutes(show);
+          const remainingMinutes = show.remaining_runtime == null
+            ? null
+            : Math.max(Number(show.remaining_runtime), 0);
+
+          const pct = Number(show.watch_pct ?? 0);
+          const caughtUp = show.has_upcoming_episodes === true && remaining === 0;
+
+          const progressSeasons = new Map();
+          for (const season of show.seasons_meta ?? []) {
+            if (season.season_number > 0 && show.season_states?.[season.season_number]) {
+              progressSeasons.set(season.season_number, {
+                season_number: season.season_number,
+                name: season.name || `Season ${season.season_number}`,
+                state: show.season_states[season.season_number],
+              });
+            }
+          }
+          for (const [seasonKey, state] of Object.entries(show.season_states ?? {})) {
+            const seasonNumber = Number(seasonKey);
+            if (seasonNumber > 0 && !progressSeasons.has(seasonNumber)) {
+              progressSeasons.set(seasonNumber, {
+                season_number: seasonNumber,
+                name: `Season ${seasonNumber}`,
+                state,
+              });
+            }
+          }
+          const seasonCards = [...progressSeasons.values()]
+            .sort((a, b) => a.season_number - b.season_number);
+
+          const showPoster = poster(show.poster_path);
+          const showBackdrop = backdrop(show.backdrop_path);
+
+          return (
+            <article
+              class="progress-show group"
+              data-show-id={show.tmdb_id}
+            >
+
+              <div class="grid grid-cols-[180px_minmax(0,1fr)] min-h-[300px]">
+
+                <!-- POSTER -->
+                <a
+                  href={`/show/${show.tmdb_id}`}
+                  class="relative z-10 block overflow-hidden rounded-l-2xl bg-zinc-900"
+                >
+                  {showPoster ? (
+                    <img
+                      src={showPoster}
+                      alt={show.title}
+                      class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.025]"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <div class="w-full h-full flex items-center justify-center text-zinc-600">
+                      No Poster
+                    </div>
+                  )}
+                </a>
+
+                <!-- BACKDROP / CONTENT -->
+                <div class="relative overflow-hidden rounded-r-2xl bg-zinc-900 min-h-[300px]">
+
+                  {showBackdrop && (
+                    <img
+                      src={showBackdrop}
+                      alt=""
+                      class="absolute inset-0 w-full h-full object-cover opacity-45"
+                      loading="lazy"
+                    />
+                  )}
+
+                  <!-- dark cinematic overlay -->
+                  <div class="absolute inset-0 bg-gradient-to-r from-zinc-950/95 via-zinc-950/80 to-zinc-950/55"></div>
+                  <div class="absolute inset-0 bg-gradient-to-t from-zinc-950 via-transparent to-zinc-950/20"></div>
+
+                  <div class="relative z-10 h-full min-h-[300px] p-7 flex flex-col">
+
+                    <!-- ACTIONS -->
+                    <div class="flex justify-end mb-auto">
+                      <div class="progress-actions">
+                        <ActionBar
+                          tmdbId={show.tmdb_id}
+                          mediaType="series"
+                          watched={show.watched ?? false}
+                          inLists={show.in_lists ?? []}
+                          inLibrary={show.in_library ?? false}
+                          collectionPct={show.collection_pct ?? 0}
+                          watchPct={show.watch_pct ?? pct}
+                          showTmdbId={show.tmdb_id}
+                          isMonitored={show.is_monitored ?? false}
+                          requestEnabled={show.request_enabled ?? false}
+                          userRating={show.user_rating ?? null}
+                        />
+                      </div>
+                    </div>
+
+                    <!-- INFORMATION -->
+                    <div class="mt-auto max-w-4xl">
+
+                      <a
+                        href={`/show/${show.tmdb_id}`}
+                        class="inline-block"
+                      >
+                        <h2 class="text-3xl md:text-4xl font-black text-white tracking-tight hover:text-red-500 transition-colors">
+                          {show.title}
+                        </h2>
+                      </a>
+
+                      <div class="flex flex-wrap items-center gap-x-3 gap-y-1 mt-3 text-sm">
+                        <span class="text-zinc-100 font-bold">
+                          {watched} of {episodes} episodes watched
+                        </span>
+
+                        <span class="text-zinc-500">•</span>
+
+                        <span class="text-zinc-400">
+                          {formatDuration(watchedMinutes)} watched
+                        </span>
+
+                        <span class="text-zinc-500">•</span>
+
+                        <span class="text-zinc-400">
+                          {caughtUp ? "Caught up" : `${remaining} ${remaining === 1 ? "episode" : "episodes"} left`}
+                        </span>
+
+                        <span class="text-zinc-500">•</span>
+
+                        {!caughtUp && (
+                          <span class="text-zinc-400">
+                            {remainingMinutes !== null && show.remaining_runtime_estimated ? "≈ " : ""}{formatDuration(remainingMinutes)} remaining
+                          </span>
+                        )}
+                      </div>
+
+                      <!-- PROGRESS -->
+                      <div class="mt-5">
+
+                        <div class="flex items-center justify-between mb-2">
+                          <span class="text-xs font-bold uppercase tracking-widest text-zinc-500">
+                            Progress
+                          </span>
+
+                          <span class="text-sm font-black text-white">
+                            {pct}%
+                          </span>
+                        </div>
+
+                        <div class="h-2.5 w-full rounded-full bg-zinc-800/90 overflow-hidden">
+                          <div
+                            class="h-full bg-red-600 rounded-full transition-all"
+                            style={`width: ${pct}%`}
+                          ></div>
+                        </div>
+
+                      </div>
+
+                    </div>
+
+                  </div>
+                </div>
+
+              </div>
+
+              <!-- SEASON STRIP -->
+              <div class="bg-zinc-900/70 border-x border-b border-zinc-800 rounded-b-2xl px-5 py-4">
+
+                <div class="flex items-center gap-3 overflow-x-auto pb-1">
+
+                  {seasonCards
+                    .filter(season => season.state?.has_aired)
+                    .map(season => {
+                      const state = season.state;
+                      const seasonPct = Number(state?.watch_pct ?? 0);
+
+                      return (
+                        <a
+                          href={`/show/${show.tmdb_id}/season/${season.season_number}`}
+                          class="flex-shrink-0 min-w-[150px] rounded-xl bg-zinc-800/70 hover:bg-zinc-800 border border-zinc-700/60 px-4 py-3 transition"
+                        >
+
+                          <div class="flex items-center justify-between gap-3 mb-2">
+                            <span class="text-sm font-bold text-zinc-200">
+                              {season.name || `Season ${season.season_number}`}
+                            </span>
+
+                            <span class="text-xs font-black text-zinc-500">
+                              {Math.round(seasonPct)}%
+                            </span>
+                          </div>
+
+                          <div class="h-1.5 rounded-full bg-zinc-700 overflow-hidden">
+                            <div
+                              class="h-full bg-red-600 rounded-full"
+                              style={`width: ${Math.min(seasonPct, 100)}%`}
+                            ></div>
+                          </div>
+
+                        </a>
+                      );
+                    })}
+
+                </div>
+
+              </div>
+
+            </article>
+          );
+        })}
+
+      </div>
+    )}
+
+  </div>
+
+  <style>
+    .progress-actions :global(*) {
+      --tw-ring-offset-color: transparent;
+    }
+
+    @media (max-width: 700px) {
+      .progress-show > div:first-child {
+        grid-template-columns: 110px minmax(0, 1fr);
+      }
+
+      .progress-show h2 {
+        font-size: 1.5rem;
+      }
+    }
+  </style>
+
+</Base>

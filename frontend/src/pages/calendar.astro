@@ -1,0 +1,437 @@
+---
+import Base from "../layouts/Base.astro";
+import { api } from "../lib/api";
+
+const { token } = Astro.locals;
+
+Astro.response.headers.set("Cache-Control", "no-store");
+
+let data: {
+  days: number;
+  start_date?: string;
+  end_date?: string;
+  episodes: Array<{
+    id: number;
+    show_id: number;
+    show_title: string | null;
+    title: string | null;
+    season: number | null;
+    episode: number | null;
+    air_date: string;
+    air_time: string | null;
+    poster_path: string | null;
+    backdrop_path: string | null;
+    show_poster_path: string | null;
+    runtime: number | null;
+    rating: number | null;
+    tmdb_id: number | null;
+  }>;
+} = {
+  days: 7,
+  episodes: [],
+};
+
+let error = "";
+
+try {
+  data = await api.calendar.upcoming(token, 30);
+} catch (e: unknown) {
+  error = e instanceof Error ? e.message : "Failed to load calendar";
+}
+
+const grouped = new Map<string, typeof data.episodes>();
+
+for (const episode of data?.episodes ?? []) {
+  if (!grouped.has(episode.air_date)) {
+    grouped.set(episode.air_date, []);
+  }
+
+  grouped.get(episode.air_date)!.push(episode);
+}
+
+function formatDate(dateString: string) {
+  const date = new Date(`${dateString}T00:00:00`);
+
+  return date.toLocaleDateString("en-GB", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  });
+}
+
+function isToday(dateString: string) {
+  const today = new Date();
+
+  const local = new Date(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate(),
+  );
+
+  const date = new Date(`${dateString}T00:00:00`);
+
+  return local.getTime() === date.getTime();
+}
+
+function imageUrl(path: string | null) {
+  if (!path) return null;
+
+  if (path.startsWith("http")) {
+    return path;
+  }
+
+  return `https://image.tmdb.org/t/p/w500${path}`;
+}
+---
+
+<Base title="Calendar">
+  <div class="calendar-page">
+
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">Calendar</h1>
+        <p>Upcoming episodes from shows you're watching</p>
+      </div>
+
+      <div class="calendar-range">
+        <span class="active">30 Days</span>
+      </div>
+    </div>
+
+    {error && (
+      <div class="error">
+        {error}
+      </div>
+    )}
+
+    {grouped.size === 0 && !error && (
+      <div class="empty">
+        <div class="empty-title">Nothing upcoming</div>
+        <div class="empty-text">
+          There are no upcoming episodes in the next 30 days.
+        </div>
+      </div>
+    )}
+
+    {Array.from(grouped.entries()).map(([date, episodes]) => (
+      <section class="day-section">
+
+        <div class="day-header">
+          <div class="day-marker"></div>
+
+          <div>
+            <h2>
+              {isToday(date) ? "Today" : formatDate(date)}
+            </h2>
+
+            {!isToday(date) && (
+              <span>{date}</span>
+            )}
+          </div>
+        </div>
+
+        <div class="episode-grid">
+          {episodes.map((episode) => (
+            <article class="episode-card">
+
+              <div class="poster-wrap">
+                {
+                imageUrl(
+                    episode.backdrop_path ||
+                    episode.poster_path ||
+                    episode.show_poster_path
+                    ) ? (
+                    <img
+                        src={
+                        imageUrl(
+                            episode.backdrop_path ||
+                            episode.poster_path ||
+                            episode.show_poster_path
+                        )!
+                        }
+                        alt={episode.show_title || "Episode"}
+                        loading="lazy"
+                    />
+                    ) : (
+                    <div class="poster-placeholder">
+                        No artwork
+                    </div>
+                    )}
+              </div>
+
+                <div class="episode-info">
+
+                    {episode.air_time && (
+                        <div class="air-time">
+                        {episode.air_time}
+                        </div>
+                    )}
+
+                    <div class="show-title">
+                        {episode.show_title || "Unknown Show"}
+                    </div>
+
+                    <div class="episode-title">
+                      {episode.season != null && episode.episode != null && (
+                        <span class="episode-number">
+                        {`${String(episode.season).padStart(2, "0")}x${String(episode.episode).padStart(2, "0")}`}
+                    </span>
+                    )}
+
+                    <span class="episode-name">
+                        {episode.title || "Untitled Episode"}
+                    </span>
+                    </div>
+
+                <div class="episode-meta">
+                  {episode.runtime ? `${episode.runtime} min` : ""}
+                  {episode.rating ? ` • ${episode.rating.toFixed(1)}` : ""}
+                </div>
+
+              </div>
+
+            </article>
+          ))}
+        </div>
+
+      </section>
+    ))}
+  </div>
+</Base>
+
+<style>
+  .calendar-page {
+    width: 100%;
+    max-width: 1400px;
+    margin: 0 auto;
+    padding-bottom: 80px;
+  }
+
+  .page-header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    margin-bottom: 48px;
+  }
+
+  .page-header p {
+    margin: 8px 0 0;
+    color: #9ca3af;
+    font-size: 16px;
+  }
+
+  .calendar-range {
+    display: flex;
+    gap: 8px;
+  }
+
+  .calendar-range span {
+    padding: 9px 18px;
+    border: 1px solid #2a2f36;
+    border-radius: 8px;
+    color: #9ca3af;
+    font-size: 14px;
+  }
+
+  .calendar-range .active {
+    background: #e50914;
+    border-color: #e50914;
+    color: white;
+  }
+
+  .error {
+    padding: 16px 20px;
+    margin-bottom: 30px;
+    border: 1px solid #e50914;
+    border-radius: 10px;
+    background: rgba(229, 9, 20, 0.1);
+    color: #e50914;
+  }
+
+  .day-section {
+    margin-bottom: 50px;
+  }
+
+  .day-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 20px;
+  }
+
+  .day-marker {
+    width: 4px;
+    height: 38px;
+    background: #e50914;
+    border-radius: 4px;
+  }
+
+  .day-header h2 {
+    margin: 0;
+    color: #f5f5f5;
+    font-size: 25px;
+    font-weight: 700;
+  }
+
+  .day-header span {
+    display: block;
+    margin-top: 3px;
+    color: #6b7280;
+    font-size: 14px;
+  }
+
+  .episode-grid {
+     display: grid;
+     grid-template-columns: repeat(4, 220px);
+     gap: 18px;
+     justify-content: start;
+   }
+
+  .episode-card {
+    overflow: hidden;
+    background: #20242b;
+    border: 1px solid #2a2f36;
+    border-radius: 12px;
+    transition:
+      transform 0.2s ease,
+      border-color 0.2s ease;
+  }
+
+  .episode-card:hover {
+    transform: translateY(-3px);
+    border-color: #444b55;
+  }
+
+  .poster-wrap {
+    aspect-ratio: 16 / 9;
+    overflow: hidden;
+    background: #111318;
+  }
+
+  .poster-wrap img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  .poster-placeholder {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #6b7280;
+    font-size: 14px;
+  }
+
+  .episode-info {
+    padding: 16px;
+  }
+
+  .episode-number {
+    margin-bottom: 6px;
+    color: #e50914;
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  .episode-info h3 {
+    margin: 0;
+    color: #f5f5f5;
+    font-size: 17px;
+    line-height: 1.3;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .show-title {
+    margin-top: 0px;
+    color: #9ca3af;
+    font-size: 14px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .episode-title {
+    margin-top: 0px;
+    font-size: 17px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .air-time {
+    margin-bottom: 0px;
+    color: #f5f5f5;
+    font-size: 15px;
+    font-weight: 600;
+  }
+
+  .episode-meta {
+    margin-top: 10px;
+    color: #6b7280;
+    font-size: 13px;
+  }
+
+  .empty {
+    padding: 80px 20px;
+    text-align: center;
+    border: 1px solid #22262d;
+    border-radius: 12px;
+    background: #111318;
+  }
+
+  .empty-title {
+    color: #f5f5f5;
+    font-size: 22px;
+    font-weight: 700;
+  }
+
+  .empty-text {
+    margin-top: 8px;
+    color: #6b7280;
+  }
+
+  @media (max-width: 1000px) {
+    .episode-grid {
+      grid-template-columns: repeat(3, 220px);
+  }
+}
+
+  @media (max-width: 760px) {
+    .episode-grid {
+      grid-template-columns: repeat(2, 220px);
+  }
+}
+
+  @media (max-width: 500px) {
+    .episode-grid {
+      grid-template-columns: 1fr;
+  }
+}
+
+/* Tight episode information */
+.episode-info .air-time,
+.episode-info .show-title,
+.episode-info .episode-title {
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+  line-height: 1.15 !important;
+}
+
+.episode-info .air-time {
+  display: block;
+}
+
+.episode-info .show-title {
+  display: block;
+}
+
+.episode-info .episode-title {
+  display: block;
+}
+
+</style>

@@ -35,10 +35,15 @@ export const onRequest = defineMiddleware(async (context, next) => {
         return context.redirect("/", 302);
       }
     } catch (e) {
-      // Token invalid or expired
-      context.cookies.delete("token", { path: "/" });
-      if (!isPublicRoute) {
-        return context.redirect("/login", 302);
+      // Only remove the token if the backend explicitly rejected it.
+      // Network errors/timeouts should not log the user out.
+      const message = e instanceof Error ? e.message : String(e);
+
+      if (message.includes("401") || message.includes("Not authenticated")) {
+        context.cookies.delete("token", { path: "/" });
+        if (!isPublicRoute) {
+          return context.redirect("/login", 302);
+        }
       }
     }
   } else {

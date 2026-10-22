@@ -1,9 +1,12 @@
 ---
+import watchdIconWhite from "../assets/watchd-icon-white.png";
+import watchdIconRed from "../assets/watchd-icon-red.png";
 interface Props {
   tmdbId: number;
   mediaType: string;
   watched: boolean;
   inLists: number[];
+  inWatchlist: boolean;
   inLibrary: boolean;
   collectionPct: number;
   watchPct?: number;
@@ -21,6 +24,7 @@ interface Props {
   mediaId?: number | null;
   userRating?: number | null;
   listOnly?: boolean;
+  hideRate?: boolean;
 }
 
 const {
@@ -28,6 +32,7 @@ const {
   mediaType,
   watched,
   inLists,
+  inWatchlist,
   inLibrary,
   collectionPct,
   watchPct = 0,
@@ -45,24 +50,21 @@ const {
   mediaId = null,
   userRating = null,
   listOnly = false,
+  hideRate = false,
 } = Astro.props;
 
 const isSeries = mediaType === "series";
 const showRequest = !hideRequest && requestEnabled && (mediaType === "movie" || mediaType === "series");
-const ratingLabel = userRating != null ? userRating.toFixed(1) : "Rate";
 
 // Shared button classes
 const btn = "flex flex-col items-center justify-center gap-0.5 md:gap-1.5 px-2 py-3 md:py-3.5 transition-all cursor-pointer";
-const btnW = "w-[52px] min-w-[52px] md:w-[85px] md:min-w-[85px]";
+const btnW = "w-[52px] min-w-[52px] md:flex-1";
 const label = "hidden md:block text-[10px] font-bold uppercase tracking-wider leading-none";
 
 // Consistent state classes per button colour — inactive / active
 // inactive: bg-zinc-800 text-zinc-500 hover:bg-[c]-500/10 hover:text-[c]-400
 // active:   bg-[c]-500/20 text-[c]-400 hover:bg-[c]-500/30
-const watchActive = isSeries ? watchPct > 0 : watched;
-const watchedCls  = watchActive
-  ? "bg-green-500/50  text-green-300  hover:bg-green-400/50"
-  : "bg-zinc-800 text-zinc-500 hover:bg-green-400/50 hover:text-green-400";
+const watchActive = isSeries ? watchPct === 100 : watched;
 
 const listsCls    = inLists.length > 0
   ? "bg-sky-500/50 text-sky-300 hover:bg-sky-400/50"
@@ -101,36 +103,60 @@ const requestTitle = isMonitored
   data-tvdb-id={tvdbId != null ? String(tvdbId) : ""}
   data-display-season={displaySeasonNumber != null ? String(displaySeasonNumber) : ""}
   data-media-id={mediaId != null ? String(mediaId) : ""}
-  class="flex w-fit"
+  class="flex w-full"
 >
-  <div class="flex flex-row rounded-2xl overflow-hidden border border-zinc-800 shadow-lg min-h-[52px] md:min-h-[64px] w-fit">
+  <div class="flex flex-row rounded-2xl overflow-hidden border border-zinc-800 shadow-lg min-h-[52px] md:min-h-[64px] w-full">
 
-    <!-- Watched (green) -->
+        <!-- Watched (red) -->
     {!listOnly && (
+        <button
+          data-action="watched"
+          data-watched={String(watched)}
+          data-watch-pct={String(watchPct)}
+          data-state={watchActive ? "active" : "inactive"}
+          title={isSeries ? `${watchPct}% watched` : (watched ? "Mark as unwatched" : "Mark as watched")}
+          class={`${btn} ${btnW} border-r border-zinc-800/60 ${
+            watchActive
+              ? "bg-red-500/50 text-red-300 hover:bg-red-400/50"
+              : "bg-zinc-800 text-zinc-500 hover:bg-red-500/50 hover:text-red-300"
+          }`}
+        >
+          <img
+            src={watchActive ? watchdIconRed.src : watchdIconWhite.src}
+            alt="Watchd"
+            class="w-[22px] h-[22px] object-contain"
+            data-watchd-logo
+            data-watchd-red={watchdIconRed.src}
+            data-watchd-white={watchdIconWhite.src}
+          />
+          {isSeries && (
+            <span class="text-[10px] font-bold uppercase tracking-wider leading-none">
+              {watchPct}%
+            </span>
+          )}
+        </button>
+        )}
+
+    <!-- Rate (amber) -->
+    {!listOnly && !hideRate && (
       <button
-        data-action="watched"
-        data-watched={String(watched)}
-        data-watch-pct={String(watchPct)}
-        data-state={watchActive ? "active" : "inactive"}
-        title={isSeries ? `${watchPct}% watched` : (watched ? "Mark as unwatched" : "Mark as watched")}
-        class={`${btn} ${btnW} border-r border-zinc-800/60 ${watchedCls}`}
+        data-action="rate"
+        data-user-rating={userRating != null ? String(userRating) : ""}
+        data-state={userRating != null ? "active" : "inactive"}
+        class={`${btn} ${btnW} border-r border-zinc-800/60 ${rateCls}`}
       >
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/>
-          <circle cx="12" cy="12" r="3" fill={watchActive ? "currentColor" : "none"}/>
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill={userRating != null ? "currentColor" : "none"} stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
         </svg>
-        <span class={label}>{isSeries ? `${watchPct}%` : "Watched"}</span>
-        {isSeries && <span class="md:hidden text-[9px] font-bold leading-none">{watchPct}%</span>}
       </button>
     )}
-
+      
     <!-- Lists (sky) -->
     {!hideLists && (
       <button
         data-action="list"
         data-in-lists={JSON.stringify(inLists)}
         data-state={inLists.length > 0 ? "active" : "inactive"}
-        title="Add to list"
         class={`${btn} ${btnW} ${!listOnly ? "border-r border-zinc-800/60" : ""} ${listsCls}`}
       >
         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -141,24 +167,6 @@ const requestTitle = isMonitored
           <line x1="3" y1="12" x2="3.01" y2="12"/>
           <line x1="3" y1="18" x2="3.01" y2="18"/>
         </svg>
-        <span class={label}>Lists</span>
-      </button>
-    )}
-
-    <!-- Rate (amber) -->
-    {!listOnly && (
-      <button
-        data-action="rate"
-        data-user-rating={userRating != null ? String(userRating) : ""}
-        data-state={userRating != null ? "active" : "inactive"}
-        title={userRating != null ? `Your rating: ${ratingLabel}/10` : "Rate this"}
-        class={`${btn} ${btnW} border-r border-zinc-800/60 ${rateCls}`}
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill={userRating != null ? "currentColor" : "none"} stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
-        </svg>
-        <span class={label}>{ratingLabel}</span>
-        {userRating != null && <span class="md:hidden text-[9px] font-bold leading-none">{ratingLabel}</span>}
       </button>
     )}
 
@@ -169,7 +177,6 @@ const requestTitle = isMonitored
         data-in-library={String(inLibrary)}
         data-collection-pct={String(collectionPct)}
         data-state={inLibrary ? "active" : "inactive"}
-        title={isSeries ? `${collectionPct}% in library` : (inLibrary ? "In collection" : "Add to collection")}
         class={`${btn} ${btnW} relative overflow-hidden ${collectedCls} ${showRequest ? "border-r border-zinc-800/60" : ""}`}
       >
         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -178,8 +185,6 @@ const requestTitle = isMonitored
           <path d="M15 22v-4a3 3 0 0 0-6 0v4"/>
           <path d="M2 7h20"/>
         </svg>
-        <span class={label}>{isSeries ? `${collectionPct}%` : "Collected"}</span>
-        {isSeries && <span class="md:hidden text-[9px] font-bold leading-none">{collectionPct}%</span>}
       </button>
     )}
 

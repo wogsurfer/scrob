@@ -3,6 +3,7 @@
   <div class="bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden">
     <div class="px-4 pt-4 pb-3">
       <p class="text-xs font-bold uppercase tracking-wider text-zinc-400 mb-3">When did you watch this?</p>
+
       <div class="flex gap-2 mb-3">
         <button
           id="watched-at-now-btn"
@@ -17,17 +18,47 @@
           Custom
         </button>
       </div>
-      <input
-        type="datetime-local"
-        id="watched-at-input"
-        class="hidden w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-xl text-sm text-zinc-200 focus:outline-none focus:border-green-500 [color-scheme:dark]"
-      />
+
+      <div id="watched-at-custom-fields" class="hidden space-y-3">
+        <div>
+          <label for="watched-at-date" class="block text-xs font-bold text-zinc-500 mb-1">Date</label>
+          <input
+            type="date"
+            id="watched-at-date"
+            class="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-xl text-sm text-zinc-200 focus:outline-none focus:border-green-500 [color-scheme:dark]"
+          />
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold text-zinc-500 mb-1">Time</label>
+          <div class="flex items-center gap-2">
+            <select
+              id="watched-at-hour"
+              class="flex-1 px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-xl text-sm text-zinc-200 focus:outline-none focus:border-green-500"
+            ></select>
+
+            <span class="text-zinc-500 font-bold">:</span>
+
+            <select
+              id="watched-at-minute"
+              class="flex-1 px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-xl text-sm text-zinc-200 focus:outline-none focus:border-green-500"
+            ></select>
+          </div>
+        </div>
+      </div>
     </div>
+
     <div class="px-4 pb-4 flex gap-2">
-      <button id="watched-at-cancel" class="px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 font-bold text-sm rounded-xl transition-all cursor-pointer active:scale-95">
+      <button
+        id="watched-at-cancel"
+        class="px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 font-bold text-sm rounded-xl transition-all cursor-pointer active:scale-95"
+      >
         Cancel
       </button>
-      <button id="watched-at-confirm" class="flex-1 px-4 py-2.5 bg-green-600 hover:bg-green-500 text-white font-bold text-sm rounded-xl transition-all cursor-pointer active:scale-95">
+      <button
+        id="watched-at-confirm"
+        class="flex-1 px-4 py-2.5 bg-green-600 hover:bg-green-500 text-white font-bold text-sm rounded-xl transition-all cursor-pointer active:scale-95"
+      >
         Log
       </button>
     </div>

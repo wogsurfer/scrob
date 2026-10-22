@@ -1,5 +1,5 @@
-const BACKEND_PORT = (import.meta.env.BACKEND_PORT as string | undefined) ?? "7331";
-const BASE = `http://localhost:${BACKEND_PORT}`;
+const BACKEND_PORT = "8000";
+const BASE = `http://127.0.0.1:${BACKEND_PORT}`;
 
 type ParamValue = string | number | boolean | undefined;
 
@@ -10,12 +10,20 @@ async function request<T>(
   body?: unknown,
   token?: string
 ): Promise<T> {
-  const url = new URL(path.startsWith("/") ? path.slice(1) : path, BASE.endsWith("/") ? BASE : BASE + "/");
+  const url = new URL(
+    path.startsWith("/") ? path.slice(1) : path,
+    BASE.endsWith("/") ? BASE : BASE + "/"
+  );
+
   if (params) {
     Object.entries(params).forEach(([k, v]) => {
       if (v === undefined) return;
+
       if (Array.isArray(v)) {
-        v.forEach((item) => { if (item !== undefined) url.searchParams.append(k, String(item)); });
+        v.forEach(item => {
+          if (item !== undefined)
+            url.searchParams.append(k, String(item));
+        });
       } else {
         url.searchParams.set(k, String(v));
       }
@@ -23,11 +31,13 @@ async function request<T>(
   }
 
   const headers: Record<string, string> = {};
+
   if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
+    headers.Authorization = `Bearer ${token}`;
   }
 
   let finalBody: BodyInit | undefined;
+
   if (body instanceof FormData) {
     finalBody = body;
   } else if (body !== undefined) {
@@ -42,14 +52,11 @@ async function request<T>(
   });
 
   if (!res.ok) {
-    let errorDetail = "";
-    try {
-      const errorJson = await res.json();
-      errorDetail = errorJson.detail || JSON.stringify(errorJson);
-    } catch (e) {}
-    throw new Error(`API ${res.status}: ${path} ${errorDetail}`);
+    const text = await res.text();
+    throw new Error(text);
   }
-  return res.json();
+
+  return await res.json();
 }
 
 async function get<T>(path: string, params?: Record<string, ParamValue | ParamValue[]>, token?: string): Promise<T> {
@@ -81,6 +88,15 @@ export interface CastMember {
   profile_path: string | null;
 }
 
+export interface CrewCredit {
+  tmdb_id: number;
+  name: string;
+  job: string;
+  department?: string | null;
+  profile_path?: string | null;
+  episode_count?: number | null;
+}
+
 export interface Network {
   id: number;
   name: string;
@@ -110,6 +126,9 @@ export interface SeasonState {
   collection_pct: number;
   watch_pct: number;
   user_rating: number | null;
+  episode_count?: number;
+  watched_count?: number;
+  has_aired?: boolean;
 }
 
 export interface EpisodeItem {
@@ -134,6 +153,7 @@ export interface ShowSummary {
   poster_path: string | null;
   backdrop_path: string | null;
   seasons_meta: SeasonMeta[];
+  networks: Network[];
 }
 
 export interface Season {
@@ -144,6 +164,7 @@ export interface Season {
   backdrop_path: string | null;
   air_date: string | null;
   tmdb_rating?: number | null;
+  imdb_rating?: number | null;
   episodes: EpisodeItem[];
   season_number: number;
   show_watched: boolean;
@@ -179,6 +200,7 @@ export interface EpisodeDetail {
   play_count?: number;
   cast: CastMember[];
   guest_stars: CastMember[];
+  crew?: CrewCredit[];
   episodes: EpisodeItem[];
   library: {
     resolution: string;
@@ -197,6 +219,8 @@ export interface PersonCredit {
   poster_path: string | null;
   release_date: string | null;
   character: string | null;
+  department?: string | null;
+  job?: string | null;
   watched?: boolean;
   in_lists?: number[];
   in_library?: boolean;
@@ -213,6 +237,19 @@ export interface PersonDetail {
   place_of_birth: string | null;
   credits: PersonCredit[];
   total_credits: number;
+  all_credits: number;
+  watched_all_credits: number;
+  credit_counts: Record<string, number>;
+  watched_credit_counts: Record<string, number>;
+  selected_category: string;
+  imdb_highest: {
+    rating: number;
+    title: string;
+  } | null;
+  imdb_lowest: {
+    rating: number;
+    title: string;
+  } | null;
   page: number;
   page_size: number;
   in_lists: number[];
@@ -223,6 +260,7 @@ export interface WatchEvent {
   media: MediaItem;
   user_id: number;
   watched_at: string | null;
+  watch_source: string | null;
   completed: boolean;
   progress_percent: number | null;
 }
@@ -543,6 +581,7 @@ export interface MediaItem {
   runtime?: number | null;
   genres?: string[];
   cast?: CastMember[];
+  crew?: { tmdb_id: number; name: string; job: string; profile_path?: string | null }[];
   tagline?: string | null;
   status?: string | null;
   original_language?: string | null;
@@ -561,6 +600,12 @@ export interface MediaItem {
   playable?: boolean;
   // Card action state
   watched?: boolean;
+  watch_source?: string | null;
+  watch_history?: {
+    id: number;
+    watched_at: string | null;
+    watch_source: string | null;
+  }[];
   in_lists?: number[];
   collection_pct?: number;
   watch_pct?: number;
@@ -602,33 +647,6 @@ export interface PlaybackSource {
   name: string;
   resolution: string | null;
   subtitles: SubtitleTrack[];
-}
-
-export interface NowPlayingMedia {
-  id: number;
-  tmdb_id: number;
-  type: MediaType;
-  title: string;
-  poster_path: string | null;
-  backdrop_path: string | null;
-  season_number: number | null;
-  episode_number: number | null;
-  runtime: number | null;
-  show_title?: string;
-  show_tmdb_id?: number;
-  show_tvdb_id?: number | null;
-  show_poster_path?: string | null;
-}
-
-export interface NowPlayingSession {
-  session_key: string;
-  source: string;
-  state: "playing" | "paused";
-  progress_percent: number;
-  progress_seconds: number;
-  started_at: string;
-  updated_at: string;
-  media: NowPlayingMedia;
 }
 
 export interface ContinueWatchingItem {
@@ -803,8 +821,11 @@ export interface Show {
   seasons_meta: SeasonMeta[];
   season_states: Record<number, SeasonState>;
   cast: CastMember[];
+  guest_stars: CastMember[];
+  crew?: CrewCredit[];
+  created_by?: { tmdb_id: number; name: string; profile_path?: string | null }[];
   networks: Network[];
-  recommendations: MediaItem[];
+  production_companies?: ProductionCompany[];  recommendations: MediaItem[];
   tagline: string | null;
   status: string | null;
   original_language?: string | null;
@@ -815,6 +836,16 @@ export interface Show {
   first_air_date: string | null;
   last_air_date: string | null;
   where_to_watch?: { type: string; name: string; logo: string | null }[];
+  episode_count?: number;
+  watched_count?: number;
+  remaining_count?: number;
+  total_runtime?: number | null;
+  watched_runtime?: number | null;
+  remaining_runtime?: number | null;
+  remaining_runtime_estimated?: boolean;
+  watch_start_date?: string | null;
+  watch_end_date?: string | null;
+  last_watched_at?: string | null;
 }
 
 export interface ProfileWatchedItem {
@@ -943,6 +974,20 @@ export interface Comment {
   updated_at?: string | null;
 }
 
+export interface WatchlistMovie {
+    id: number;
+    title: string;
+    year: number;
+    tmdb_id: number;
+    imdb_id: string | null;
+    poster_path: string | null;
+    backdrop_path: string | null;
+    overview: string | null;
+    tmdb_rating: number | null;
+    runtime: number | null;
+    release_date: string | null;
+}
+
 // API calls
 export const api = {
   auth: {
@@ -1068,8 +1113,17 @@ export const api = {
     getRecommendations: (type: string, tmdbId: number, token?: string) =>
       get<{ results: MediaItem[] }>(`/media/${type}/${tmdbId}/recommendations`, undefined, token),
 
-    getPerson: (personId: number, page: number = 1, token?: string) =>
-      get<PersonDetail>(`/media/person/${personId}`, { page }, token),
+    getPerson: (
+      personId: number,
+      page: number = 1,
+      token?: string,
+      category: string = "acting"
+    ) =>
+      get<PersonDetail>(
+        `/media/person/${personId}`,
+        { page, category },
+        token
+      ),
 
     getCollection: (collectionId: number, token?: string) =>
       get<CollectionDetail>(`/media/collection/${collectionId}`, undefined, token),
@@ -1135,6 +1189,9 @@ export const api = {
   shows: {
     list: (params?: { sort?: string; page?: number; page_size?: number; genre?: string[]; year?: number[]; status?: string[]; watched?: string[] }, token?: string) =>
       get<{ page: number; page_size: number; total_results: number; total_pages: number; results: any[] }>("/shows", params, token),
+
+    progress: (token?: string) =>
+      get<{ results: Show[]; total_results: number }>("/shows/progress", undefined, token),
 
     years: (token?: string) =>
       get<{ years: number[] }>("/shows/years", undefined, token),
@@ -1210,9 +1267,48 @@ export const api = {
 
     unhideNextUp: (showId: number, token: string) =>
       del<{ status: string }>(`/history/next-up/hide?show_id=${showId}`, token),
+  },
 
-    nowPlaying: (token: string) =>
-      get<{ now_playing: NowPlayingSession[] }>("/history/now-playing", undefined, token),
+  dashboard: {
+    stats: (token?: string) =>
+      get("/dashboard/stats", undefined, token),
+
+    hero: (token?: string) =>
+      get("/dashboard/hero", undefined, token),
+
+    watchlist: (token?: string) =>
+      get("/dashboard/watchlist", undefined, token),
+
+    last30: (token: string) =>
+      get("/dashboard/last30", undefined, token),
+  },
+
+  calendar: {
+    upcoming: (
+      token?: string,
+      days = 7,
+    ) =>
+      get<{
+        days: number;
+        start_date?: string;
+        end_date?: string;
+        episodes: Array<{
+          id: number;
+          show_id: number;
+          show_title: string | null;
+          title: string | null;
+          season: number | null;
+          episode: number | null;
+          air_date: string;
+          air_time?: string | null;
+          poster_path: string | null;
+          backdrop_path: string | null;
+          show_poster_path: string | null;
+          runtime: number | null;
+          rating: number | null;
+          tmdb_id: number | null;
+        }>;
+      }>(`/calendar/upcoming?days=${days}`, undefined, token),
   },
 
   lists: {

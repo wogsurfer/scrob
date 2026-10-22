@@ -17,6 +17,19 @@ try {
     api.lists.getPublic(token!),
   ]);
   lists = myData.lists;
+  const preferredOrder = ["movies", "following", "watchlist tv", "ended & completed", "movies - recommendations"];
+  lists.sort((a, b) => {
+    const getOrder = (name: string) => {
+      const normalized = name.toLowerCase();
+      const index = preferredOrder.findIndex((entry) =>
+        entry === "movies" ? normalized === entry : entry === "movies - recommendations"
+          ? normalized.startsWith(entry)
+          : normalized === entry
+      );
+      return index < 0 ? preferredOrder.length : index;
+    };
+    return getOrder(a.name) - getOrder(b.name) || a.name.localeCompare(b.name);
+  });
   publicLists = pubData.lists.filter((l) => l.username !== user?.username);
 } catch (e: unknown) {
   error = e instanceof Error ? e.message : String(e);
@@ -136,7 +149,7 @@ try {
         </button>
       </div>
     ) : (
-      <div id="lists-grid" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div id="lists-grid" class="grid grid-cols-1 gap-4">
         {lists.map((list) => (
           <div class="group relative" data-list-id={list.id}>
             <ListCard

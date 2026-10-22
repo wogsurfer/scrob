@@ -5,24 +5,237 @@ export const prerender = false;
 const { id } = Astro.params;
 const { token, user: currentUser } = Astro.locals;
 
-// Lightweight privacy pre-check — reuses the same endpoint, only reads the status code.
-// If 403/404, we show the appropriate error shell without loading any stats.
+// /stats/all-time · /stats/ytd · /stats/2025 (any past year) · /stats/<user id>
+const nowYear = new Date().getFullYear();
+const yearFromId = /^\d{4}$/.test(id ?? "") ? Number(id) : null;
+const isPastYear = yearFromId !== null && yearFromId >= 1980 && yearFromId < nowYear;
+
+const statsMode =
+  id === "all-time"
+    ? "all-time"
+    : id === "ytd" || yearFromId === nowYear
+      ? "ytd"
+      : isPastYear
+        ? "year"
+        : "profile";
+
+const statsYear = isPastYear ? yearFromId : nowYear;
+const statsUserId = statsMode === "profile" ? id : String(currentUser?.id ?? "");
+
 let accessError = "";
 
-try {
-  const res = await fetch(
-    `http://localhost:${import.meta.env.BACKEND_PORT ?? "7331"}/profile/${id}`,
-    token ? { headers: { Authorization: `Bearer ${token}` } } : {}
-  );
-  if (res.status === 404) accessError = "User not found.";
-  else if (res.status === 403) accessError = "This profile is private.";
-  else if (!res.ok) accessError = "Failed to load profile.";
-} catch {
-  accessError = "Failed to load profile.";
+if (statsMode === "profile") {
+  try {
+    const res = await fetch(
+      `http://localhost:${import.meta.env.BACKEND_PORT ?? "7331"}/profile/${id}`,
+      token ? { headers: { Authorization: `Bearer ${token}` } } : {}
+    );
+
+    if (res.status === 404) accessError = "User not found.";
+    else if (res.status === 403) accessError = "This profile is private.";
+    else if (!res.ok) accessError = "Failed to load profile.";
+  } catch {
+    accessError = "Failed to load profile.";
+  }
+} else if (!currentUser) {
+  accessError = "Please log in to view your statistics.";
 }
 
-const isOwnStats = currentUser && String(currentUser.id) === String(id);
+const todayLabel = new Date()
+  .toLocaleDateString("en-US", { month: "short", day: "numeric" })
+  .toUpperCase();
+
+const heroTitle =
+  statsMode === "all-time"
+    ? "All Time"
+    : statsMode === "ytd"
+      ? "Year to Date"
+      : statsMode === "year"
+        ? String(statsYear)
+        : "Statistics";
+
+const heroSubtitle =
+  statsMode === "year"
+    ? `${statsYear} STATS · JAN 1 → DEC 31`
+    : statsMode === "ytd"
+      ? `${nowYear} STATS · JAN 1 → ${todayLabel}`
+      : `1989 → ${nowYear} STATS`;
 ---
+
+<style is:global>
+  :root { color-scheme: dark; }
+  html, body { background: #000000 !important; }
+  body { color: #f5f5f5; }
+
+  .ws-page { max-width: 1440px; margin: 0 auto; padding: 32px 24px 112px; color: #f5f5f5; }
+  .ws-back { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: #8a8a8a; text-decoration: none; transition: color .15s ease; }
+  .ws-back:hover { color: #ffffff; }
+
+  /* Hero */
+  .ws-hero { padding: 40px 0 36px; border-bottom: 1px solid #1d1d1d; }
+  .ws-eyebrow { font-size: 12px; font-weight: 800; letter-spacing: .32em; text-transform: uppercase; color: #e50914; }
+  .ws-title { margin: 14px 0 10px; font-size: clamp(3.4rem, 9vw, 7rem); line-height: .95; font-weight: 800; letter-spacing: -.045em; color: #ffffff; }
+  .ws-subtitle { margin: 0; font-size: 14px; font-weight: 700; letter-spacing: .3em; text-transform: uppercase; color: #8f8f8f; }
+  .ws-years { display: flex; gap: 8px; margin-top: 28px; padding-bottom: 6px; overflow-x: auto; scrollbar-width: none; }
+  .ws-years::-webkit-scrollbar { display: none; }
+  .ws-year { flex: none; padding: 8px 16px; border-radius: 999px; border: 1px solid #242424; background: #0a0a0a; color: #bdbdbd; font-size: 13px; font-weight: 700; text-decoration: none; transition: border-color .15s ease, color .15s ease; }
+  .ws-year:hover { border-color: #e50914; color: #ffffff; }
+  .ws-year.active { background: #e50914; border-color: #e50914; color: #ffffff; }
+
+  /* Headings */
+  .ws-h2 { margin: 80px 0 30px; padding-left: 16px; border-left: 5px solid #e50914; font-size: 30px; font-weight: 800; letter-spacing: -.025em; color: #ffffff; }
+  .ws-h3 { display: flex; align-items: center; gap: 12px; margin: 56px 0 20px; font-size: 12px; font-weight: 800; letter-spacing: .2em; text-transform: uppercase; color: #9a9a9a; }
+  .ws-h3::before { content: ""; width: 20px; height: 2px; background: #e50914; }
+  .ws-h2:first-child { margin-top: 48px; }
+
+  /* Big numbers */
+  .ws-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-top: 16px; }
+  .ws-metric { background: #000000; border: 1px solid #242424; border-radius: 14px; padding: 22px 24px; transition: border-color .18s ease, transform .18s ease; }
+  .ws-metric:hover { border-color: #e50914; transform: translateY(-2px); }
+  .ws-metric b { display: block; font-size: clamp(28px, 3vw, 44px); line-height: 1.05; font-weight: 800; letter-spacing: -.02em; color: #ffffff; font-variant-numeric: tabular-nums; }
+  .ws-metric span { display: block; margin-top: 8px; font-size: 11px; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; color: #858585; }
+  .ws-metric.tbd b { color: #5a5a5a; }
+
+  /* Cards and charts */
+  .ws-grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 16px; }
+  .ws-span2 { grid-column: span 2; }
+  .ws-card { background: #000000; border: 1px solid #242424; border-radius: 14px; padding: 22px 24px 20px; }
+  .ws-card-t { margin: 0 0 18px; font-size: 11px; font-weight: 800; letter-spacing: .18em; text-transform: uppercase; color: #9a9a9a; }
+  .ws-scroll { overflow-x: auto; scrollbar-width: thin; scrollbar-color: #2a2a2a transparent; }
+  .ws-bars { display: flex; align-items: flex-end; gap: 4px; height: 210px; }
+  .ws-col { position: relative; flex: 1 1 0; min-width: 8px; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; }
+  .ws-bar { width: 100%; background: #e50914; border-radius: 3px 3px 0 0; transition: filter .15s ease; }
+  .ws-col:hover .ws-bar { filter: brightness(1.25); }
+  .ws-val { margin-bottom: 4px; font-size: 10px; font-weight: 800; color: #bdbdbd; font-variant-numeric: tabular-nums; }
+  .ws-tip { position: fixed; z-index: 9999; pointer-events: none; opacity: 0; transition: opacity .1s ease; display: flex; flex-direction: column; gap: 2px; padding: 8px 12px; border-radius: 10px; background: #111111; border: 1px solid #2b2b2b; box-shadow: 0 8px 30px rgba(0, 0, 0, .5); white-space: nowrap; }
+  .ws-tip.on { opacity: 1; }
+  .ws-tip b { font-size: 12px; font-weight: 800; color: #ffffff; }
+  .ws-tip span { font-size: 12px; font-weight: 700; color: #e50914; }
+  [data-tip] { cursor: default; }
+  .ws-seeall { margin-left: auto; font-size: 12px; font-weight: 800; letter-spacing: .14em; color: #8a8a8a; text-decoration: none; transition: color .15s ease; }
+  .ws-seeall:hover { color: #e50914; }
+  .ws-axis { display: flex; gap: 4px; margin-top: 8px; }
+  .ws-axis span { flex: 1 1 0; min-width: 8px; text-align: center; font-size: 10px; font-weight: 700; color: #6b6b6b; white-space: nowrap; overflow: visible; }
+  .ws-empty { margin: 8px 0; font-size: 14px; color: #686868; }
+
+  /* Poster grids */
+  .ws-posters { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 20px; }
+  .ws-poster { display: block; text-decoration: none; }
+  .ws-poster-img { position: relative; aspect-ratio: 2 / 3; border-radius: 12px; overflow: hidden; background: #0c0c0c; border: 1px solid #242424; transition: border-color .15s ease, transform .15s ease; }
+  .ws-poster:hover .ws-poster-img { border-color: #e50914; transform: translateY(-3px); }
+  .ws-poster-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .ws-poster-img > span { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 14px; text-align: center; font-size: 11px; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; color: #5a5a5a; }
+  .ws-poster-img > i { position: absolute; top: 8px; left: 8px; min-width: 24px; padding: 2px 7px; border-radius: 999px; background: rgba(0, 0, 0, .82); border: 1px solid #2a2a2a; font-style: normal; font-size: 11px; font-weight: 800; color: #ffffff; text-align: center; }
+  .ws-cap { margin-top: 10px; font-size: 13px; font-weight: 700; color: #bdbdbd; }
+  .ws-cap b { color: #e50914; font-weight: 800; }
+  .ws-cap em { font-style: normal; color: #e50914; font-weight: 800; }
+
+  /* Genre strip */
+  .ws-gs { overflow-x: auto; scrollbar-width: none; }
+  .ws-gs-row { display: flex; width: 100%; }
+  .ws-gs-item { position: relative; height: 150px; }
+  .ws-gs-seg { position: absolute; left: 0; right: 0; top: 52px; height: 46px; display: flex; align-items: center; justify-content: center; }
+  .ws-gs-seg span { font-size: 11px; font-weight: 800; color: rgba(255, 255, 255, .62); }
+  .ws-gs-label { position: absolute; left: 0; z-index: 1; padding-left: 7px; border-left: 1px solid rgba(255, 255, 255, .22); white-space: nowrap; text-transform: uppercase; font-size: 13px; line-height: 1.25; }
+  .ws-gs-label.top { bottom: 98px; padding-bottom: 5px; }
+  .ws-gs-label.bottom { top: 98px; padding-top: 5px; }
+  .ws-gs-label.flip { left: auto; right: 0; padding-left: 0; padding-right: 7px; border-left: none; border-right: 1px solid rgba(255, 255, 255, .22); text-align: right; }
+  .ws-gs-label .n { font-weight: 600; color: #e5e7eb; }
+  .ws-gs-label .l { color: #8b8f97; }
+
+  /* Network wall */
+  .ws-wall { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; }
+  .ws-tile { position: relative; height: 112px; display: flex; align-items: center; justify-content: center; background: #050505; border: 1px solid #1f1f1f; border-radius: 12px; overflow: hidden; transition: border-color .15s ease; }
+  .ws-tile:hover { border-color: #e50914; }
+  .ws-tile img { max-width: 68%; max-height: 52%; object-fit: contain; filter: brightness(0) invert(1); opacity: .92; }
+  .ws-tile-name { padding: 0 14px; text-align: center; font-size: 14px; font-weight: 800; color: #d4d4d4; }
+  .ws-tile-tip { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; background: rgba(0, 0, 0, .88); opacity: 0; transition: opacity .15s ease; text-align: center; padding: 0 10px; }
+  .ws-tile:hover .ws-tile-tip { opacity: 1; }
+  .ws-bubbles { position: relative; container-type: inline-size; width: 100%; max-width: 1000px; margin: 8px auto 0; }
+  .ws-bub { position: absolute; aspect-ratio: 1 / 1; border-radius: 50%; display: flex; align-items: center; justify-content: center; text-align: center; overflow: hidden; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .06); transition: transform .15s ease, box-shadow .15s ease; }
+  .ws-bub:hover { transform: scale(1.05); z-index: 2; box-shadow: 0 0 0 2px #e50914; }
+  .ws-bub img { max-width: 62%; max-height: 40%; object-fit: contain; filter: brightness(0) invert(1); }
+  .ws-bub img.dark { filter: brightness(0); }
+  .ws-bub img.raw { filter: none; max-width: 70%; max-height: 70%; }
+  .ws-bub span { padding: 0 12%; font-weight: 800; line-height: 1.15; overflow-wrap: anywhere; }
+  .ws-bub small { display: block; margin-top: .25em; font-size: .8em; font-weight: 700; opacity: .8; }
+  .ws-tile-tip b { font-size: 13px; color: #ffffff; }
+  .ws-tile-tip span { font-size: 12px; font-weight: 800; color: #e50914; }
+
+  /* Ratings */
+  .ws-rate-rows { margin-top: 16px; display: flex; flex-direction: column; gap: 10px; }
+  .ws-rate-row { display: grid; grid-template-columns: 52px minmax(0, 1fr) 56px; gap: 14px; align-items: center; font-variant-numeric: tabular-nums; }
+  .ws-rate-row .k { font-size: 13px; font-weight: 800; color: #d4d4d4; }
+  .ws-rate-row .k i { font-style: normal; color: #e50914; }
+  .ws-rate-row .t { height: 12px; border-radius: 6px; background: #111111; overflow: hidden; }
+  .ws-rate-row .f { height: 100%; border-radius: 6px; background: #e50914; }
+  .ws-rate-row .c { text-align: right; font-size: 13px; font-weight: 800; color: #bdbdbd; }
+
+  /* Sources pie */
+  .ws-pie { display: flex; align-items: center; gap: 40px; flex-wrap: wrap; }
+  .ws-pie svg { width: 220px; height: 220px; flex: none; }
+  .ws-legend { flex: 1 1 260px; display: flex; flex-direction: column; gap: 10px; }
+  .ws-legend div { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto auto; gap: 12px; align-items: center; font-size: 14px; }
+  .ws-legend i { width: 12px; height: 12px; border-radius: 3px; }
+  .ws-legend .n { font-weight: 700; color: #e5e5e5; }
+  .ws-legend .c { font-weight: 800; color: #bdbdbd; font-variant-numeric: tabular-nums; }
+  .ws-legend .p { width: 52px; text-align: right; font-weight: 800; color: #e50914; font-variant-numeric: tabular-nums; }
+
+  /* Treemap */
+  .ws-treemap { position: relative; height: 540px; background: #000000; }
+  .ws-tm { position: absolute; box-sizing: border-box; padding: 14px 16px; overflow: hidden; background: #0b0b0b; border: 2px solid #000000; display: flex; flex-direction: column; gap: 4px; transition: border-color .15s ease, background .15s ease; }
+  .ws-tm:hover { background: #140405; border-color: #e50914; }
+  .ws-tm b { font-size: 15px; line-height: 1.2; color: #ffffff; }
+  .ws-tm span { font-size: 12px; font-weight: 800; color: #e50914; }
+
+  /* Cast & crew */
+  .ws-credits-note { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin: 0 0 18px; padding: 12px 16px; border: 1px solid #27272a; border-radius: 10px; font-size: 13px; color: #a1a1aa; }
+  .ws-people { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 22px 18px; }
+  .ws-person { position: relative; text-align: center; }
+  .ws-rank { margin-bottom: 8px; font-size: 18px; font-weight: 800; color: #e50914; font-variant-numeric: tabular-nums; }
+  .ws-person-img { aspect-ratio: 2 / 3; border-radius: 12px; overflow: hidden; background: #0c0c0c; border: 1px solid #242424; }
+  .ws-person-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .ws-person-img > span { height: 100%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: #5a5a5a; }
+  .ws-person-name { margin-top: 10px; font-size: 14px; font-weight: 800; color: #ffffff; }
+  .ws-person-credits { margin-top: 4px; font-size: 11px; font-weight: 800; letter-spacing: .1em; color: #858585; }
+  .ws-pop { position: relative; display: inline-block; margin-top: 8px; }
+  .ws-pop summary { list-style: none; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 26px; border-radius: 8px; color: #9a9a9a; transition: color .15s ease; }
+  .ws-pop summary::-webkit-details-marker { display: none; }
+  .ws-pop summary:hover, .ws-pop[open] summary { color: #e50914; }
+  .ws-pop-body { position: absolute; z-index: 30; top: 100%; left: 50%; transform: translateX(-50%); width: 260px; max-height: 260px; overflow-y: auto; margin: 6px 0 0; padding: 12px 14px 12px 28px; list-style: disc; text-align: left; background: #0a0a0a; border: 1px solid #333; border-radius: 10px; font-size: 12px; line-height: 1.55; color: #d4d4d4; }
+  .ws-pager { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 26px; }
+  .ws-pager span { font-size: 12px; font-weight: 800; letter-spacing: .1em; color: #858585; }
+  .ws-btn { padding: 8px 18px; border-radius: 999px; border: 1px solid #3a0b0e; background: #0a0a0a; color: #ffffff; font-size: 12px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; cursor: pointer; transition: border-color .15s ease, background .15s ease; }
+  .ws-btn:hover:not(:disabled) { border-color: #e50914; background: #1a0506; }
+  .ws-btn:disabled { opacity: .3; cursor: not-allowed; }
+
+  /* First / last play */
+  .ws-play { display: flex; gap: 28px; align-items: center; background: #000000; border: 1px solid #242424; border-radius: 14px; padding: 22px; }
+  .ws-play-img { flex: none; border-radius: 10px; overflow: hidden; background: #0c0c0c; border: 1px solid #242424; }
+  .ws-play-img img { display: block; width: 100%; height: 100%; object-fit: cover; }
+  .ws-play-img.wide { width: 340px; aspect-ratio: 16 / 9; }
+  .ws-play-img.tall { width: 150px; aspect-ratio: 2 / 3; }
+  .ws-play-t { margin: 0; font-size: clamp(22px, 2.6vw, 34px); font-weight: 800; letter-spacing: -.02em; color: #ffffff; }
+  .ws-play-s { margin: 6px 0 0; font-size: 16px; font-weight: 700; color: #e50914; }
+  .ws-play-d { margin: 14px 0 0; font-size: 12px; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; color: #858585; }
+
+  .ws-loading, .ws-error { margin-top: 64px; font-size: 15px; color: #858585; }
+  .ws-error { color: #e50914; }
+
+  @media (max-width: 1100px) {
+    .ws-posters, .ws-wall, .ws-people { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  }
+  @media (max-width: 760px) {
+    .ws-page { padding-left: 16px; padding-right: 16px; }
+    .ws-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .ws-grid2 { grid-template-columns: 1fr; }
+    .ws-span2 { grid-column: auto; }
+    .ws-posters, .ws-wall, .ws-people { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .ws-play { flex-direction: column; align-items: flex-start; }
+    .ws-play-img.wide { width: 100%; }
+    .ws-treemap { height: 420px; }
+  }
+</style>
 
 <Base title="Statistics">
   {accessError ? (
@@ -39,673 +252,593 @@ const isOwnStats = currentUser && String(currentUser.id) === String(id);
       </div>
     </div>
   ) : (
-    <div class="max-w-5xl mx-auto py-8 space-y-10">
+    <div class="ws-page">
 
-      <!-- Header -->
-      <div>
-        <a href={`/profile/${id}`} class="text-xs font-bold text-zinc-500 hover:text-zinc-300 uppercase tracking-widest transition flex items-center gap-1.5 mb-3">
-          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
-          Profile
-        </a>
-        <h1 class="page-title">Statistics</h1>
-      </div>
+      <a class="ws-back" href={statsMode === "profile" ? `/profile/${id}` : "/"}>
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+        {statsMode === "profile" ? "Profile" : "Dashboard"}
+      </a>
 
-      <div id="stats-content" class="space-y-10">
+      <header class="ws-hero">
+        <div class="ws-eyebrow">watchd. stats</div>
+        <h1 class="ws-title">{heroTitle}</h1>
+        <p class="ws-subtitle">{heroSubtitle}</p>
+        <nav id="ws-years" class="ws-years" aria-label="Statistics periods"></nav>
+      </header>
 
-      <!-- Summary row skeleton -->
-      <div id="summary-row" class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {[...Array(4)].map(() => (
-          <div class="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-5 text-center animate-pulse">
-            <div class="h-8 w-16 bg-zinc-800 rounded-lg mx-auto mb-2"></div>
-            <div class="h-3 w-24 bg-zinc-800 rounded mx-auto"></div>
-          </div>
-        ))}
-      </div>
+      <div id="ws-root"><p class="ws-loading">Loading your stats…</p></div>
 
-      <!-- Watching Statistics -->
-      <section>
-        <div class="flex items-center justify-between gap-4 flex-wrap mb-6">
-          <h2 class="section-headline">Watching</h2>
-          <div class="flex items-center gap-2">
-            <select id="period-select" class="bg-zinc-800 border border-zinc-700 text-zinc-200 text-sm font-bold rounded-xl px-3 py-2 cursor-pointer hover:border-zinc-500 transition focus:outline-none appearance-none">
-              <option value="all">All time</option>
-              <option value="year">This year</option>
-              <option value="month">This month</option>
-              <option value="week">This week</option>
-              <option value="last365">Last 365 days</option>
-              <option value="last30">Last 30 days</option>
-              <option value="last7">Last 7 days</option>
-            </select>
-            <div id="period-nav" style="display:none" class="items-center gap-1">
-              <button id="prev-btn" class="w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition disabled:opacity-30 disabled:cursor-not-allowed">
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
-              </button>
-              <span id="period-label" class="text-sm font-bold text-zinc-400 min-w-28 text-center px-1"></span>
-              <button id="next-btn" class="w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition disabled:opacity-30 disabled:cursor-not-allowed" disabled>
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
-              </button>
-            </div>
-          </div>
-        </div>
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-
-          <!-- Watch activity chart -->
-          <div class="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-6 lg:col-span-2">
-            <h3 class="group-label mb-5">Activity Over Time</h3>
-            <div id="activity-chart" class="h-40 animate-pulse bg-zinc-800/50 rounded-xl"></div>
-          </div>
-
-          <!-- Most watched genres -->
-          <div class="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-6 lg:col-span-2">
-            <h3 class="group-label mb-5">Most Watched Genres</h3>
-            <div id="genres-container" class="grid grid-cols-1 md:grid-cols-2 gap-8 animate-pulse">
-              <div class="space-y-3">
-                <div class="h-3 w-20 bg-zinc-800 rounded"></div>
-                <div class="space-y-2">
-                  {[...Array(5)].map(() => <div class="h-8 bg-zinc-800/50 rounded-xl"></div>)}
-                </div>
-              </div>
-              <div class="space-y-3">
-                <div class="h-3 w-20 bg-zinc-800 rounded"></div>
-                <div class="space-y-2">
-                  {[...Array(5)].map(() => <div class="h-8 bg-zinc-800/50 rounded-xl"></div>)}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Watch time chart -->
-          <div class="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-6 lg:col-span-2">
-            <h3 class="group-label mb-5">Watch Time Over Time</h3>
-            <div id="watch-time-chart" class="h-40 animate-pulse bg-zinc-800/50 rounded-xl"></div>
-          </div>
-
-          <!-- Watch time breakdown -->
-          <div class="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-6">
-            <h3 class="group-label mb-5">Watch Time</h3>
-            <div id="watch-time-breakdown" class="space-y-3 animate-pulse">
-              <div class="h-10 bg-zinc-800/50 rounded-xl"></div>
-              <div class="h-10 bg-zinc-800/50 rounded-xl"></div>
-            </div>
-          </div>
-
-          <!-- Avg ratings -->
-          <div class="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-6">
-            <h3 class="group-label mb-5">Average Ratings</h3>
-            <div id="avg-ratings" class="space-y-4 animate-pulse">
-              <div class="h-10 bg-zinc-800/50 rounded-xl"></div>
-              <div class="h-10 bg-zinc-800/50 rounded-xl"></div>
-            </div>
-          </div>
-
-          <!-- Rating distribution -->
-          <div class="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-6 lg:col-span-2">
-            <h3 class="group-label mb-5">Rating Distribution</h3>
-            <div id="rating-chart" class="h-36 animate-pulse bg-zinc-800/50 rounded-xl"></div>
-          </div>
-
-          <!-- Most active weekday -->
-          <div class="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-6 lg:col-span-2">
-            <h3 id="weekday-chart-title" class="group-label mb-5">Average Activity by Day of Week</h3>
-            <div id="weekday-chart" class="h-36 animate-pulse bg-zinc-800/50 rounded-xl"></div>
-          </div>
-
-        </div>
-      </section>
-
-      <!-- Collection Statistics -->
-      <section>
-        <h2 class="section-headline mb-6">Collection</h2>
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-          <!-- Breakdown -->
-          <div class="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-6">
-            <h3 class="group-label mb-5">Breakdown</h3>
-            <div id="collection-breakdown" class="space-y-3 animate-pulse">
-              {[...Array(3)].map(() => (
-                <div class="h-8 bg-zinc-800/50 rounded-xl"></div>
-              ))}
-            </div>
-          </div>
-          <!-- Pie charts -->
-          <div class="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-6">
-            <h3 class="group-label mb-5">Watched vs Unwatched</h3>
-            <div class="grid grid-cols-3 gap-4 animate-pulse" id="collection-pies">
-              {[...Array(3)].map(() => (
-                <div class="flex flex-col items-center gap-3">
-                  <div class="w-20 h-20 rounded-full bg-zinc-800/50"></div>
-                  <div class="h-2.5 w-16 bg-zinc-800/50 rounded"></div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      </div>{/* /stats-content */}
     </div>
   )}
 </Base>
 
-<script define:vars={{ userId: id, token, isOwnStats }}>
-  // ── State ──────────────────────────────────────────────────────────────────
-  let currentPeriod = 'all';
-  let currentOffset = 0;
+<script define:vars={{ userId: statsUserId, token: Astro.locals.token, statsMode, statsYear }}>
+(() => {
+  const root = document.getElementById('ws-root');
+  const yearsNav = document.getElementById('ws-years');
+  if (!root) return;
 
-  // ── Period computation ─────────────────────────────────────────────────────
-  const _fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-  const _short = d => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-
-  function computeRange(period, offset) {
-    if (period === 'all') return { since: null, until: null, label: 'All time', canNav: false };
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    let since, until, label;
-    if (period === 'year') {
-      const year = today.getFullYear() + offset;
-      since = new Date(year, 0, 1); until = new Date(year, 11, 31);
-      label = String(year);
-    } else if (period === 'month') {
-      const base = new Date(today.getFullYear(), today.getMonth() + offset, 1);
-      since = base; until = new Date(base.getFullYear(), base.getMonth() + 1, 0);
-      label = base.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-    } else if (period === 'week') {
-      const dow = today.getDay();
-      const monday = new Date(today);
-      monday.setDate(today.getDate() + (dow === 0 ? -6 : 1 - dow) + offset * 7);
-      const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6);
-      since = monday; until = sunday;
-      label = monday.getMonth() === sunday.getMonth()
-        ? `${monday.toLocaleDateString('en-US',{month:'short'})} ${monday.getDate()}–${sunday.getDate()}`
-        : `${_short(monday)} – ${_short(sunday)}`;
-    } else if (period === 'last365') {
-      until = new Date(today); until.setDate(today.getDate() + offset * 365);
-      since = new Date(until); since.setDate(until.getDate() - 364);
-      label = offset === 0 ? 'Last 365 days' : `${_short(since)} – ${_short(until)}`;
-    } else if (period === 'last30') {
-      until = new Date(today); until.setDate(today.getDate() + offset * 30);
-      since = new Date(until); since.setDate(until.getDate() - 29);
-      label = offset === 0 ? 'Last 30 days' : `${_short(since)} – ${_short(until)}`;
-    } else if (period === 'last7') {
-      until = new Date(today); until.setDate(today.getDate() + offset * 7);
-      since = new Date(until); since.setDate(until.getDate() - 6);
-      label = offset === 0 ? 'Last 7 days' : `${_short(since)} – ${_short(until)}`;
-    }
-    return { since: _fmt(since), until: _fmt(until), label, canNav: true };
-  }
-
-  // ── Helpers ────────────────────────────────────────────────────────────────
-  function formatMinutes(mins) {
-    const h = Math.round(mins / 60);
-    return h >= 48 ? `${(mins / 60 / 24).toFixed(1)}d` : `${h}h`;
-  }
-
-  const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const dayNames   = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-
-  function fillActivityGaps(activityData, since, until, isDaily) {
-    if (!since || !until) return activityData;
-    const dataMap = Object.fromEntries(activityData.map(d => [d.month, d]));
-    const filled = [];
-    if (isDaily) {
-      const cur = new Date(since); cur.setHours(0,0,0,0);
-      const end = new Date(until); end.setHours(0,0,0,0);
-      while (cur <= end) {
-        const key = _fmt(cur);
-        filled.push(dataMap[key] || { month: key, movies: 0, episodes: 0 });
-        cur.setDate(cur.getDate() + 1);
-      }
-    } else {
-      const [sy, sm] = since.split('-').map(Number);
-      const [uy, um] = until.split('-').map(Number);
-      let cy = sy, cm = sm;
-      while (cy < uy || (cy === uy && cm <= um)) {
-        const key = `${cy}-${String(cm).padStart(2,'0')}`;
-        filled.push(dataMap[key] || { month: key, movies: 0, episodes: 0 });
-        if (++cm > 12) { cm = 1; cy++; }
-      }
-    }
-    return filled;
-  }
-
-  function getActivityLabel(d, isDaily, totalBars) {
-    if (!isDaily) return monthNames[parseInt(d.month.slice(5), 10) - 1];
-    const [y, m, day] = d.month.split('-').map(Number);
-    if (totalBars <= 7) return dayNames[new Date(y, m-1, day).getDay()];
-    return [1, 5, 10, 15, 20, 25].includes(day) ? String(day) : '';
-  }
-
-  // ── Loading state ──────────────────────────────────────────────────────────
-  function setLoading(on) {
-    const el = document.getElementById('stats-content');
+  // One shared tooltip for every chart element carrying data-tip. It is
+  // position:fixed, so the scrolling chart containers can never clip it.
+  const tipEl = document.createElement('div');
+  tipEl.className = 'ws-tip';
+  document.body.appendChild(tipEl);
+  const placeTip = e => {
+    const w = tipEl.offsetWidth, h = tipEl.offsetHeight;
+    let x = e.clientX + 14, y = e.clientY - h - 12;
+    if (x + w > window.innerWidth - 8) x = e.clientX - w - 14;
+    if (y < 8) y = e.clientY + 18;
+    tipEl.style.left = Math.max(8, x) + 'px';
+    tipEl.style.top = y + 'px';
+  };
+  root.addEventListener('mouseover', e => {
+    const el = e.target.closest && e.target.closest('[data-tip]');
     if (!el) return;
-    el.style.opacity = on ? '0.4' : '';
-    el.style.pointerEvents = on ? 'none' : '';
-    el.style.transition = 'opacity 0.15s';
+    const text = el.getAttribute('data-tip') || '';
+    const i = text.indexOf(': ');
+    tipEl.replaceChildren();
+    const head = document.createElement('b');
+    const tail = document.createElement('span');
+    head.textContent = i > -1 ? text.slice(0, i) : text;
+    tail.textContent = i > -1 ? text.slice(i + 2) : '';
+    tipEl.append(head);
+    if (tail.textContent) tipEl.append(tail);
+    tipEl.classList.add('on');
+    placeTip(e);
+  });
+  root.addEventListener('mousemove', e => {
+    if (tipEl.classList.contains('on')) placeTip(e);
+  });
+  root.addEventListener('mouseout', e => {
+    const el = e.target.closest && e.target.closest('[data-tip]');
+    if (el && !el.contains(e.relatedTarget)) tipEl.classList.remove('on');
+  });
+
+  const NOW = new Date();
+  const CUR_YEAR = NOW.getFullYear();
+  const TZ = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  const SINGLE_YEAR = statsMode === 'ytd' || statsMode === 'year';
+  let DATA = null;
+
+  // ── helpers ────────────────────────────────────────────────────────────────
+  const esc = v => String(v ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+  const num = v => Number(v || 0).toLocaleString();
+  const dec = (v, d) => Number(v || 0).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d });
+  const plural = (n, a, b) => `${num(n)} ${n === 1 ? a : b}`;
+  const pad = n => String(n).padStart(2, '0');
+  const ymd = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+
+  function img(path, size) {
+    if (!path) return '';
+    const s = String(path);
+    const m = /image\.tmdb\.org\/t\/p\/[^/]+(\/.+)$/.exec(s);
+    if (m) return `/api/proxy/media/image/${size}${m[1]}`;
+    if (s.startsWith('http')) return s;
+    return `/api/proxy/media/image/${size}${s.startsWith('/') ? s : '/' + s}`;
   }
 
-  // ── Render ─────────────────────────────────────────────────────────────────
-  function renderStats(data, since, until) {
-    const totalH = Math.round(data.total_watch_minutes / 60);
-    const totalD = (data.total_watch_minutes / 60 / 24).toFixed(1);
+  function range() {
+    if (statsMode === 'ytd') return { since: `${CUR_YEAR}-01-01`, until: ymd(NOW) };
+    if (statsMode === 'year') return { since: `${statsYear}-01-01`, until: `${statsYear}-12-31` };
+    return { since: null, until: null };
+  }
 
-    // Summary row
-    const summaryRow = document.getElementById('summary-row');
-    if (summaryRow) {
-      summaryRow.innerHTML = [
-        { value: data.movies_watched.toLocaleString(),   label: 'Movies Watched' },
-        { value: data.shows_watched.toLocaleString(),    label: 'Shows Watched' },
-        { value: data.episodes_watched.toLocaleString(), label: 'Episodes Watched' },
-        { value: totalH >= 48 ? `${totalD}d` : `${totalH}h`, label: 'Watch Time' },
-      ].map(({ value, label }) => `
-        <div class="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-5 text-center">
-          <p class="text-3xl font-black text-zinc-100 tracking-tight">${value}</p>
-          <p class="text-xs text-zinc-500 font-bold uppercase tracking-widest mt-1">${label}</p>
-        </div>
-      `).join('');
-    }
+  function periodDays(data) {
+    if (statsMode === 'ytd') return Math.max(1, Math.floor((NOW - new Date(CUR_YEAR, 0, 1)) / 86400000) + 1);
+    if (statsMode === 'year') return (statsYear % 4 === 0 && (statsYear % 100 !== 0 || statsYear % 400 === 0)) ? 366 : 365;
+    const first = data.first_play && data.first_play.watched_at;
+    const last = data.last_play && data.last_play.watched_at;
+    if (first && last) return Math.max(1, Math.floor((new Date(last) - new Date(first)) / 86400000));
+    return 1;
+  }
 
-    // Activity chart
-    const isDaily = data.granularity === 'day';
-    const activityChart = document.getElementById('activity-chart');
-    if (activityChart) {
-      let activityData = since && until
-        ? fillActivityGaps(data.watch_activity, since, until, isDaily)
-        : data.watch_activity.slice(-24);
-      activityChart.classList.remove('animate-pulse', 'bg-zinc-800/50', 'rounded-xl');
-      if (activityData.length > 0 && activityData.some(d => d.movies + d.episodes > 0)) {
-        const maxVal = Math.max(...activityData.map(d => d.movies + d.episodes), 1);
-        activityChart.style.display = 'flex';
-        activityChart.style.flexDirection = 'column';
-        
-        const barMinWidth = isDaily ? (activityData.length > 90 ? 4 : 10) : 32;
-        
-        activityChart.innerHTML = `
-          <div id="activity-info" style="height:18px;margin-bottom:4px;display:flex;align-items:center">
-            <span id="activity-info-text" style="font-size:11px;font-weight:700;color:#a1a1aa"></span>
-          </div>
-          <div class="overflow-x-auto scrollbar-none" style="flex:1;min-height:0">
-            <div style="display:flex;flex-direction:column;min-width:max-content;height:100%;padding-bottom:4px">
-              <div style="flex:1;display:flex;align-items:flex-end;gap:2px;min-height:0">
-                ${activityData.map(d => {
-                  const total = d.movies + d.episodes;
-                  const pct = (total / maxVal) * 100;
-                  const moviePct = total > 0 ? (d.movies / total) * 100 : 50;
-                  const parts = d.month.split('-').map(Number);
-                  const barLabel = isDaily
-                    ? `${monthNames[parts[1]-1]}. ${parts[2]}, ${parts[0]}`
-                    : `${monthNames[parts[1]-1]}. ${parts[0]}`;
-                  return `
-                    <div data-info="${barLabel}: ${d.movies} Movies, ${d.episodes} Episodes" style="flex:1;min-width:${barMinWidth}px;height:100%;display:flex;flex-direction:column;justify-content:flex-end">
-                      <div style="height:${total > 0 ? Math.max(pct, 2) : 0}%;width:100%;border-radius:3px 3px 0 0;overflow:hidden;display:flex;flex-direction:column">
-                        <div style="flex:${moviePct};background:rgba(14,165,233,0.8)"></div>
-                        <div style="flex:${100-moviePct};background:rgba(168,85,247,0.8)"></div>
-                      </div>
-                    </div>
-                  `;
-                }).join('')}
-              </div>
-              <div style="display:flex;gap:2px;margin-top:4px">
-                ${activityData.map(d => {
-                  const label = getActivityLabel(d, isDaily, activityData.length);
-                  return `<div style="flex:1;min-width:${barMinWidth}px;text-align:center"><span style="font-size:9px;font-weight:700;color:#52525b;text-transform:uppercase;letter-spacing:.04em">${label}</span></div>`;
-                }).join('')}
-              </div>
-            </div>
-          </div>
-          <div style="display:flex;gap:16px;margin-top:10px;padding-top:8px;border-top:1px solid rgba(39,39,42,0.4)">
-            <span style="display:flex;align-items:center;gap:6px;font-size:10px;font-weight:700;color:#71717a;text-transform:uppercase;letter-spacing:.1em"><span style="width:8px;height:8px;border-radius:2px;background:rgba(14,165,233,0.8);display:inline-block"></span>Movies</span>
-            <span style="display:flex;align-items:center;gap:6px;font-size:10px;font-weight:700;color:#71717a;text-transform:uppercase;letter-spacing:.1em"><span style="width:8px;height:8px;border-radius:2px;background:rgba(168,85,247,0.8);display:inline-block"></span>Episodes</span>
-          </div>
-        `;
-        const infoText = document.getElementById('activity-info-text');
-        activityChart.addEventListener('mouseover', e => {
-          const bar = e.target.closest('[data-info]');
-          if (bar && infoText) infoText.textContent = bar.dataset.info;
-        });
-        activityChart.addEventListener('mouseleave', () => {
-          if (infoText) infoText.textContent = '';
-        });
-        activityChart.addEventListener('touchstart', e => {
-          const bar = e.target.closest('[data-info]');
-          if (bar && infoText) infoText.textContent = bar.dataset.info;
-        }, { passive: true });
+  // ── building blocks ────────────────────────────────────────────────────────
+  const H2 = t => `<h2 class="ws-h2">${esc(t)}</h2>`;
+  const H3 = t => `<h3 class="ws-h3">${esc(t)}</h3>`;
+  const EMPTY = t => `<p class="ws-empty">${esc(t)}</p>`;
+
+  function metricRow(items) {
+    return `<div class="ws-metrics">${items.map(([label, value, cls]) =>
+      `<div class="ws-metric ${cls || ''}"><b>${value}</b><span>${esc(label)}</span></div>`).join('')}</div>`;
+  }
+
+  function rateList(value, days, dayDecimals) {
+    const out = [];
+    if (!SINGLE_YEAR) out.push(['Per Year', num(Math.round(value / (days / 365.25)))]);
+    out.push(['Per Month', num(Math.round(value / (days / 30.44)))]);
+    if (SINGLE_YEAR) out.push(['Per Week', num(Math.round(value / (days / 7)))]);
+    out.push(['Per Day', dec(value / days, dayDecimals)]);
+    return out;
+  }
+
+  function barChart(items, opts = {}) {
+    const rows = items || [];
+    if (!rows.length || !rows.some(r => r.count > 0)) return EMPTY('No data for this period.');
+    const tip = opts.tip || 'plays';
+    const every = opts.every || (rows.length > 24 ? Math.ceil(rows.length / 14) : 1);
+    const max = Math.max(...rows.map(r => r.count), 1);
+    const MAXPX = opts.values ? 176 : 190;
+    const cols = rows.map(r => {
+      const h = r.count > 0 ? Math.max(Math.round(r.count / max * MAXPX), 3) : 0;
+      return `<div class="ws-col" data-tip="${esc(r.label)}: ${num(r.count)} ${tip}">${opts.values && r.count > 0 ? `<span class="ws-val">${num(r.count)}</span>` : ''}<div class="ws-bar" style="height:${h}px"></div></div>`;
+    }).join('');
+    const axis = rows.map((r, i) => `<span>${i % every === 0 ? esc(r.label) : ''}</span>`).join('');
+    const minW = rows.length > 14 ? `style="min-width:${rows.length * 12}px"` : '';
+    return `<div class="ws-scroll"><div ${minW}><div class="ws-bars">${cols}</div><div class="ws-axis">${axis}</div></div></div>`;
+  }
+
+  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const toItems = (labels, counts) => labels.map((label, i) => ({ label, count: (counts || [])[i] || 0 }));
+  const hourItems = counts => Array.from({ length: 24 }, (_, h) => ({ label: pad(h), count: (counts || [])[h] || 0 }));
+
+  const chartCard = (title, body, span) => `<div class="ws-card ${span ? 'ws-span2' : ''}"><h4 class="ws-card-t">${esc(title)}</h4>${body}</div>`;
+
+  function posterGrid(items, hrefFn, captionFn) {
+    return `<div class="ws-posters">${items.map((it, i) => {
+      const src = img(it.poster_path, 'w342');
+      return `<a class="ws-poster" href="${esc(hrefFn(it))}">
+        <div class="ws-poster-img">${src ? `<img src="${esc(src)}" alt="${esc(it.title)}" loading="lazy">` : `<span>${esc(it.title)}</span>`}<i>${i + 1}</i></div>
+        <div class="ws-cap">${captionFn(it)}</div></a>`;
+    }).join('')}</div>`;
+  }
+
+  const showHref = s => s.tmdb_id ? `/show/${s.tmdb_id}` : (s.tvdb_id ? `/show/tvdb/${s.tvdb_id}` : '#');
+  const movieHref = m => m.tmdb_id ? `/media/movie/${m.tmdb_id}` : '#';
+
+  const GENRE_COLOURS = ['#b45852', '#7ea2c2', '#c58b61', '#7d6b60', '#d9ca74', '#91647a', '#b8c978', '#c98983', '#63646a', '#e1c86e', '#b4574f', '#79a6bf'];
+  function genreStrip(items, unit) {
+    const rows = (items || []).filter(g => g.count > 0);
+    if (!rows.length) return EMPTY('No genre data for this period.');
+    const total = rows.reduce((s, g) => s + g.count, 0);
+    const cells = rows.map((g, i) => {
+      const side = i % 2 === 0 ? 'top' : 'bottom';
+      const flip = i >= rows.length - 2 ? ' flip' : '';
+      return `<div class="ws-gs-item" style="flex:${g.count} 1 0px;min-width:68px">
+        <div class="ws-gs-label ${side}${flip}"><div class="n">${esc(g.name)}</div><div class="l">${plural(g.count, unit[0], unit[1])}</div></div>
+        <div class="ws-gs-seg" data-tip="${esc(g.name)}: ${plural(g.count, unit[0], unit[1])}" style="background:${GENRE_COLOURS[i % GENRE_COLOURS.length]}"><span>${Math.round(g.count / total * 100)}%</span></div>
+      </div>`;
+    }).join('');
+    return `<div class="ws-gs"><div class="ws-gs-row" style="min-width:${rows.length * 68}px">${cells}</div></div>`;
+  }
+
+  // Brand colours for the bubble chart. Anything not listed (or not matched by
+  // the patterns below) is drawn black. Add or tweak entries here.
+  const NETWORK_COLOURS = {
+    'netflix': '#e50914', 'disney+': '#113ccf', 'disney plus': '#113ccf', 'disney channel': '#0b4aa2',
+    'hulu': '#1ce783', 'hbo max': '#5822b4', 'max': '#002be7', 'prime video': '#00a8e1', 'amazon': '#00a8e1',
+    'paramount+': '#0064ff', 'paramount network': '#2a4fa3', 'peacock': '#f7c600', 'nbc': '#f37021',
+    'cbs': '#1e3a8a', 'fox': '#1b4f9c', 'the cw': '#00ba62', 'cw': '#00ba62', 'showtime': '#d8232a',
+    'syfy': '#6d2bc4', 'usa network': '#0033a0', 'tnt': '#e31b23', 'tbs': '#1e73be', 'bbc one': '#bb1919',
+    'bbc two': '#bb1919', 'bbc three': '#bb1919', 'bbc four': '#bb1919', 'itv': '#0f1e50', 'itv1': '#0f1e50',
+    'channel 4': '#1f1f1f', 'sky atlantic': '#0e3a8a', 'sky one': '#0072c9', 'comedy central': '#ffe600',
+    'nickelodeon': '#ff6600', 'mtv': '#1a1a1a', 'lifetime': '#e4007c', 'freeform': '#6bbe45', 'crunchyroll': '#f47521',
+    'the wb': '#1b58a5', 'dc universe': '#0476f2', 'dc universe infinity': '#0476f2', 'youtube': '#ff0000',
+    'discovery': '#0a66c2', 'discovery channel': '#0a66c2', 'national geographic': '#ffcc00', 'pluto tv': '#ffe900',
+    'tubi': '#fa382f', 'the roku channel': '#6c3c97', 'cinemax': '#1a1a1a', 'starz': '#111111',
+  };
+  const NETWORK_PATTERNS = [
+    [/netflix/i, '#e50914'], [/disney/i, '#113ccf'], [/hbo\s*max/i, '#5822b4'], [/prime|amazon/i, '#00a8e1'],
+    [/paramount\+|paramount plus/i, '#0064ff'], [/peacock/i, '#f7c600'], [/\bbbc\b/i, '#bb1919'],
+    [/sky\b/i, '#0072c9'], [/crunchyroll/i, '#f47521'], [/youtube/i, '#ff0000'], [/hulu/i, '#1ce783'],
+  ];
+  const BLACK_BUBBLE = '#000000';
+  // Logos that are a filled shape (so turning them solid white would erase the lettering) are shown as-is.
+  const RAW_LOGO = [/^abc\b/i];
+  const rawLogo = name => RAW_LOGO.some(re => re.test(String(name || '').trim()));
+  function networkColour(name) {
+    const key = String(name || '').trim().toLowerCase();
+    if (NETWORK_COLOURS[key]) return NETWORK_COLOURS[key];
+    const hit = NETWORK_PATTERNS.find(([re]) => re.test(key));
+    return hit ? hit[1] : BLACK_BUBBLE;
+  }
+  function isLight(hex) {
+    const m = /^#?([0-9a-f]{6})$/i.exec(hex);
+    if (!m) return false;
+    const n = parseInt(m[1], 16);
+    return (0.299 * (n >> 16 & 255) + 0.587 * (n >> 8 & 255) + 0.114 * (n & 255)) / 255 > 0.62;
+  }
+
+  // Circle packing: biggest in the middle, every next one spirals outward from
+  // the centre until it finds a spot where it doesn't touch the others.
+  function packBubbles(items, gap) {
+    const placed = [];
+    let lastD = 0;                              // distance of the previous bubble from the centre
+    items.forEach((it, i) => {
+      if (!placed.length) { placed.push({ ...it, x: 0, y: 0 }); return; }
+      const start = i * 2.39996;                // golden angle, so the spiral fans out like a rose
+      for (let k = 0; k < 60000; k++) {
+        const t = k * 0.03;
+        // Never closer to the centre than the previous bubble, so rank always
+        // runs from the middle outwards.
+        const d = Math.max(t * 3, lastD);
+        const x = Math.cos(start + t) * d, y = Math.sin(start + t) * d;
+        if (placed.every(p => Math.hypot(p.x - x, p.y - y) >= p.r + it.r + gap)) {
+          placed.push({ ...it, x, y });
+          lastD = d;
+          return;
+        }
+      }
+    });
+    return placed;
+  }
+
+  // Shared bubble chart: biggest in the middle, rank running outwards.
+  // o.unit    [singular, plural] used in the hover text
+  // o.colour  (item, rank) => hex background (black by default)
+  // o.minR    smallest bubble radius, so long names stay readable
+  // o.count   also print the count under the name when there is no logo
+  function bubbleChart(items, o) {
+    const rows = (items || []).filter(n => n.count > 0).sort((a, b) => b.count - a.count);
+    if (!rows.length) return EMPTY(o.empty || 'No data yet.');
+    const max = rows[0].count;
+    const R = 100, MIN_R = o.minR || 30;
+    const sized = rows.map(n => ({ ...n, r: Math.max(R * Math.sqrt(n.count / max), MIN_R) }));
+    const placed = packBubbles(sized, 5);
+    const pad = 6;
+    const minX = Math.min(...placed.map(p => p.x - p.r)) - pad, maxX = Math.max(...placed.map(p => p.x + p.r)) + pad;
+    const minY = Math.min(...placed.map(p => p.y - p.r)) - pad, maxY = Math.max(...placed.map(p => p.y + p.r)) + pad;
+    const W = maxX - minX, H = maxY - minY;
+    const bubbles = placed.map((p, i) => {
+      const src = o.logos === false ? '' : img(p.logo_path, 'w185');
+      const bg = o.colour ? o.colour(p, i) : BLACK_BUBBLE;
+      const light = isLight(bg);
+      const black = bg === BLACK_BUBBLE;
+      const len = String(p.name || '').length;
+      const k = len > 18 ? 0.17 : len > 11 ? 0.21 : 0.26;   // long names get a smaller font
+      const size = (p.r * 2 / W * 100).toFixed(3);
+      const style = `left:${((p.x - p.r - minX) / W * 100).toFixed(3)}%;top:${((p.y - p.r - minY) / H * 100).toFixed(3)}%;width:${size}%;background:${bg};`
+        + (black ? 'border:1px solid #2a2a2a;' : '')
+        + `color:${light ? '#111' : '#fff'};font-size:max(9px, ${(p.r * k / W * 100).toFixed(2)}cqw);`;
+      const inner = src
+        ? `<img src="${esc(src)}" alt="${esc(p.name)}" loading="lazy" class="${rawLogo(p.name) ? 'raw' : light ? 'dark' : ''}">`
+        : `<span>${esc(p.name)}${o.count ? `<small>${num(p.count)}</small>` : ''}</span>`;
+      return `<div class="ws-bub" data-tip="${esc(p.name)}: ${plural(p.count, o.unit[0], o.unit[1])}" style="${style}">${inner}</div>`;
+    }).join('');
+    return `<div class="ws-bubbles" style="aspect-ratio:${W.toFixed(1)} / ${H.toFixed(1)}">${bubbles}</div>`;
+  }
+
+  const networkWall = items => bubbleChart(items, {
+    unit: ['show', 'shows'],
+    empty: 'No network data yet.',
+    colour: n => networkColour(n.name),
+  });
+
+  const PIE = ['#e50914', '#f5f5f5', '#8a8a8a', '#9b1c23', '#bdbdbd', '#5a5a5a', '#ff6b6b', '#d4d4d4'];
+  function pie(items) {
+    const rows = (items || []).filter(i => i.count > 0);
+    if (!rows.length) return EMPTY('No source data for this period.');
+    const total = rows.reduce((s, i) => s + i.count, 0);
+    const R = 62, C = 2 * Math.PI * R;
+    let offset = 0;
+    const arcs = rows.map((r, i) => {
+      const len = r.count / total * C;
+      const arc = `<circle r="${R}" cx="100" cy="100" fill="none" stroke="${PIE[i % PIE.length]}" stroke-width="44" stroke-dasharray="${Math.max(len - 1.5, 0.5)} ${C}" stroke-dashoffset="${-offset}" transform="rotate(-90 100 100)"/>`;
+      offset += len;
+      return arc;
+    }).join('');
+    const legend = rows.map((r, i) => `<div><i style="background:${PIE[i % PIE.length]}"></i><span class="n">${esc(r.name)}</span><span class="c">${num(r.count)}</span><span class="p">${Math.round(r.count / total * 100)}%</span></div>`).join('');
+    return `<div class="ws-pie"><svg viewBox="0 0 200 200" role="img" aria-label="Sources">${arcs}</svg><div class="ws-legend">${legend}</div></div>`;
+  }
+
+  function ratingsBlock(block, noun, title) {
+    if (!block || !block.count) return '';
+    const buckets = new Map();
+    for (let r = 10; r >= 1; r--) buckets.set(r, 0);
+    (block.distribution || []).forEach(d => {
+      const b = Math.min(10, Math.max(1, Math.round(d.rating)));
+      buckets.set(b, (buckets.get(b) || 0) + d.count);
+    });
+    const max = Math.max(...buckets.values(), 1);
+    const rows = [...buckets.entries()].map(([r, c]) =>
+      `<div class="ws-rate-row" data-tip="${r}/10: ${num(c)} ${noun}"><span class="k">${r} <i>★</i></span><div class="t"><div class="f" style="width:${c / max * 100}%"></div></div><span class="c">${num(c)}</span></div>`).join('');
+    return H3(title)
+      + metricRow([['Average Rating', dec(block.average, 2)], [`Rated ${noun}`, num(block.count)], [`10/10 ${noun}`, num(block.tens)]])
+      + `<div class="ws-card" style="margin-top:16px"><div class="ws-rate-rows">${rows}</div></div>`;
+  }
+
+  // Squarified treemap
+  function squarify(items, W, H) {
+    const rows = items.filter(i => i.count > 0).sort((a, b) => b.count - a.count);
+    const total = rows.reduce((s, i) => s + i.count, 0);
+    if (!total) return [];
+    const scale = (W * H) / total;
+    const nodes = rows.map(i => ({ ...i, area: i.count * scale }));
+    const out = [];
+    let x = 0, y = 0, rw = W, rh = H, row = [];
+    const sum = r => r.reduce((a, n) => a + n.area, 0);
+    const worst = (r, side) => {
+      const s = sum(r), mx = Math.max(...r.map(n => n.area)), mn = Math.min(...r.map(n => n.area));
+      return Math.max((side * side * mx) / (s * s), (s * s) / (side * side * mn));
+    };
+    const place = r => {
+      const s = sum(r);
+      if (rw >= rh) {
+        const cw = s / rh; let cy = y;
+        r.forEach(n => { const nh = n.area / cw; out.push({ ...n, x, y: cy, w: cw, h: nh }); cy += nh; });
+        x += cw; rw -= cw;
       } else {
-        activityChart.innerHTML = '<p style="color:#52525b;font-size:14px;font-weight:500;text-align:center;padding-top:40px">No watch history for the selected period.</p>';
+        const ch = s / rw; let cx = x;
+        r.forEach(n => { const nw = n.area / ch; out.push({ ...n, x: cx, y, w: nw, h: ch }); cx += nw; });
+        y += ch; rh -= ch;
       }
+    };
+    nodes.forEach(n => {
+      const side = Math.min(rw, rh);
+      if (!row.length || worst([...row, n], side) <= worst(row, side)) row.push(n);
+      else { place(row); row = [n]; }
+    });
+    if (row.length) place(row);
+    return out;
+  }
+
+  function layoutTreemaps() {
+    root.querySelectorAll('[data-treemap]').forEach(el => {
+      let items = [];
+      try { items = JSON.parse(el.dataset.treemap); } catch (e) { return; }
+      const W = el.clientWidth || 900, H = el.clientHeight || 540;
+      el.innerHTML = squarify(items, W, H).map(n =>
+        `<div class="ws-tm" style="left:${n.x / W * 100}%;top:${n.y / H * 100}%;width:${n.w / W * 100}%;height:${n.h / H * 100}%"><b>${esc(n.name)}</b><span>${plural(n.count, 'movie', 'movies')}</span></div>`).join('');
+    });
+  }
+
+  // First / last play
+  function playCard(title, play) {
+    if (!play) return '';
+    const isEp = play.media_type === 'episode';
+    const name = isEp ? (play.show_title || play.title) : play.title;
+    const code = isEp && play.season_number != null && play.episode_number != null
+      ? `S${pad(play.season_number)}E${pad(play.episode_number)}` : '';
+    const sub = isEp ? [code, play.title].filter(Boolean).join(' · ') : '';
+    const src = isEp ? img(play.show_backdrop_path || play.backdrop_path || play.show_poster_path, 'w780') : img(play.poster_path || play.backdrop_path, 'w342');
+    const when = new Date(play.watched_at);
+    const date = when.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    const time = when.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    return H3(title) + `<div class="ws-play">
+      <div class="ws-play-img ${isEp ? 'wide' : 'tall'}">${src ? `<img src="${esc(src)}" alt="" loading="lazy">` : ''}</div>
+      <div><p class="ws-play-t">${esc(name)}</p>${sub ? `<p class="ws-play-s">${esc(sub)}</p>` : ''}<p class="ws-play-d">${esc(date)} · ${esc(time)}</p></div></div>`;
+  }
+
+  // ── cast & crew ────────────────────────────────────────────────────────────
+  const PEOPLE = [
+    ['actors', 'Most Watched Actors'], ['actresses', 'Most Watched Actresses'], ['directors', 'Most Watched Directors'],
+    ['writers', 'Most Watched Writers'], ['producers', 'Most Watched Producers'], ['composers', 'Most Watched Composers'],
+    ['cinematographers', 'Most Watched Cinematographers'], ['original_material', 'Original Material By'],
+  ];
+  const PAGE = 10;
+  const peoplePage = {};
+
+  function personCard(p, rank) {
+    const src = img(p.profile_path, 'w185');
+    const credits = [p.movies ? plural(p.movies, 'Movie', 'Movies') : '', p.shows ? plural(p.shows, 'Show', 'Shows') : ''].filter(Boolean);
+    const titles = (p.titles || []).map(t =>
+      `<li>${esc(t.title)}${t.year ? ` (${t.year})` : ''}${t.episodes > 1 ? ` · ${t.episodes} episodes` : t.episodes === 1 ? ' · 1 episode' : ''}</li>`).join('');
+    return `<div class="ws-person"><div class="ws-rank">${rank}</div>
+      <div class="ws-person-img">${src ? `<img src="${esc(src)}" alt="${esc(p.name)}" loading="lazy">` : '<span>No photo</span>'}</div>
+      <details class="ws-pop"><summary aria-label="Titles with ${esc(p.name)}"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg></summary><ul class="ws-pop-body">${titles}</ul></details>
+      <div class="ws-person-name">${esc(p.name)}</div>
+      <div class="ws-person-credits">${credits.map(c => `<div>${esc(c.toUpperCase())}</div>`).join('')}</div></div>`;
+  }
+
+  function renderPeople(cat) {
+    const host = root.querySelector(`[data-people="${cat}"]`);
+    const list = (DATA && DATA.people && DATA.people[cat]) || [];
+    if (!host) return;
+    const pages = Math.max(1, Math.ceil(list.length / PAGE));
+    const page = Math.min(peoplePage[cat] || 0, pages - 1);
+    peoplePage[cat] = page;
+    const slice = list.slice(page * PAGE, page * PAGE + PAGE);
+    host.innerHTML = `<div class="ws-people">${slice.map((p, i) => personCard(p, page * PAGE + i + 1)).join('')}</div>`
+      + (pages > 1 ? `<div class="ws-pager"><button class="ws-btn" data-cat="${cat}" data-dir="-1" ${page === 0 ? 'disabled' : ''}>Previous</button><span>${page * PAGE + 1}–${Math.min(list.length, page * PAGE + PAGE)} of ${list.length}</span><button class="ws-btn" data-cat="${cat}" data-dir="1" ${page >= pages - 1 ? 'disabled' : ''}>Next</button></div>` : '');
+  }
+
+  // ── sections ───────────────────────────────────────────────────────────────
+  function tvSection(d, days) {
+    const tv = d.tv;
+    const hours = tv.minutes / 60;
+    const out = [H2('TV Shows')];
+    out.push(metricRow([['Hours Watched', num(Math.round(hours))], ...rateList(hours, days, 1)]));
+    out.push(metricRow([['Episode Plays', num(tv.plays)], ...rateList(tv.plays, days, 2)]));
+
+    const cards = [];
+    if (!SINGLE_YEAR && (tv.by_year || []).length > 1) cards.push(chartCard('Episodes by Year', barChart(tv.by_year, { tip: 'episodes' }), true));
+    cards.push(chartCard('Episodes by Month', barChart(toItems(MONTHS, tv.by_month), { tip: 'episodes', values: true })));
+    cards.push(chartCard('Episodes by Day of Week', barChart(toItems(DAYS, tv.by_weekday), { tip: 'episodes', values: true })));
+    cards.push(chartCard('Episodes by Time of Day', barChart(hourItems(tv.by_hour), { tip: 'episodes', every: 3 }), true));
+    out.push(`<div class="ws-grid2">${cards.join('')}</div>`);
+
+    if ((tv.top_shows || []).length) {
+      const rangeId = statsMode === 'all-time' ? 'all-time' : statsMode === 'ytd' ? 'ytd' : statsMode === 'year' ? String(statsYear) : String(userId);
+      out.push(`<h3 class="ws-h3">Top Shows<a class="ws-seeall" href="/stats/${esc(rangeId)}/shows">See all →</a></h3>`);
+      out.push(posterGrid(tv.top_shows, showHref, s => `<b>${num(s.episodes)}</b> ${s.episodes === 1 ? 'Episode' : 'Episodes'}`));
     }
-
-    // Watch time chart
-    const watchTimeChart = document.getElementById('watch-time-chart');
-    if (watchTimeChart) {
-      let wtData = since && until
-        ? (() => {
-            const dataMap = Object.fromEntries((data.watch_time_activity || []).map(d => [d.month, d]));
-            const filled = [];
-            if (isDaily) {
-              const cur = new Date(since); cur.setHours(0,0,0,0);
-              const end = new Date(until); end.setHours(0,0,0,0);
-              while (cur <= end) {
-                const key = _fmt(cur);
-                filled.push(dataMap[key] || { month: key, movie_minutes: 0, show_minutes: 0 });
-                cur.setDate(cur.getDate() + 1);
-              }
-            } else {
-              const [sy, sm] = since.split('-').map(Number);
-              const [uy, um] = until.split('-').map(Number);
-              let cy = sy, cm = sm;
-              while (cy < uy || (cy === uy && cm <= um)) {
-                const key = `${cy}-${String(cm).padStart(2,'0')}`;
-                filled.push(dataMap[key] || { month: key, movie_minutes: 0, show_minutes: 0 });
-                if (++cm > 12) { cm = 1; cy++; }
-              }
-            }
-            return filled;
-          })()
-        : (data.watch_time_activity || []).slice(-24);
-
-      watchTimeChart.classList.remove('animate-pulse', 'bg-zinc-800/50', 'rounded-xl');
-
-      const fmtTime = (mins) => {
-        if (!mins) return '0m';
-        const h = Math.floor(mins / 60), m = mins % 60;
-        return h > 0 ? (m > 0 ? `${h}h ${m}m` : `${h}h`) : `${m}m`;
-      };
-
-      if (wtData.length > 0 && wtData.some(d => d.movie_minutes + d.show_minutes > 0)) {
-        const maxVal = Math.max(...wtData.map(d => d.movie_minutes + d.show_minutes), 1);
-        const barMinWidth = isDaily ? (wtData.length > 90 ? 4 : 10) : 32;
-        watchTimeChart.style.display = 'flex';
-        watchTimeChart.style.flexDirection = 'column';
-        watchTimeChart.innerHTML = `
-          <div id="wt-info" style="height:18px;margin-bottom:4px;display:flex;align-items:center">
-            <span id="wt-info-text" style="font-size:11px;font-weight:700;color:#a1a1aa"></span>
-          </div>
-          <div class="overflow-x-auto scrollbar-none" style="flex:1;min-height:0">
-            <div style="display:flex;flex-direction:column;min-width:max-content;height:100%;padding-bottom:4px">
-              <div style="flex:1;display:flex;align-items:flex-end;gap:2px;min-height:0">
-                ${wtData.map(d => {
-                  const total = d.movie_minutes + d.show_minutes;
-                  const pct = (total / maxVal) * 100;
-                  const moviePct = total > 0 ? (d.movie_minutes / total) * 100 : 50;
-                  const parts = d.month.split('-').map(Number);
-                  const barLabel = isDaily
-                    ? `${monthNames[parts[1]-1]}. ${parts[2]}, ${parts[0]}`
-                    : `${monthNames[parts[1]-1]}. ${parts[0]}`;
-                  const tooltip = `${barLabel}: ${fmtTime(total)} total · ${fmtTime(d.movie_minutes)} movies · ${fmtTime(d.show_minutes)} shows`;
-                  return `
-                    <div data-info="${tooltip}" style="flex:1;min-width:${barMinWidth}px;height:100%;display:flex;flex-direction:column;justify-content:flex-end">
-                      <div style="height:${total > 0 ? Math.max(pct, 2) : 0}%;width:100%;border-radius:3px 3px 0 0;overflow:hidden;display:flex;flex-direction:column">
-                        <div style="flex:${moviePct};background:rgba(14,165,233,0.8)"></div>
-                        <div style="flex:${100-moviePct};background:rgba(168,85,247,0.8)"></div>
-                      </div>
-                    </div>
-                  `;
-                }).join('')}
-              </div>
-              <div style="display:flex;gap:2px;margin-top:4px">
-                ${wtData.map(d => {
-                  const label = getActivityLabel(d, isDaily, wtData.length);
-                  return `<div style="flex:1;min-width:${barMinWidth}px;text-align:center"><span style="font-size:9px;font-weight:700;color:#52525b;text-transform:uppercase;letter-spacing:.04em">${label}</span></div>`;
-                }).join('')}
-              </div>
-            </div>
-          </div>
-          <div style="display:flex;gap:16px;margin-top:10px;padding-top:8px;border-top:1px solid rgba(39,39,42,0.4)">
-            <span style="display:flex;align-items:center;gap:6px;font-size:10px;font-weight:700;color:#71717a;text-transform:uppercase;letter-spacing:.1em"><span style="width:8px;height:8px;border-radius:2px;background:rgba(14,165,233,0.8);display:inline-block"></span>Movies</span>
-            <span style="display:flex;align-items:center;gap:6px;font-size:10px;font-weight:700;color:#71717a;text-transform:uppercase;letter-spacing:.1em"><span style="width:8px;height:8px;border-radius:2px;background:rgba(168,85,247,0.8);display:inline-block"></span>Shows</span>
-          </div>
-        `;
-        const wtInfoText = document.getElementById('wt-info-text');
-        watchTimeChart.addEventListener('mouseover', e => {
-          const bar = e.target.closest('[data-info]');
-          if (bar && wtInfoText) wtInfoText.textContent = bar.dataset.info;
-        });
-        watchTimeChart.addEventListener('mouseleave', () => {
-          if (wtInfoText) wtInfoText.textContent = '';
-        });
-        watchTimeChart.addEventListener('touchstart', e => {
-          const bar = e.target.closest('[data-info]');
-          if (bar && wtInfoText) wtInfoText.textContent = bar.dataset.info;
-        }, { passive: true });
-      } else {
-        watchTimeChart.innerHTML = '<p style="color:#52525b;font-size:14px;font-weight:500;text-align:center;padding-top:40px">No watch time data for the selected period.</p>';
-      }
+    out.push(H3('TV Show Genres') + genreStrip(tv.genres, ['Show', 'Shows']));
+    out.push(H3('TV Show Release Years') + `<div class="ws-card">${barChart(tv.release_years, { tip: 'shows' })}</div>`);
+    out.push(H3('TV Networks') + networkWall(tv.networks));
+    if (((d.top_rated || {}).shows || []).length) {
+      out.push(H3('Highest Rated TV Shows'));
+      out.push(posterGrid(d.top_rated.shows, showHref, () => '<em>★ 10</em>'));
     }
+    out.push(ratingsBlock(d.ratings && d.ratings.shows, 'Shows', 'All Ratings'));
+    out.push(H3('TV Sources') + `<div class="ws-card">${pie(tv.sources)}</div>`);
+    return out.join('');
+  }
 
-    // Rating distribution
-    const ratingChart = document.getElementById('rating-chart');
-    if (ratingChart) {
-      const hasRatings = data.rating_distribution.length > 0;
-      if (hasRatings) {
-        const ratingMap = new Map();
-        for (let r = 1; r <= 10; r++) ratingMap.set(r, 0);
-        data.rating_distribution.forEach(d => ratingMap.set(d.rating, d.count));
-        const fullDist = Array.from(ratingMap, ([rating, count]) => ({ rating, count }));
-        const maxCount = Math.max(...fullDist.map(d => d.count), 1);
-        ratingChart.classList.remove('animate-pulse', 'bg-zinc-800/50', 'rounded-xl');
-        ratingChart.style.display = 'flex';
-        ratingChart.style.flexDirection = 'column';
-        ratingChart.innerHTML = `
-          <div style="flex:1;display:flex;align-items:flex-end;gap:4px;min-height:0">
-            ${fullDist.map(d => {
-              const pct = (d.count / maxCount) * 100;
-              return `
-                <div style="flex:1;height:100%;display:flex;flex-direction:column;justify-content:flex-end;align-items:center">
-                  <span style="font-size:9px;font-weight:800;color:${d.count > 0 ? 'rgba(245,158,11,0.85)' : 'transparent'};margin-bottom:2px;line-height:1">${d.count > 0 ? d.count : '0'}</span>
-                  <div style="height:${d.count > 0 ? Math.max(pct, 3) : 2}%;width:100%;background:${d.count > 0 ? 'rgba(245,158,11,0.7)' : 'rgba(63,63,70,0.4)'};border-radius:3px 3px 0 0"></div>
-                </div>
-              `;
-            }).join('')}
-          </div>
-          <div style="display:flex;gap:4px;margin-top:4px">
-            ${fullDist.map(d => `<div style="flex:1;text-align:center"><span style="font-size:9px;color:#52525b;font-weight:700;white-space:nowrap">${d.rating}★</span></div>`).join('')}
-          </div>
-        `;
-      } else {
-        ratingChart.classList.remove('animate-pulse', 'bg-zinc-800/50', 'rounded-xl');
-        ratingChart.innerHTML = '<p style="color:#52525b;font-size:14px;font-weight:500;text-align:center;padding-top:40px">No ratings for the selected period.</p>';
-      }
+  function movieSection(d, days) {
+    const mv = d.movies;
+    const hours = mv.minutes / 60;
+    const out = [H2('Movies')];
+    out.push(metricRow([['Hours Watched', num(Math.round(hours))], ...rateList(hours, days, 1)]));
+    out.push(metricRow([['Movie Plays', num(mv.plays)], ...rateList(mv.plays, days, 2)]));
+
+    const cards = [];
+    if (!SINGLE_YEAR && (mv.by_year || []).length > 1) cards.push(chartCard('Movies by Year', barChart(mv.by_year, { tip: 'movies' }), true));
+    cards.push(chartCard('Movies by Month', barChart(toItems(MONTHS, mv.by_month), { tip: 'movies', values: true })));
+    cards.push(chartCard('Movies by Day of Week', barChart(toItems(DAYS, mv.by_weekday), { tip: 'movies', values: true })));
+    cards.push(chartCard('Movies by Time of Day', barChart(hourItems(mv.by_hour), { tip: 'movies', every: 3 }), true));
+    out.push(`<div class="ws-grid2">${cards.join('')}</div>`);
+
+    if ((mv.top_movies || []).length) {
+      out.push(H3('Top Movies'));
+      out.push(posterGrid(mv.top_movies, movieHref, m => `<b>${num(m.plays)}</b> ${m.plays === 1 ? 'Play' : 'Plays'}`));
     }
-
-    // Most watched genres
-    const genresContainer = document.getElementById('genres-container');
-    if (genresContainer) {
-      genresContainer.classList.remove('animate-pulse');
-      const renderGenreList = (title, genres, bgColor, textColor) => {
-        const max = genres.length > 0 ? Math.max(...genres.map(g => g.count)) : 1;
-        return `
-          <div class="space-y-3">
-            <h4 class="text-[10px] font-black text-zinc-500 uppercase tracking-widest">${title}</h4>
-            <div class="space-y-2">
-              ${genres.length > 0 ? genres.map(g => {
-                const pct = (g.count / max) * 100;
-                return `
-                  <div class="relative flex items-center justify-between px-3 py-2 bg-zinc-800/30 rounded-lg overflow-hidden">
-                    <div class="absolute inset-0" style="width:${pct}%;background:${bgColor};pointer-events:none"></div>
-                    <span class="relative text-xs font-bold text-zinc-300">${g.name}</span>
-                    <span class="relative text-xs font-black" style="color:${textColor}">${g.count}</span>
-                  </div>
-                `;
-              }).join('') : `<p class="text-xs text-zinc-600 italic">No data</p>`}
-            </div>
-          </div>
-        `;
-      };
-      genresContainer.innerHTML =
-        renderGenreList('Movies', data.top_movie_genres || [], 'rgba(14,165,233,0.1)', '#38bdf8') +
-        renderGenreList('Shows', data.top_show_genres || [], 'rgba(168,85,247,0.1)', '#c084fc');
+    out.push(H3('Movie Genres') + genreStrip(mv.genres, ['Movie', 'Movies']));
+    out.push(H3('Movies by Release Year') + `<div class="ws-card">${barChart(mv.release_years, { tip: 'movies' })}</div>`);
+    if ((mv.studios || []).length) {
+      out.push(H3('Movie Studios') + bubbleChart(mv.studios, {
+        unit: ['movie', 'movies'],
+        minR: 42,
+        count: true,
+        logos: false,
+        colour: (s, i) => (i === 0 ? '#b45852' : GENRE_COLOURS[i % GENRE_COLOURS.length]),
+      }));
     }
-
-    // Watch time breakdown
-    const watchTimeBreakdown = document.getElementById('watch-time-breakdown');
-    if (watchTimeBreakdown) {
-      watchTimeBreakdown.classList.remove('animate-pulse');
-      watchTimeBreakdown.innerHTML = [
-        { label: 'Movies', value: data.movie_watch_minutes, textColor: '#38bdf8' },
-        { label: 'Shows',  value: data.show_watch_minutes,  textColor: '#c084fc' },
-      ].map(({ label, value, textColor }) => `
-        <div class="flex items-center justify-between bg-zinc-800/40 rounded-xl px-4 py-3">
-          <span class="text-sm font-bold text-zinc-300">${label}</span>
-          <span style="color:${textColor}" class="font-black text-lg">${formatMinutes(value)}</span>
-        </div>
-      `).join('');
+    if (((d.top_rated || {}).movies || []).length) {
+      out.push(H3('Highest Rated Movies'));
+      out.push(posterGrid(d.top_rated.movies, movieHref, () => '<em>★ 10</em>'));
     }
+    out.push(ratingsBlock(d.ratings && d.ratings.movies, 'Movies', 'Movie Ratings'));
+    out.push(H3('Movie Sources') + `<div class="ws-card">${pie(mv.sources)}</div>`);
+    return out.join('');
+  }
 
-    // Avg ratings
-    const avgRatings = document.getElementById('avg-ratings');
-    if (avgRatings) {
-      avgRatings.classList.remove('animate-pulse');
-      avgRatings.innerHTML = [
-        { label: 'Movies', value: data.avg_movie_rating, textColor: '#38bdf8' },
-        { label: 'Shows', value: data.avg_show_rating,   textColor: '#c084fc' },
-      ].map(({ label, value, textColor }) => `
-        <div class="flex items-center justify-between bg-zinc-800/40 rounded-xl px-4 py-3">
-          <span class="text-sm font-bold text-zinc-300">${label}</span>
-          ${value != null
-            ? `<span class="flex items-center gap-1.5 font-black text-lg" style="color:${textColor}"><span class="text-sm text-yellow-400">★</span>${value.toFixed(1)}</span>`
-            : `<span class="text-zinc-600 text-sm font-medium">No ratings</span>`
-          }
-        </div>
-      `).join('');
+  function peopleSection(d) {
+    const people = d.people || {};
+    const cats = PEOPLE.filter(([key]) => (people[key] || []).length);
+    const pending = Number(people._pending || 0);
+    const note = pending > 0
+      ? `<div class="ws-credits-note"><span>Guest roles and one-off crew credits are counted once episode credits have been fetched (${num(pending)} seasons not fetched yet).</span><button class="ws-btn" id="ws-fetch-credits">Fetch episode credits</button></div>`
+      : '';
+    if (!cats.length && !note) return '';
+    return H2('Cast & Crew') + note + cats.map(([key, label]) => H3(label) + `<div data-people="${key}"></div>`).join('');
+  }
+
+  function render(d) {
+    DATA = d;
+    if (!d.totals || !d.totals.plays) {
+      root.innerHTML = EMPTY('No plays recorded for this period.');
+      return;
     }
+    const days = periodDays(d);
+    const hours = d.totals.minutes / 60;
+    const totalsTitle = statsMode === 'all-time' ? 'All Time Totals'
+      : statsMode === 'ytd' ? 'Year to Date Totals'
+      : statsMode === 'year' ? `${statsYear} Totals` : 'Totals';
 
-    // Weekday activity chart
-    const weekdayChart = document.getElementById('weekday-chart');
-    if (weekdayChart && data.weekday_activity) {
-      weekdayChart.classList.remove('animate-pulse', 'bg-zinc-800/50', 'rounded-xl');
-      const hasActivity = data.weekday_activity.some(d => d.avg > 0);
-      if (hasActivity) {
-        const maxAvg = Math.max(...data.weekday_activity.map(d => d.avg), 0.1);
-        const peakDay = data.weekday_activity.reduce((a, b) => a.avg >= b.avg ? a : b).day;
-        weekdayChart.style.display = 'flex';
-        weekdayChart.style.gap = '6px';
-        weekdayChart.style.alignItems = 'flex-end';
-        weekdayChart.innerHTML = data.weekday_activity.map(d => {
-          const pct = (d.avg / maxAvg) * 100;
-          const isPeak = d.day === peakDay;
-          const color = isPeak ? 'rgba(14,165,233,0.9)' : 'rgba(63,63,70,0.8)';
-          return `
-            <div style="flex:1;height:100%;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:6px">
-              <span style="font-size:10px;font-weight:700;color:${isPeak ? 'rgba(14,165,233,0.9)' : '#52525b'}">${d.avg > 0 ? d.avg.toFixed(1) : ''}</span>
-              <div style="height:${Math.max(pct, 3)}%;width:100%;background:${color};border-radius:4px 4px 0 0" title="${d.day}: avg ${d.avg} items/week"></div>
-              <span style="font-size:11px;font-weight:800;color:${isPeak ? '#e4e4e7' : '#71717a'};text-transform:uppercase;letter-spacing:.05em">${d.day}</span>
-            </div>
-          `;
-        }).join('');
-      } else {
-        weekdayChart.style.display = '';
-        weekdayChart.style.gap = '';
-        weekdayChart.style.alignItems = '';
-        weekdayChart.innerHTML = '<p style="color:#52525b;font-size:14px;font-weight:500;text-align:center;padding-top:40px">No watch history for the selected period.</p>';
-      }
-    }
+    root.innerHTML = [
+      H2(totalsTitle),
+      metricRow([
+        ['Plays', num(d.totals.plays)],
+        ['Hours Watched', num(Math.round(hours))],
+        ['Library Items', 'TBD', 'tbd'],
+        ['Ratings', 'TBD', 'tbd'],
+      ]),
+      playCard('First Play', d.first_play),
+      tvSection(d, days),
+      movieSection(d, days),
+      peopleSection(d),
+      playCard('Last Play', d.last_play),
+    ].join('');
 
-    // Collection breakdown
-    const collectionBreakdown = document.getElementById('collection-breakdown');
-    if (collectionBreakdown) {
-      collectionBreakdown.classList.remove('animate-pulse');
-      collectionBreakdown.innerHTML = [
-        { label: 'Movies Collected',   value: data.movies_collected.toLocaleString(),   textColor: '#38bdf8' },
-        { label: 'Shows Collected',    value: data.shows_collected.toLocaleString(),    textColor: '#c084fc' },
-        { label: 'Episodes Collected', value: data.episodes_collected.toLocaleString(), textColor: '#818cf8' },
-      ].map(({ label, value, textColor }) => `
-        <div class="flex items-center justify-between bg-zinc-800/40 rounded-xl px-4 py-3">
-          <span class="text-sm font-bold text-zinc-300">${label}</span>
-          <span style="color:${textColor}" class="font-black text-lg">${value}</span>
-        </div>
-      `).join('');
-    }
+    PEOPLE.forEach(([key]) => { peoplePage[key] = 0; renderPeople(key); });
+    layoutTreemaps();
+  }
 
-    // Collection pie charts
-    const pieContainer = document.getElementById('collection-pies');
-    if (pieContainer) {
-      const C = 2 * Math.PI * 38; // circumference for r=38
+  function renderYears(years) {
+    if (!yearsNav || statsMode === 'profile') return;
+    const list = [...(years || [])];
+    if (!list.includes(CUR_YEAR)) list.unshift(CUR_YEAR);
+    const pills = [`<a class="ws-year ${statsMode === 'all-time' ? 'active' : ''}" href="/stats/all-time">All Time</a>`];
+    list.forEach(y => {
+      const href = y === CUR_YEAR ? '/stats/ytd' : `/stats/${y}`;
+      const active = (statsMode === 'ytd' && y === CUR_YEAR) || (statsMode === 'year' && y === statsYear);
+      pills.push(`<a class="ws-year ${active ? 'active' : ''}" href="${href}">${y}</a>`);
+    });
+    yearsNav.innerHTML = pills.join('');
+    const active = yearsNav.querySelector('.active');
+    if (active && active.scrollIntoView) active.scrollIntoView({ inline: 'center', block: 'nearest' });
+  }
 
-      function donut(pct, colorA, colorB, title, labelA, labelB, countA, countB) {
-        const arc = Math.max(Math.min(pct / 100 * C, C - 1), 1);
-        return `
-          <div class="flex flex-col items-center gap-6">
-            <p class="text-[10px] font-black text-zinc-500 uppercase tracking-widest text-center">${title}</p>
-            <svg viewBox="0 0 100 100" width="80" height="80" style="transform:rotate(-90deg)">
-              <circle cx="50" cy="50" r="38" fill="none" stroke="${colorB}" stroke-width="14"/>
-              <circle cx="50" cy="50" r="38" fill="none" stroke="${colorA}" stroke-width="14"
-                stroke-dasharray="${arc} ${C}" stroke-dashoffset="0"/>
-            </svg>
-            <div class="flex flex-col gap-1 w-full">
-              <div class="flex items-center gap-1.5">
-                <span class="w-2 h-2 rounded-sm shrink-0" style="background:${colorA}"></span>
-                <span class="text-[11px] font-bold text-zinc-500 flex-1">${labelA}</span>
-                <span class="text-[11px] font-black text-zinc-800 dark:text-zinc-100">${countA.toLocaleString()}</span>
-              </div>
-              <div class="flex items-center gap-1.5">
-                <span class="w-2 h-2 rounded-sm shrink-0" style="background:${colorB}"></span>
-                <span class="text-[11px] font-bold text-zinc-500 flex-1">${labelB}</span>
-                <span class="text-[11px] font-black text-zinc-800 dark:text-zinc-100">${countB.toLocaleString()}</span>
-              </div>
-            </div>
-          </div>
-        `;
-      }
-
-      const totalColl = data.movies_collected + data.shows_collected;
-      const moviesPct = totalColl > 0 ? data.movies_collected / totalColl * 100 : 0;
-      const mwPct     = data.movies_collected > 0 ? data.movies_watched_collected / data.movies_collected * 100 : 0;
-      const swPct     = data.shows_collected  > 0 ? data.shows_watched_collected  / data.shows_collected  * 100 : 0;
-
-      pieContainer.classList.remove('animate-pulse');
-      pieContainer.innerHTML =
-        donut(moviesPct, 'rgba(14,165,233,0.85)', 'rgba(168,85,247,0.7)', 'Movies vs Shows', 'Movies',  'Shows',     data.movies_collected,         data.shows_collected) +
-        donut(mwPct,     'rgba(34,197,94,0.85)',  'rgba(63,63,70,0.6)',   'Movies Watched',  'Watched', 'Unwatched', data.movies_watched_collected, data.movies_unwatched_collected) +
-        donut(swPct,     'rgba(34,197,94,0.85)',  'rgba(63,63,70,0.6)',   'Shows Watched',   'Watched', 'Unwatched', data.shows_watched_collected,  data.shows_unwatched_collected);
-    }
-  } // end renderStats
-
-  // ── Fetch ──────────────────────────────────────────────────────────────────
-  async function loadStats(since, until) {
-    setLoading(true);
+  async function fetchCredits(btn) {
+    const label = btn.previousElementSibling;
+    const base = '/api/proxy/profile/me/credits/backfill';
+    btn.disabled = true;
+    btn.textContent = 'Starting…';
     try {
-      const params = new URLSearchParams();
-      if (since) params.set('since', since);
-      if (until) params.set('until', until);
-      const qs = params.toString();
-      const res = await fetch(`/api/proxy/profile/${userId}/stats${qs ? '?' + qs : ''}`, {
+      const res = await fetch(base, { method: 'POST', headers: token ? { Authorization: `Bearer ${token}` } : {} });
+      if (!res.ok && res.status !== 409) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.detail || 'Could not start (are you signed in?)');
+      }
+      for (;;) {
+        await new Promise(r => setTimeout(r, 2000));
+        const st = await (await fetch(base + '/status', { headers: token ? { Authorization: `Bearer ${token}` } : {} })).json();
+        if (st.error) throw new Error(st.error);
+        if (label) label.textContent = `Fetching episode credits… ${num(st.progress)} of ${num(st.total)} seasons`;
+        btn.textContent = 'Running…';
+        if (!st.running) break;
+      }
+      location.reload();
+    } catch (err) {
+      if (label) label.textContent = String(err.message || err);
+      btn.disabled = false;
+      btn.textContent = 'Retry';
+    }
+  }
+
+  // ── events ─────────────────────────────────────────────────────────────────
+  root.addEventListener('click', e => {
+    const btn = e.target.closest('.ws-btn');
+    if (!btn || btn.disabled) return;
+    if (btn.id === 'ws-fetch-credits') { fetchCredits(btn); return; }
+    const cat = btn.dataset.cat;
+    peoplePage[cat] = (peoplePage[cat] || 0) + Number(btn.dataset.dir);
+    renderPeople(cat);
+  });
+  document.addEventListener('click', e => {
+    root.querySelectorAll('details.ws-pop[open]').forEach(d => { if (!d.contains(e.target)) d.removeAttribute('open'); });
+  });
+  let resizeTimer;
+  window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(layoutTreemaps, 150); });
+
+  // ── load ───────────────────────────────────────────────────────────────────
+  (async () => {
+    const { since, until } = range();
+    const params = new URLSearchParams({ tz: TZ });
+    if (since) params.set('since', since);
+    if (until) params.set('until', until);
+    try {
+      const res = await fetch(`/api/proxy/profile/${userId}/stats/overview?${params}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
-      if (!res.ok) { setLoading(false); return; }
-      renderStats(await res.json(), since, until);
-    } catch { /* silent */ }
-    setLoading(false);
-  }
-
-  // ── Refresh ────────────────────────────────────────────────────────────────
-  function refresh() {
-    const { since, until, label, canNav } = computeRange(currentPeriod, currentOffset);
-    const nav = document.getElementById('period-nav');
-    const periodLabel = document.getElementById('period-label');
-    const nextBtn = document.getElementById('next-btn');
-    const weekdayTitle = document.getElementById('weekday-chart-title');
-    if (nav) nav.style.display = canNav ? 'flex' : 'none';
-    if (periodLabel) periodLabel.textContent = label;
-    if (nextBtn) nextBtn.disabled = currentOffset >= 0;
-    if (weekdayTitle) {
-      const isWeekly = currentPeriod === 'week' || currentPeriod === 'last7';
-      weekdayTitle.textContent = isWeekly ? 'Activity by Day of Week' : 'Average Activity by Day of Week';
+      if (!res.ok) throw new Error(`The stats request failed (${res.status}).`);
+      const data = await res.json();
+      renderYears(data.years);
+      render(data);
+    } catch (err) {
+      console.error('Stats failed:', err);
+      root.innerHTML = `<p class="ws-error">Could not load your statistics. ${esc(err.message)}</p>`;
     }
-    loadStats(since, until);
-  }
-
-  // ── Event listeners ────────────────────────────────────────────────────────
-  document.getElementById('period-select').addEventListener('change', e => {
-    currentPeriod = e.target.value;
-    currentOffset = 0;
-    refresh();
-  });
-  document.getElementById('prev-btn').addEventListener('click', () => {
-    currentOffset--;
-    refresh();
-  });
-  document.getElementById('next-btn').addEventListener('click', () => {
-    if (currentOffset < 0) { currentOffset++; refresh(); }
-  });
-
-  refresh();
+  })();
+})();
 </script>

@@ -1,6 +1,6 @@
 import type { APIRoute } from "astro";
 
-const BACKEND_PORT = (import.meta.env.BACKEND_PORT as string | undefined) ?? "7331";
+const BACKEND_PORT = (import.meta.env.BACKEND_PORT as string | undefined) ?? "8000";
 const BACKEND = `http://localhost:${BACKEND_PORT}`;
 
 async function handle({ params, request }: Parameters<APIRoute>[0]): Promise<Response> {

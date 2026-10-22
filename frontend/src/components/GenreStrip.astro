@@ -1,0 +1,159 @@
+---
+interface Genre {
+  name: string;
+  episodes: number;
+  shows: number;
+  movies: number;
+  total: number;
+}
+
+const { genres = [] } = Astro.props as { genres?: Genre[] };
+
+// Same palette as GenreBubbles, assigned by rank (Trakt cycles colours the same way)
+const colours = [
+  "#b45852",
+  "#7ea2c2",
+  "#c58b61",
+  "#7d6b60",
+  "#d9ca74",
+  "#91647a",
+  "#b8c978",
+  "#c98983",
+  "#63646a",
+  "#e1c86e",
+  "#b4574f",
+  "#79a6bf",
+];
+
+// Every segment is at least this wide, so even a 1-movie genre has room for its label
+const MIN_SEGMENT_PX = 68;
+
+const plural = (n: number, one: string, many: string) =>
+  `${n} ${n === 1 ? one : many}`;
+
+const sorted = [...genres]
+  .filter((g) => g.total > 0)
+  .sort((a, b) => b.total - a.total);
+
+const layout = sorted.map((genre, i) => ({
+  name: genre.name,
+  total: genre.total,
+  colour: colours[i % colours.length],
+  // Even positions label above the bar, odd positions below, like Trakt
+  side: i % 2 === 0 ? "top" : "bottom",
+  // The last two labels hang leftwards so they never run off the end of the bar
+  flip: i >= sorted.length - 2,
+  // Zero counts are left out, e.g. a movies-only genre shows just "3 MOVIES"
+  lines: [
+    genre.episodes > 0 ? plural(genre.episodes, "episode", "episodes") : null,
+    genre.shows > 0 ? plural(genre.shows, "show", "shows") : null,
+    genre.movies > 0 ? plural(genre.movies, "movie", "movies") : null,
+  ].filter(Boolean) as string[],
+}));
+---
+
+{layout.length > 0 && (
+  <div class="gs-strip" data-genre-bar="v3-min-width">
+    <div class="gs-row" style={`min-width:${layout.length * MIN_SEGMENT_PX}px;`}>
+      {layout.map((g) => (
+        <div
+          class="gs-item"
+          style={`flex:${g.total} 1 0px; min-width:${MIN_SEGMENT_PX}px;`}
+        >
+          <div
+            class:list={["gs-label", `gs-${g.side}`, { "gs-flip": g.flip }]}
+          >
+            <div class="gs-name">{g.name}</div>
+            {g.lines.map((line) => (
+              <div class="gs-line">{line}</div>
+            ))}
+          </div>
+
+          <div
+            class="gs-segment"
+            style={`background:${g.colour};`}
+            title={`${g.name}: ${g.total}`}
+          ></div>
+        </div>
+      ))}
+    </div>
+  </div>
+)}
+
+<style>
+
+<style>
+
+.gs-strip{
+    display:block;
+    width:100%;
+    box-sizing:border-box;
+    margin:36px 0 48px;
+    overflow-x:auto;
+}
+
+.gs-row{
+    display:flex;
+    width:100%;
+}
+
+.gs-item{
+    position:relative;
+    height:214px;
+}
+
+.gs-segment{
+    position:absolute;
+    left:0;
+    right:0;
+    top:84px;
+    height:46px;
+    transition:filter .15s ease;
+}
+
+.gs-segment:hover{
+    filter:brightness(1.12);
+}
+
+.gs-label{
+    position:absolute;
+    left:0;
+    white-space:nowrap;
+    text-transform:uppercase;
+    font-size:14px;
+    line-height:1.2;
+    padding-left:7px;
+    border-left:1px solid rgba(255,255,255,.22);
+    z-index:1;
+}
+
+.gs-label.gs-top{
+    bottom:130px;
+    padding-bottom:5px;
+}
+
+.gs-label.gs-bottom{
+    top:130px;
+    padding-top:5px;
+}
+
+.gs-label.gs-flip{
+    left:auto;
+    right:0;
+    padding-left:0;
+    padding-right:7px;
+    border-left:none;
+    border-right:1px solid rgba(255,255,255,.22);
+    text-align:right;
+}
+
+.gs-name{
+    color:#e5e7eb;
+    font-weight:500;
+}
+
+.gs-line{
+    color:#8b8f97;
+}
+
+</style>

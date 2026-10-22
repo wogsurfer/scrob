@@ -1356,22 +1356,6 @@ if (me.totp_enabled) {
               </button>
             </div>
           </div>
-
-          <div class="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
-            <div class="flex items-center justify-between px-5 py-4">
-              <div>
-                <p class="text-sm font-medium text-zinc-200">Clear now playing</p>
-                <p class="text-xs text-zinc-500 mt-0.5">Removes all active now playing sessions. Use this if a ghost session is stuck in the bar after a restart or network interruption.</p>
-              </div>
-              <button
-                id="clear-sessions-btn"
-                type="button"
-                class="ml-4 shrink-0 text-sm px-4 py-2 rounded-lg transition-colors cursor-pointer bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-500/30"
-              >
-                Clear
-              </button>
-            </div>
-          </div>
         </div>
       </section>
 
@@ -4174,27 +4158,6 @@ if (me.totp_enabled) {
   }
 
   function setupClearSessionsButton() {
-    const btn = document.getElementById('clear-sessions-btn');
-    if (!btn) return;
-    btn.addEventListener('click', async () => {
-      const tok = (document.getElementById('app-data') as HTMLElement | null)?.dataset.token ?? '';
-      const original = btn.textContent;
-      btn.textContent = 'Clearing…';
-      (btn as HTMLButtonElement).disabled = true;
-      try {
-        const res = await fetch('/api/proxy/history/sessions', {
-          method: 'DELETE',
-          headers: { 'Authorization': `Bearer ${tok}` },
-        });
-        if (!res.ok) throw new Error('Failed');
-        btn.textContent = 'Cleared';
-        setTimeout(() => { btn.textContent = original; (btn as HTMLButtonElement).disabled = false; }, 2000);
-      } catch {
-        btn.textContent = 'Error';
-        setTimeout(() => { btn.textContent = original; (btn as HTMLButtonElement).disabled = false; }, 2000);
-      }
-    });
-
     const healStubBtn = document.getElementById('heal-stub-titles-btn');
     if (healStubBtn) {
       healStubBtn.addEventListener('click', async () => {
@@ -4506,7 +4469,7 @@ if (me.totp_enabled) {
             ${[...groupedEpisodeWarnings.entries()].map(([seriesName, {count, reason, plex_guids, matched, matched_tvdb_id, matched_show_id, matched_show_title}]) => {
               const isMatched = matched;
               const matchedTitle = matched_show_title ?? '';
-              const matchHref = matched_tvdb_id ? `/show/tvdb/${matched_tvdb_id}` : (matched_show_id ? `/show/${matched_show_id}` : '');
+              const matchHref = matched_show_id ? `/show/${matched_show_id}` : '';
               return `
               <div class="flex items-center gap-3 py-1.5 border-b border-zinc-800/60 last:border-0">
                 <div class="flex-1 min-w-0">
@@ -4534,7 +4497,7 @@ if (me.totp_enabled) {
               const wMatchedTitle = w.matched_movie_title ?? w.matched_show_title ?? '';
               const wMatchHref = w.media_type === 'movie' && w.matched_tmdb_id
                 ? `/movie/${w.matched_tmdb_id}`
-                : (w.matched_tvdb_id ? `/show/tvdb/${w.matched_tvdb_id}` : (w.matched_show_id ? `/show/${w.matched_show_id}` : ''));
+                : (w.matched_show_id ? `/show/${w.matched_show_id}` : '');
               return `
               <div class="flex items-center gap-3 py-1.5 border-b border-zinc-800/60 last:border-0">
                 <div class="flex-1 min-w-0">

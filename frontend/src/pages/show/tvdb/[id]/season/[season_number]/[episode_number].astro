@@ -1,32 +1,40 @@
 ---
-import Base from "../../../../../../layouts/Base.astro";
-import ActionBar from "../../../../../../components/ActionBar.astro";
-import CommentsSection from "../../../../../../components/CommentsSection.astro";
-import ManualScrobble from "../../../../../../components/ManualScrobble.astro";
-import VideoPlayer from "../../../../../../components/VideoPlayer.astro";
 import { api, type TvdbEpisodeDetail } from "../../../../../../lib/api";
+
 export const prerender = false;
 
 const { id, season_number, episode_number } = Astro.params;
 const { token } = Astro.locals;
+
 Astro.response.headers.set("Cache-Control", "no-store");
 
 let episode: TvdbEpisodeDetail | null = null;
-let error = "";
 
 try {
-  episode = await api.shows.getTvdbEpisode(Number(id), Number(season_number), Number(episode_number), token);
-} catch (e: any) {
-  error = e.message;
-}
+  episode = await api.shows.getTvdbEpisode(
+    Number(id),
+    Number(season_number),
+    Number(episode_number),
+    token
+  );
+} catch {}
 
-if (!episode && !error) {
+if (!episode) {
   return Astro.redirect("/404");
 }
 
-const show = episode?.show;
-const season = episode?.season;
-const thumbnail = episode?.image_url || show?.poster_path || null;
+const tmdbShowId =
+  episode.show_tmdb_id ??
+  episode.show?.tmdb_id ??
+  null;
+
+if (!tmdbShowId) {
+  return Astro.redirect("/404");
+}
+
+return Astro.redirect(
+  `/show/${tmdbShowId}/season/${season_number}/${episode_number}`
+);
 ---
 
 <Base title={episode ? `${show?.title} — ${episode.name ?? `Episode ${episode_number}`}` : "Episode Details"}>
@@ -86,7 +94,27 @@ const thumbnail = episode?.image_url || show?.poster_path || null;
                 </div>
               )}
             </div>
-          </div>
+            
+            <div class="mt-4 w-full">
+              <ActionBar
+                tmdbId={episode.tmdb_id ?? episode.tvdb_id ?? Number(id)}
+                mediaType="episode"
+                watched={episode.watched}
+                inLists={episode.in_lists}
+                inLibrary={episode.in_library}
+                collectionPct={episode.in_library ? 100 : 0}
+                showTmdbId={episode.show_tmdb_id ?? episode.show.tmdb_id ?? undefined}
+                seasonNumber={episode.tmdb_season_number}
+                episodeNumber={episode.tmdb_episode_number}
+                displaySeasonNumber={Number(season_number)}
+                episodeOrder="tvdb"
+                tvdbId={Number(id)}
+                mediaId={episode.id}
+                hideRequest={true}
+                userRating={episode.user_rating}
+              />
+            </div>
+        </div>
 
           <!-- Info -->
           <div class="flex-1 min-w-0 pt-2">
@@ -155,36 +183,17 @@ const thumbnail = episode?.image_url || show?.poster_path || null;
               )}
             </div>
 
-            <div class="mb-4">
-              <ActionBar
-                tmdbId={episode.tmdb_id ?? episode.tvdb_id ?? Number(id)}
-                mediaType="episode"
-                watched={episode.watched}
-                inLists={episode.in_lists}
-                inLibrary={episode.in_library}
-                collectionPct={episode.in_library ? 100 : 0}
-                showTmdbId={episode.show_tmdb_id ?? episode.show.tmdb_id ?? undefined}
-                seasonNumber={episode.tmdb_season_number}
-                episodeNumber={episode.tmdb_episode_number}
-                displaySeasonNumber={Number(season_number)}
-                episodeOrder="tvdb"
-                tvdbId={Number(id)}
-                mediaId={episode.id}
-                hideRequest={true}
-                userRating={episode.user_rating}
-              />
-            </div>
-
-            <ManualScrobble
-              tmdbId={episode.tmdb_id}
-              mediaId={episode.id}
-              mediaType="episode"
-              runtime={episode.runtime}
-              title={episode.name ?? `Episode ${episode_number}`}
-              showTmdbId={episode.show_tmdb_id ?? episode.show.tmdb_id ?? undefined}
-              seasonNumber={episode.tmdb_season_number}
-              episodeNumber={episode.tmdb_episode_number}
-            />
+            {episode.overview && (
+              <div>
+                <h2 class="text-xl font-black text-zinc-100 mb-4 flex items-center gap-2 uppercase tracking-tight">
+                  <span class="w-2 h-2 bg-blue-500 rounded-full"></span>
+                  Overview
+                </h2>
+                <p class="text-zinc-300 leading-relaxed text-lg max-w-3xl font-medium opacity-90">
+                  {episode.overview}
+                </p>
+              </div>
+            )}            
 
             <!-- Library info -->
             {episode.library && (
@@ -243,26 +252,8 @@ const thumbnail = episode?.image_url || show?.poster_path || null;
               </div>
             )}
 
-            {episode.overview && (
-              <div>
-                <h2 class="text-xl font-black text-zinc-100 mb-4 flex items-center gap-2 uppercase tracking-tight">
-                  <span class="w-2 h-2 bg-blue-500 rounded-full"></span>
-                  Overview
-                </h2>
-                <p class="text-zinc-300 leading-relaxed text-lg max-w-3xl font-medium opacity-90">
-                  {episode.overview}
-                </p>
-              </div>
-            )}
           </div>
         </div>
-
-        <CommentsSection
-          mediaType="series"
-          tmdbId={episode.show_tmdb_id ?? episode.show.tmdb_id ?? Number(id)}
-          seasonNumber={episode.tmdb_season_number}
-          episodeNumber={episode.tmdb_episode_number}
-        />
 
         <!-- Cast -->
         {episode.cast?.length > 0 && (

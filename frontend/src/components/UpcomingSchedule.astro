@@ -1,0 +1,140 @@
+---
+const { episodes } = Astro.props;
+
+const upcomingEpisodes = Array.isArray(episodes) ? episodes : [];
+
+const byDate = new Map();
+
+for (const ep of upcomingEpisodes) {
+  if (!byDate.has(ep.air_date)) {
+    byDate.set(ep.air_date, []);
+  }
+
+  byDate.get(ep.air_date).push(ep);
+}
+
+const code = (season, episode) =>
+  `${String(season ?? 0).padStart(2, "0")}x${String(episode ?? 0).padStart(2, "0")}`;
+
+// Same show, same time, same network on the same day = one block
+const mergeDrops = (list) => {
+  const merged = new Map();
+
+  for (const ep of list) {
+    const key = `${ep.show_title}|${ep.air_time}|${ep.network}`;
+    if (!merged.has(key)) merged.set(key, []);
+    merged.get(key).push(ep);
+  }
+
+  return [...merged.values()].map((eps) => {
+    eps.sort(
+      (a, b) =>
+        (a.season ?? 0) - (b.season ?? 0) || (a.episode ?? 0) - (b.episode ?? 0)
+    );
+
+    return { ...eps[0], eps };
+  });
+};
+
+const days = [...byDate.entries()]
+  .slice(0, 7)
+  .map(([date, list]) => [date, mergeDrops(list)]);
+---
+
+<section class="mb-16">
+
+  <div class="flex items-center justify-between mb-8">
+    <div>
+      <h2 class="section-headline">Upcoming Schedule</h2>
+      <p class="text-zinc-400 text-sm">
+        All upcoming episodes from your shows.
+      </p>
+    </div>
+
+    <a
+      href="/calendar"
+      class="text-sm font-bold uppercase tracking-widest text-zinc-400 hover:text-red-500"
+    >
+      Calendar →
+    </a>
+  </div>
+
+  <div
+    class="grid gap-5"
+    style="grid-template-columns:repeat(7,minmax(170px,1fr));"
+  >
+
+        {days.map(([date, shows]) => (
+
+      <div>
+
+        <h3 class="mb-5">
+          <div class="text-xs uppercase tracking-widest text-zinc-500">
+            {new Date(date).toLocaleDateString("en-US", {
+              weekday: "short",
+            })}
+          </div>
+
+          <div class="text-2xl font-bold text-white">
+            {new Date(date).toLocaleDateString("en-US", {
+              month: "short",
+              day: "numeric",
+            })}
+          </div>
+        </h3>
+
+        {shows.map((show) => (
+
+          <div
+            class="pb-4 mb-4"
+            style="border-bottom: 1px solid #27272a;"
+          >
+
+            {(show.air_time || show.network) && (
+              <div class="text-sm">
+                {show.air_time && (
+                  <span class="text-white font-semibold">{show.air_time}</span>
+                )}
+                {show.air_time && show.network && (
+                  <span class="text-zinc-600"> · </span>
+                )}
+                {show.network && (
+                  <span class="text-zinc-500 uppercase tracking-wider font-semibold">
+                    {show.network}
+                  </span>
+                )}
+              </div>
+            )}
+
+            <div class="text-zinc-400 leading-tight">
+              {show.show_title}
+            </div>
+
+            {show.eps.map((ep, i) => (
+              <div class={i < show.eps.length - 1 ? "mb-3" : ""}>
+                <div class="leading-tight">
+                  <span class="text-red-500 font-semibold">
+                    {code(ep.season, ep.episode)}
+                  </span>
+                  <span class="text-white">
+                    {" "}{ep.title}
+                  </span>
+                </div>
+
+                <div class="text-zinc-500">
+                  {ep.runtime ? `${ep.runtime} min` : ""}
+                </div>
+              </div>
+            ))}
+
+          </div>
+
+        ))}
+
+      </div>
+
+    ))}
+
+  </div>
+
+</section>
