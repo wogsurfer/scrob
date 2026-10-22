@@ -1,20 +1,12 @@
 ---
 import "../styles/global.css";
-import logo from "../assets/watchd-icon.png";
+import logo from "../assets/watchd-icon-red.png";
 import WatchedAtPicker from "../components/WatchedAtPicker.astro";
-import { api } from "../lib/api";
 
 interface Props { title: string; hideNav?: boolean }
 const { title, hideNav } = Astro.props;
 const { user, token } = Astro.locals;
 
-let pendingRequestCount = 0;
-if (user?.is_admin && token) {
-  try {
-    const data = await api.admin.getPendingCount(token);
-    pendingRequestCount = data.pending;
-  } catch {}
-}
 const blurExplicit = Astro.cookies.get("blur_explicit")?.value !== "false";
 const use24h = Astro.cookies.get("time_format_24h")?.value === "true";
 
@@ -22,13 +14,14 @@ const pathname = Astro.url.pathname;
 const activeMovies = pathname.startsWith('/movies') || pathname.startsWith('/collection/movies') || pathname.startsWith('/trending/movies') || pathname.startsWith('/media/movie');
 const activeShows  = pathname.startsWith('/shows') || pathname.startsWith('/collection/shows') || pathname.startsWith('/show') || pathname.startsWith('/trending/shows');
 const activeHistory = pathname.startsWith('/history') || pathname === '/next-up';
-const activeLists  = pathname.startsWith('/lists') || pathname.startsWith('/list/');
-const activeHome   = !activeMovies && !activeShows && !activeHistory && !activeLists;
+const activeLists    = pathname.startsWith('/lists') || pathname.startsWith('/list/');
+const activeCalendar = pathname.startsWith('/calendar');
+const activeHome     = pathname === '/';
 
 const navLink = (active: boolean) =>
   active
-    ? 'text-zinc-100 font-semibold'
-    : 'text-zinc-400 hover:text-zinc-100 transition-colors';
+    ? 'text-red-600 font-semibold'
+    : 'text-zinc-400 hover:text-white transition-colors';
 
 const bottomNavItem = (active: boolean) =>
   `flex flex-col items-center justify-center gap-1 flex-1 py-2 text-[10px] font-bold uppercase tracking-wider transition-colors active:bg-zinc-800/70 active:scale-95 ${active ? 'text-blue-400' : 'text-zinc-500'}`;
@@ -114,22 +107,24 @@ const bottomNavItem = (active: boolean) =>
 </head>
 <body class="bg-black text-zinc-100 min-h-screen overflow-x-hidden">
   {!hideNav && (
-    <nav class="px-4 md:px-6 py-3 md:py-4 text-sm relative z-30 bg-black md:bg-transparent">
+<nav class="fixed top-0 left-0 right-0 px-4 md:px-6 py-3 md:py-4 text-sm z-50 bg-black border-b border-zinc-800">
       <!-- Default bar -->
       <div id="nav-default" class="flex items-center justify-between gap-3 safe-area-top">
         <!-- Left: logo + desktop links -->
         <div class="flex items-center gap-6 min-w-0">
-          <a href="/" class="flex items-center gap-2 text-zinc-100 font-bold text-lg tracking-tight shrink-0 group active:opacity-70 transition-opacity">
+          <a href="/" data-astro-prefetch class="flex items-center gap-2 text-zinc-100 font-bold text-lg tracking-tight shrink-0 group active:opacity-70 transition-opacity">
             <img src={logo.src} alt="Watchd Logo" width="32" height="32" loading="eager" class="w-7 h-7 md:w-8 md:h-8 object-contain group-hover:scale-105 transition-transform" />
             <span>
               watchd<span style="color:#e50914;">.</span>
             </span>
           </a>
           <div class="hidden md:flex items-center gap-6 text-sm">
-            <a href="/movies" class={navLink(activeMovies)}>Movies</a>
-            <a href="/shows" class={navLink(activeShows)}>Shows</a>
-            <a href="/lists" class={navLink(activeLists)}>Lists</a>
-            <a href="/history" class={navLink(activeHistory)}>History</a>
+            <a href="/" data-astro-prefetch class={navLink(activeHome)}>Dashboard</a>
+            <a href="/shows" data-astro-prefetch class={navLink(activeShows)}>Shows</a>
+            <a href="/movies" data-astro-prefetch class={navLink(activeMovies)}>Movies</a>
+            <a href="/lists" data-astro-prefetch class={navLink(activeLists)}>Lists</a>
+            <a href="/calendar" data-astro-prefetch class={navLink(activeCalendar)}>Calendar</a>
+            <a href="/discover" data-astro-prefetch class={navLink(false)}>Discover</a>
           </div>
           <!-- Desktop search -->
           <form action="/search" method="GET" class="relative hidden md:block">
@@ -140,7 +135,6 @@ const bottomNavItem = (active: boolean) =>
               placeholder="Search movies & shows..."
               class="bg-zinc-900 border border-zinc-800 rounded-full px-4 py-2 w-64 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-700 focus:border-zinc-700 transition-all placeholder:text-zinc-400"
             />
-            <kbd class="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-zinc-400 font-sans pointer-events-none border border-zinc-800 rounded px-1.5 py-0.5 bg-zinc-950">/</kbd>
           </form>
         </div>
         <!-- Right: mobile search icon + theme + user -->
@@ -163,8 +157,8 @@ const bottomNavItem = (active: boolean) =>
             <div class="relative">
               <button id="user-menu-btn" class="relative flex items-center gap-1.5 text-zinc-400 hover:text-zinc-100 transition-colors p-3 rounded-xl bg-zinc-900 border border-zinc-800 cursor-pointer sm:p-1 sm:bg-transparent sm:border-transparent">
                 <span class="hidden sm:inline font-medium text-zinc-100 text-sm">{user.display_name}</span>
-                {pendingRequestCount > 0 && (
-                  <span class="absolute -top-1 -right-1 sm:top-0 sm:right-0 w-2.5 h-2.5 bg-blue-500 rounded-full border-2 border-zinc-950"></span>
+                {user.is_admin && (
+                  <span id="pending-request-dot" hidden class="absolute -top-1 -right-1 sm:top-0 sm:right-0 w-2.5 h-2.5 bg-blue-500 rounded-full border-2 border-zinc-950"></span>
                 )}
                 <svg xmlns="http://www.w3.org/2000/svg" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="sm:hidden text-zinc-400"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
                 <svg id="user-chevron" xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="opacity-50 hidden sm:block transition-transform duration-200"><path d="m6 9 6 6 6-6"/></svg>
@@ -182,8 +176,8 @@ const bottomNavItem = (active: boolean) =>
                   {user.is_admin && (
                     <a href="/requests" class="flex items-center justify-between px-3 py-2 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 active:opacity-70 rounded-lg transition">
                       Requests
-                      {pendingRequestCount > 0 && (
-                        <span class="ml-2 min-w-[1.25rem] h-5 px-1.5 flex items-center justify-center text-[10px] font-bold bg-blue-500 text-white rounded-full">{pendingRequestCount}</span>
+                      {user.is_admin && (
+                        <span id="pending-request-count" hidden class="ml-2 min-w-[1.25rem] h-5 px-1.5 items-center justify-center text-[10px] font-bold bg-blue-500 text-white rounded-full"></span>
                       )}
                     </a>
                   )}
@@ -220,12 +214,13 @@ const bottomNavItem = (active: boolean) =>
     </nav>
   )}
 
-  {pathname === "/" && <div id="now-playing-section"></div>}
-
-  <main class:list={[
-    "px-6 md:px-6 pb-24 md:pb-8 max-w-screen-xl mx-auto",
-    pathname === "/" ? "pt-0 md:pt-8" : "pt-6 md:pt-8"
-  ]}>
+  <main
+    class:list={[
+      pathname === "/"
+        ? "px-6 md:px-6 pb-24 md:pb-8 max-w-screen-2xl mx-auto pt-24"
+        : "px-6 md:px-6 pb-24 md:pb-8 pt-24",
+    ]}
+  >
     {hideNav && <div class="safe-area-top" />}
     <slot />
   </main>
@@ -233,15 +228,15 @@ const bottomNavItem = (active: boolean) =>
   <!-- Mobile bottom nav -->
   {!hideNav && (
     <nav id="bottom-nav" class="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-zinc-900 border-t border-zinc-800 flex items-stretch safe-area-bottom">
-      <a href="/" class={bottomNavItem(activeHome)}>
+      <a href="/" data-astro-prefetch class={bottomNavItem(activeHome)}>
         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
         Home
       </a>
-      <a href="/movies" class={bottomNavItem(activeMovies)}>
+      <a href="/movies" data-astro-prefetch class={bottomNavItem(activeMovies)}>
         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 3v18"/><path d="M3 7.5h4"/><path d="M3 12h18"/><path d="M3 16.5h4"/><path d="M17 3v18"/><path d="M17 7.5h4"/><path d="M17 16.5h4"/></svg>
         Movies
       </a>
-      <a href="/shows" class={bottomNavItem(activeShows)}>
+      <a href="/shows" data-astro-prefetch class={bottomNavItem(activeShows)}>
         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="15" x="2" y="7" rx="2"/><polyline points="17 2 12 7 7 2"/></svg>
         Shows
       </a>
@@ -257,15 +252,17 @@ const bottomNavItem = (active: boolean) =>
   )}
 
   <!-- Rating popover (shared, repositioned on use) -->
-  <div id="rating-popover" class="hidden absolute z-50 w-72 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl overflow-hidden">
+  <div id="rating-popover" class="hidden absolute z-50 w-[22rem] max-w-[calc(100vw-1rem)] bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl overflow-hidden">
     <div class="px-3 py-2 border-b border-zinc-800 flex items-center justify-between">
       <span class="text-xs font-semibold text-zinc-400 uppercase tracking-wider">Your rating</span>
       <button id="rating-popover-close" class="text-zinc-500 hover:text-zinc-200 transition cursor-pointer" aria-label="Close">
         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       </button>
     </div>
-    <div class="px-3 py-3">
-      <div id="rating-stars" class="flex items-center justify-center gap-1"></div>
+    <div class="px-3 py-3 flex items-center justify-center gap-2">
+      <button id="rating-zero" type="button" title="Rate 0" class="w-7 h-7 shrink-0 rounded-md border border-zinc-700 text-xs font-black text-zinc-400 hover:text-white hover:border-zinc-500 transition cursor-pointer">0</button>
+      <div id="rating-stars" tabindex="0" role="slider" aria-label="Your rating" aria-valuemin="0" aria-valuemax="10" class="flex items-center touch-none select-none outline-none"></div>
+      <span id="rating-label" class="w-8 shrink-0 text-right text-sm font-black text-zinc-200 tabular-nums"></span>
     </div>
     <div class="border-t border-zinc-800">
       <button id="rating-remove" class="hidden w-full px-3 py-2 text-sm text-red-400 hover:bg-zinc-800 transition text-left flex items-center gap-2 cursor-pointer">
@@ -294,7 +291,7 @@ const bottomNavItem = (active: boolean) =>
 
   <!-- Watch history modal -->
   <div id="watch-history-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-    <div class="bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden">
+    <div class="bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl w-full max-w-xl mx-4 overflow-hidden">
       <div class="px-5 pt-5 pb-4 border-b border-zinc-800 flex items-center justify-between gap-3">
         <h3 class="text-base font-bold text-zinc-100">Watch History</h3>
         <button id="watch-history-modal-close" class="text-zinc-500 hover:text-zinc-200 transition cursor-pointer shrink-0" aria-label="Close">
@@ -308,11 +305,34 @@ const bottomNavItem = (active: boolean) =>
         </button>
         <p class="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Add a play</p>
         <div class="flex gap-2">
-          <button id="watch-history-now-btn" class="flex-1 px-3 py-2 rounded-xl text-sm font-bold transition-all cursor-pointer bg-blue-600 text-white">Just now</button>
-          <button id="watch-history-custom-btn" class="flex-1 px-3 py-2 rounded-xl text-sm font-bold transition-all cursor-pointer bg-zinc-800 text-zinc-400 border border-zinc-700 hover:text-zinc-200">Custom</button>
-          <button id="watch-history-unknown-btn" class="flex-1 px-3 py-2 rounded-xl text-sm font-bold transition-all cursor-pointer bg-zinc-800 text-zinc-400 border border-zinc-700 hover:text-zinc-200">Unknown</button>
+          <button id="watch-history-watching-btn" class="flex-1 px-2 py-2 rounded-xl text-sm font-bold transition-all cursor-pointer bg-zinc-800 text-zinc-400 border border-zinc-700 hover:text-zinc-200">Watch now</button>
+          <button id="watch-history-now-btn" class="flex-1 px-2 py-2 rounded-xl text-sm font-bold transition-all cursor-pointer bg-blue-600 text-white">Just now</button>
+          <button id="watch-history-custom-btn" class="flex-1 px-2 py-2 rounded-xl text-sm font-bold transition-all cursor-pointer bg-zinc-800 text-zinc-400 border border-zinc-700 hover:text-zinc-200">Custom</button>
+          <button id="watch-history-unknown-btn" class="flex-1 px-2 py-2 rounded-xl text-sm font-bold transition-all cursor-pointer bg-zinc-800 text-zinc-400 border border-zinc-700 hover:text-zinc-200">Unknown</button>
         </div>
-        <input type="datetime-local" id="watch-history-date-input" class="hidden w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-xl text-sm text-zinc-200 focus:outline-none focus:border-green-500 [color-scheme:dark]" />
+        <input
+          type="datetime-local"
+          id="watch-history-date-input"
+          lang="en-GB"
+          class="hidden w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-xl text-sm text-zinc-200 focus:outline-none focus:border-green-500 [color-scheme:dark]"
+          />
+          <label for="watch-history-source" class="sr-only">Watched via</label>
+        <select id="watch-history-source" class="w-full px-3 py-2.5 bg-zinc-800 border border-zinc-700 rounded-xl text-sm text-zinc-200 focus:outline-none focus:border-green-500">
+          <option value="">Source (optional)</option>
+          <option>Cinema</option>
+          <option>Blu-ray</option>
+          <option>4K</option>
+          <option>DVD</option>
+          <option>Cable</option>
+          <option>VHS</option>
+          <option>TV</option>
+          <option>Netflix</option>
+          <option>Amazon</option>
+          <option>Disney+</option>
+          <option>AppleTV</option>
+          <option>PLEX</option>
+          <option>Digital file</option>
+        </select>
         <button id="watch-history-log-btn" class="w-full px-4 py-2.5 bg-green-600 hover:bg-green-500 text-white font-bold text-sm rounded-xl transition-all cursor-pointer active:scale-95">
           Mark as watched
         </button>
@@ -444,145 +464,25 @@ const bottomNavItem = (active: boolean) =>
     window.__AUTH_TOKEN__ = __layoutAuthToken;
     window.__USE_24H__ = __use24h;
 
-    // ── Now Playing poller (Global) ──────────────────────────────────────────
-    function esc(str) {
-      if (str == null) return '';
-      return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
-    }
-
-    function tmdbImageUrl(path, size = 'w500') {
-      if (!path) return null;
-      if (path.startsWith('http://') || path.startsWith('https://')) {
-        const m = /image\.tmdb\.org\/t\/p\/([^/]+)(\/.+)$/.exec(path);
-        if (m) return `/api/proxy/media/image/${m[1]}${m[2]}`;
-        return path;
-      }
-      return `/api/proxy/media/image/${size}${path.startsWith('/') ? path : '/' + path}`;
-    }
-
-    function calcLivePct(progressSeconds, updatedAt, runtime, playing) {
-      if (!runtime || runtime <= 0) return 0;
-      const runtimeSeconds = runtime * 60;
-      const dateStr = updatedAt.includes('Z') || updatedAt.includes('+') ? updatedAt : updatedAt + 'Z';
-      const updatedMs = new Date(dateStr).getTime();
-      if (isNaN(updatedMs)) return 0;
-      const elapsed = playing ? (Date.now() - updatedMs) / 1000 : 0;
-      const current = Math.max(0, Math.min(progressSeconds + elapsed, runtimeSeconds));
-      return Math.min(100, (current / runtimeSeconds) * 100);
-    }
-
-    function renderNowPlaying(sessions) {
-      if (!sessions || !sessions.length) return '';
-      const rows = sessions.map(session => {
-        const m = session.media;
-        const isEpisode = m.type === 'episode';
-        const title = isEpisode ? (m.show_title ?? m.title) : m.title;
-        const subtitle = isEpisode
-          ? `S${String(m.season_number).padStart(2,'0')}E${String(m.episode_number).padStart(2,'0')} · ${m.title}`
-          : null;
-        const href = isEpisode
-          ? (m.show_tmdb_id && m.season_number && m.episode_number
-              ? `/show/${m.show_tmdb_id}/season/${m.season_number}/${m.episode_number}`
-              : m.show_tvdb_id && m.season_number && m.episode_number
-                ? `/show/tvdb/${m.show_tvdb_id}/season/${m.season_number}/${m.episode_number}`
-                : m.show_tmdb_id ? `/show/${m.show_tmdb_id}` : m.show_tvdb_id ? `/show/tvdb/${m.show_tvdb_id}` : null)
-          : (m.tmdb_id ? `/media/movie/${m.tmdb_id}` : null);
-        const isPaused = session.state === 'paused';
-        const sourceLabels = { plex: 'Plex', emby: 'Emby', kodi: 'Kodi', jellyfin: 'Jellyfin', manual: 'Scrob' };
-        const sourceLabel = sourceLabels[session.source] ?? session.source;
-        const progressSeconds = session.progress_seconds ?? 0;
-        const runtime = m.runtime ?? 0;
-        const pct = runtime > 0
-          ? calcLivePct(progressSeconds, session.updated_at, runtime, !isPaused)
-          : Math.round((session.progress_percent ?? 0) * 100);
-        const pctDisplay = Math.floor(pct);
-        const sessionKey = esc(session.session_key);
-
-        const statusLabel = isPaused ? 'Paused' : 'Now Playing';
-        const dotColor = isPaused ? 'bg-yellow-400' : 'bg-green-400';
-        const labelColor = isPaused ? 'text-yellow-400' : 'text-green-400';
-
-        const indicator = isPaused
-          ? `<span class="shrink-0 w-2 h-2 rounded-full ${dotColor}"></span>`
-          : `<span class="relative shrink-0 flex w-2 h-2"><span class="animate-ping absolute inline-flex h-full w-full rounded-full ${dotColor} opacity-75"></span><span class="relative inline-flex rounded-full w-2 h-2 ${dotColor}"></span></span>`;
-
-        const rawPoster = isEpisode ? (m.show_poster_path ?? m.poster_path) : m.poster_path;
-        const posterUrl = tmdbImageUrl(rawPoster, 'w185');
-
-        return `<div class="relative group border-b border-zinc-800/50 last:border-0">
-            <div class="absolute inset-0 bg-zinc-900"></div>
-            ${href ? `<a href="${esc(href)}" class="relative flex items-center gap-3 px-6 md:px-8 py-2.5 max-w-screen-xl mx-auto hover:brightness-110 transition-all">` : `<div class="relative flex items-center gap-3 px-6 md:px-8 py-2.5 max-w-screen-xl mx-auto">`}
-              ${posterUrl
-                ? `<img src="${esc(posterUrl)}" alt="" class="shrink-0 w-7 h-10 rounded object-cover opacity-90" loading="lazy" decoding="async" />`
-                : `<div class="shrink-0 w-7 h-10 rounded bg-zinc-800 flex items-center justify-center text-zinc-600"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 3v18M17 3v18M3 7.5h4M3 12h18M3 16.5h4M17 7.5h4M17 16.5h4"/></svg></div>`
-              }
-              ${indicator}
-              <div class="flex-1 min-w-0">
-                <div class="flex items-center gap-2 mb-0.5">
-                  <span class="text-[10px] font-bold uppercase tracking-widest ${labelColor}">${esc(statusLabel)}</span>
-                  <span class="text-[10px] text-zinc-500">·</span>
-                  <span class="text-xs text-zinc-500">${esc(sourceLabel)}</span>
-                </div>
-                <p class="text-xs font-semibold text-zinc-100 truncate leading-tight">${esc(title)}</p>
-                ${subtitle ? `<p class="text-[10px] text-zinc-400 truncate leading-tight mt-0.5">${esc(subtitle)}</p>` : ''}
-              </div>
-              <span data-nppct="${sessionKey}" class="text-xs font-bold text-zinc-300 tabular-nums shrink-0">${esc(String(pctDisplay))}%</span>
-            ${href ? '</a>' : '</div>'}
-            <div class="absolute bottom-0 left-0 right-0" style="height:2px;background:rgba(0,0,0,0.12)">
-              <div data-npbar="${sessionKey}"
-                data-ps="${progressSeconds}"
-                data-ua="${esc(session.updated_at)}"
-                data-rt="${runtime}"
-                data-playing="${isPaused ? '0' : '1'}"
-                style="height:2px;width:${esc(String(pct))}%;background-color:${isPaused ? '#facc15' : '#4ade80'};transition:width 1s linear"></div>
-            </div>
-          </div>`;
-      }).join('');
-      return `<div class="bg-zinc-950 border-b border-zinc-800/30">${rows}</div>`;
-    }
-
-    function tickNowPlaying() {
-      document.querySelectorAll('[data-npbar]').forEach(bar => {
-        if (bar.dataset.playing !== '1') return;
-        const rt = parseFloat(bar.dataset.rt);
-        if (!rt || rt <= 0) return;
-        const pct = calcLivePct(parseFloat(bar.dataset.ps), bar.dataset.ua, rt, true);
-        bar.style.width = pct + '%';
-        const pctEl = document.querySelector(`[data-nppct="${bar.dataset.npbar}"]`);
-        if (pctEl) pctEl.textContent = Math.floor(pct) + '%';
-      });
-    }
-
-    async function pollNowPlaying() {
-      const container = document.getElementById('now-playing-section');
-      if (!container) return;
-      try {
-        const res = await fetch('/api/proxy/history/now-playing', {
-          headers: { 'Authorization': `Bearer ${window.__AUTH_TOKEN__}` },
-        });
-        if (!res.ok) return;
-        const data = await res.json();
-        const html = renderNowPlaying(data.now_playing ?? []);
-        container.innerHTML = html;
-      } catch { /* ignore */ }
-    }
-
-    if (window.__AUTH_TOKEN__) {
-      const isHome = () => window.location.pathname === '/';
-      
-      const runPoll = () => {
-        if (isHome()) pollNowPlaying();
-      };
-
-      runPoll();
-      setInterval(runPoll, 10_000);
-      setInterval(() => {
-        if (isHome()) tickNowPlaying();
-      }, 1_000);
+    // Load the admin badge after first paint so it doesn't hold up every page render.
+    if (__layoutAuthToken && document.getElementById('pending-request-count')) {
+      fetch('/api/proxy/admin/requests/pending-count', {
+        headers: { Authorization: `Bearer ${__layoutAuthToken}` },
+      })
+        .then((response) => response.ok ? response.json() : null)
+        .then((data) => {
+          if (!data) return;
+          const count = Number(data.pending) || 0;
+          const badge = document.getElementById('pending-request-count');
+          const dot = document.getElementById('pending-request-dot');
+          if (badge) {
+            badge.textContent = String(count);
+            badge.hidden = count === 0;
+            badge.classList.toggle('flex', count > 0);
+          }
+          if (dot) dot.hidden = count === 0;
+        })
+        .catch(() => {});
     }
   </script>
 
@@ -612,35 +512,54 @@ const bottomNavItem = (active: boolean) =>
         const picker = document.getElementById('watched-at-picker')!;
         const nowBtn = document.getElementById('watched-at-now-btn')!;
         const customBtn = document.getElementById('watched-at-custom-btn')!;
-        const input = document.getElementById('watched-at-input') as HTMLInputElement;
+        const fields = document.getElementById('watched-at-custom-fields')!;
+        const dateInput = document.getElementById('watched-at-date') as HTMLInputElement;
+        const hourSelect = document.getElementById('watched-at-hour') as HTMLSelectElement;
+        const minuteSelect = document.getElementById('watched-at-minute') as HTMLSelectElement;
         const confirmBtn = document.getElementById('watched-at-confirm')!;
         const cancelBtn = document.getElementById('watched-at-cancel')!;
 
         const activeClass = 'flex-1 px-3 py-2 rounded-xl text-sm font-bold transition-all cursor-pointer bg-blue-600 text-white';
         const inactiveClass = 'flex-1 px-3 py-2 rounded-xl text-sm font-bold transition-all cursor-pointer bg-zinc-800 text-zinc-400 border border-zinc-700 hover:text-zinc-200';
 
-        // Reset to "Just now" state
+        const pad = (n: number) => String(n).padStart(2, '0');
+
+        // Populate 24-hour time controls.
+        hourSelect.innerHTML = Array.from({ length: 24 }, (_, h) =>
+          `<option value="${pad(h)}">${pad(h)}</option>`
+        ).join('');
+
+        minuteSelect.innerHTML = Array.from({ length: 60 }, (_, m) =>
+          `<option value="${pad(m)}">${pad(m)}</option>`
+        ).join('');
+
+        const now = new Date();
+
+        const toLocal = (d: Date) =>
+          `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
+        const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+
+        dateInput.value = today;
+        dateInput.max = today;
+        hourSelect.value = pad(now.getHours());
+        minuteSelect.value = pad(now.getMinutes());
+
         let useNow = true;
-        input.classList.add('hidden');
+
+        fields.classList.add('hidden');
         nowBtn.className = activeClass;
         customBtn.className = inactiveClass;
 
-        // Pre-fill input with current local time
-        const toLocal = (d: Date) => {
-          const pad = (n: number) => String(n).padStart(2, '0');
-          return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-        };
-        input.value = toLocal(new Date());
-        input.max = toLocal(new Date());
-
-        // Position below the button if there's room, otherwise above
         picker.classList.remove('hidden');
+
         const rect = anchorEl.getBoundingClientRect();
         const pickerH = picker.offsetHeight;
         const spaceBelow = window.innerHeight - rect.bottom;
         const top = spaceBelow >= pickerH + 8
           ? rect.bottom + window.scrollY + 4
           : rect.top + window.scrollY - pickerH - 4;
+
         picker.style.top = `${top}px`;
         picker.style.left = `${Math.min(rect.left + window.scrollX, window.innerWidth - 288 - 8)}px`;
 
@@ -656,15 +575,14 @@ const bottomNavItem = (active: boolean) =>
 
         document.getElementById('watched-at-now-btn')!.addEventListener('click', () => {
           useNow = true;
-          input.classList.add('hidden');
+          fields.classList.add('hidden');
           (document.getElementById('watched-at-now-btn') as HTMLElement).className = activeClass;
           (document.getElementById('watched-at-custom-btn') as HTMLElement).className = inactiveClass;
         });
 
         document.getElementById('watched-at-custom-btn')!.addEventListener('click', () => {
           useNow = false;
-          input.max = toLocal(new Date());
-          input.classList.remove('hidden');
+          fields.classList.remove('hidden');
           (document.getElementById('watched-at-now-btn') as HTMLElement).className = inactiveClass;
           (document.getElementById('watched-at-custom-btn') as HTMLElement).className = activeClass;
         });
@@ -672,20 +590,37 @@ const bottomNavItem = (active: boolean) =>
         document.getElementById('watched-at-confirm')!.addEventListener('click', () => {
           if (useNow) {
             close(toLocal(new Date()));
-          } else {
-            const val = input.value;
-            if (!val) { close(toLocal(new Date())); return; }
-            close(val); // already a naive local datetime string
+            return;
           }
+
+          if (!dateInput.value) {
+            close(toLocal(new Date()));
+            return;
+          }
+
+          const val = `${dateInput.value}T${hourSelect.value}:${minuteSelect.value}`;
+
+          // Don't allow a custom time in the future.
+          if (new Date(val).getTime() > Date.now()) {
+            close(toLocal(new Date()));
+            return;
+          }
+
+          close(val);
         });
 
         document.getElementById('watched-at-cancel')!.addEventListener('click', () => close(null));
 
         const outsideHandler = (e: PointerEvent) => {
-          if (!picker.contains(e.target as Node) && e.target !== anchorEl && !anchorEl.contains(e.target as Node)) {
+          if (
+            !picker.contains(e.target as Node) &&
+            e.target !== anchorEl &&
+            !anchorEl.contains(e.target as Node)
+          ) {
             close(null);
           }
         };
+
         setTimeout(() => document.addEventListener('pointerdown', outsideHandler), 0);
       });
     }
@@ -709,75 +644,132 @@ const bottomNavItem = (active: boolean) =>
     // ── Rating popover ─────────────────────────────────────────────────────────
     let _activeRatingBtn: HTMLElement | null = null;
 
+    const fmtRating = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
+
     function closeRatingPopover() {
       document.getElementById('rating-popover')!.classList.add('hidden');
       _activeRatingBtn = null;
+    }
+
+    // Updates whichever rate button was used: the header pill or the action-bar block
+    function applyRatingToButton(btn: HTMLElement, value: number | null) {
+      const rated = value !== null;
+      btn.dataset.userRating = rated ? String(value) : '';
+      btn.dataset.state = rated ? 'active' : 'inactive';
+      btn.title = rated ? `Your rating: ${fmtRating(value!)}/10` : 'Rate this';
+      btn.querySelector('svg')?.setAttribute('fill', rated ? 'currentColor' : 'none');
+
+      if (btn.dataset.ratingStyle === 'pill') {
+        btn.classList.toggle('text-red-500', rated);
+        btn.classList.toggle('text-zinc-500', !rated);
+        btn.classList.toggle('hover:text-red-400', !rated);
+        const num = btn.querySelector('[data-rating-value]');
+        if (num) num.textContent = rated ? fmtRating(value!) : '';
+        return;
+      }
+
+      // action-bar block (amber)
+      btn.classList.toggle('bg-zinc-800', !rated);
+      btn.classList.toggle('text-zinc-500', !rated);
+      btn.classList.toggle('hover:text-amber-400', !rated);
+      btn.classList.toggle('bg-amber-500/50', rated);
+      btn.classList.toggle('text-amber-300', rated);
+      const label = btn.querySelector('span');
+      if (label) label.textContent = rated ? fmtRating(value!) : 'Rate';
     }
 
     function openRatingPopover(btn: HTMLElement, tmdbId: string, mediaType: string, currentRating: number | null, seasonNumber: number | null = null, episodeOrder: string = 'tmdb') {
       _activeRatingBtn = btn;
       const popover = document.getElementById('rating-popover')!;
       const starsEl = document.getElementById('rating-stars')!;
+      const labelEl = document.getElementById('rating-label')!;
+      const zeroBtn = document.getElementById('rating-zero')!;
       const removeBtn = document.getElementById('rating-remove')!;
+
+      const color = btn.dataset.ratingStyle === 'pill' ? 'text-red-500' : 'text-amber-400';
+      const STAR = '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>';
+
+      let preview = currentRating ?? 0;
+      let touched = currentRating != null;
 
       removeBtn.classList.toggle('hidden', currentRating == null);
 
-      // Build 5 stars with hover support (each click = value * 2 on 0-10 scale)
+      // Ten stars: grey base, coloured overlay clipped to 0 / 50 / 100%
       starsEl.innerHTML = '';
       for (let i = 1; i <= 10; i++) {
-        const half = document.createElement('button');
-        half.className = [
-          'w-5 h-5 transition-colors cursor-pointer',
-          i <= (currentRating ?? 0) ? 'text-amber-400' : 'text-zinc-400',
-        ].join(' ');
-        half.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-5 h-5"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`;
-        half.dataset.value = String(i);
-        half.addEventListener('mouseover', () => {
-          starsEl.querySelectorAll<HTMLElement>('[data-value]').forEach(s => {
-            s.className = Number(s.dataset.value) <= i
-              ? 'w-5 h-5 transition-colors cursor-pointer text-amber-400'
-              : 'w-5 h-5 transition-colors cursor-pointer text-zinc-400';
-          });
-        });
-        half.addEventListener('click', async () => {
-          try {
-            const ratingBody: Record<string, unknown> = { tmdb_id: Number(tmdbId), media_type: mediaType, rating: i };
-            if (seasonNumber !== null) ratingBody.season_number = seasonNumber;
-            if (seasonNumber !== null && episodeOrder === 'tvdb') ratingBody.episode_order = 'tvdb';
-            await apiFetch('/ratings', 'POST', ratingBody);
-            btn.dataset.userRating = String(i);
-            btn.dataset.state = 'active';
-            btn.classList.remove('bg-zinc-800', 'text-zinc-500', 'hover:bg-amber-500/10', 'hover:text-amber-400');
-            btn.classList.add('bg-amber-500/20', 'text-amber-400', 'hover:bg-amber-500/40');
-            btn.querySelector('svg')!.setAttribute('fill', 'currentColor');
-            btn.querySelector('span')!.textContent = i.toFixed(1);
-            btn.title = `Your rating: ${i.toFixed(1)}/10`;
-            closeRatingPopover();
-          } catch { /* ignore */ }
-        });
-        starsEl.appendChild(half);
+        const star = document.createElement('div');
+        star.dataset.star = String(i);
+        star.className = 'relative w-[22px] h-[22px] cursor-pointer';
+        star.innerHTML = `
+          <svg viewBox="0 0 24 24" fill="currentColor" class="absolute inset-0 w-[22px] h-[22px] text-zinc-700">${STAR}</svg>
+          <div data-fill class="absolute inset-y-0 left-0 overflow-hidden ${color}" style="width:0%">
+            <svg viewBox="0 0 24 24" fill="currentColor" class="w-[22px] h-[22px] max-w-none">${STAR}</svg>
+          </div>`;
+        starsEl.appendChild(star);
       }
-      starsEl.addEventListener('mouseleave', () => {
-        const saved = currentRating ?? 0;
-        starsEl.querySelectorAll<HTMLElement>('[data-value]').forEach(s => {
-          s.className = Number(s.dataset.value) <= saved
-            ? 'w-5 h-5 transition-colors cursor-pointer text-amber-400'
-            : 'w-5 h-5 transition-colors cursor-pointer text-zinc-400';
+
+      const draw = (value: number, showLabel = true) => {
+        preview = value;
+        starsEl.querySelectorAll<HTMLElement>('[data-star]').forEach((star) => {
+          const i = Number(star.dataset.star);
+          const fill = value >= i ? 100 : value >= i - 0.5 ? 50 : 0;
+          (star.querySelector('[data-fill]') as HTMLElement).style.width = `${fill}%`;
         });
-      });
+        labelEl.textContent = showLabel ? fmtRating(value) : '';
+        starsEl.setAttribute('aria-valuenow', String(value));
+      };
+
+      // Left half of a star = half point, right half = whole point
+      const valueAt = (clientX: number, target: EventTarget | null): number | null => {
+        const star = (target as HTMLElement | null)?.closest<HTMLElement>('[data-star]');
+        if (!star) return null;
+        const rect = star.getBoundingClientRect();
+        const i = Number(star.dataset.star);
+        return clientX - rect.left < rect.width / 2 ? i - 0.5 : i;
+      };
+
+      const save = async (value: number) => {
+        try {
+          const body: Record<string, unknown> = { tmdb_id: Number(tmdbId), media_type: mediaType, rating: value };
+          if (seasonNumber !== null) body.season_number = seasonNumber;
+          if (seasonNumber !== null && episodeOrder === 'tvdb') body.episode_order = 'tvdb';
+          await apiFetch('/ratings', 'POST', body);
+          applyRatingToButton(btn, value);
+          closeRatingPopover();
+        } catch { /* ignore */ }
+      };
+
+      draw(currentRating ?? 0, currentRating != null);
+
+      // Property handlers (not addEventListener) so reopening never stacks duplicates
+      starsEl.onpointermove = (e) => {
+        const v = valueAt(e.clientX, e.target);
+        if (v !== null) draw(v);
+      };
+      starsEl.onpointerleave = () => draw(currentRating ?? 0, currentRating != null);
+      starsEl.onclick = (e) => {
+        const v = valueAt(e.clientX, e.target);
+        if (v !== null) save(v);
+      };
+      starsEl.onkeydown = (e) => {
+        if (e.key === 'ArrowRight' || e.key === 'ArrowUp') {
+          e.preventDefault(); touched = true; draw(Math.min(10, preview + 0.5));
+        } else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
+          e.preventDefault(); touched = true; draw(Math.max(0, preview - 0.5));
+        } else if (e.key === 'Enter') {
+          e.preventDefault(); if (touched) save(preview);
+        } else if (e.key === 'Escape') {
+          closeRatingPopover();
+        }
+      };
+      zeroBtn.onclick = () => save(0);
 
       removeBtn.onclick = async () => {
         try {
           const seasonQuery = seasonNumber !== null ? `&season_number=${seasonNumber}` : '';
           const orderQuery = seasonNumber !== null && episodeOrder === 'tvdb' ? '&episode_order=tvdb' : '';
           await apiFetch(`/ratings?tmdb_id=${tmdbId}&media_type=${mediaType}${seasonQuery}${orderQuery}`, 'DELETE');
-          btn.dataset.userRating = '';
-          btn.dataset.state = 'inactive';
-          btn.classList.remove('bg-amber-500/20', 'text-amber-400', 'hover:bg-amber-500/40');
-          btn.classList.add('bg-zinc-800', 'text-zinc-500', 'hover:bg-amber-500/10', 'hover:text-amber-400');
-          btn.querySelector('svg')!.setAttribute('fill', 'none');
-          btn.querySelector('span')!.textContent = 'Rate';
-          btn.title = 'Rate this';
+          applyRatingToButton(btn, null);
           closeRatingPopover();
         } catch { /* ignore */ }
       };
@@ -788,16 +780,17 @@ const bottomNavItem = (active: boolean) =>
       const left = Math.min(rect.left + window.scrollX, window.innerWidth - popW - 8);
       popover.style.left = `${Math.max(8, left)}px`;
       popover.style.top = `${rect.bottom + window.scrollY + 6}px`;
+      starsEl.focus({ preventScroll: true });
     }
 
     document.getElementById('rating-popover-close')!.addEventListener('click', () => closeRatingPopover());
     document.addEventListener('click', (e) => {
       const popover = document.getElementById('rating-popover')!;
-      if (!popover.classList.contains('hidden') && !popover.contains(e.target as Node) && e.target !== _activeRatingBtn) {
+      const t = e.target as Node;
+      if (!popover.classList.contains('hidden') && !popover.contains(t) && !_activeRatingBtn?.contains(t)) {
         closeRatingPopover();
       }
     });
-
     // ── List popover ───────────────────────────────────────────────────────────
     let _activeListBtn: HTMLElement | null = null;
     let _listTmdbId = '';
@@ -971,23 +964,31 @@ const bottomNavItem = (active: boolean) =>
         if (isCard) {
           targetBtn.classList.add('bg-green-500/20', 'text-green-400');
         } else {
-          targetBtn.classList.add('bg-green-500/50', 'text-green-300', 'hover:bg-green-400/50');
+          targetBtn.classList.add('bg-red-500/50', 'text-red-300', 'hover:bg-red-400/50');
         }
       } else {
-        targetBtn.classList.remove('bg-green-500/20', 'bg-green-500/50', 'text-green-400', 'text-green-300', 'hover:bg-green-500/40', 'hover:bg-green-400/50');
+        targetBtn.classList.remove('bg-red-500/20', 'bg-red-500/50', 'text-red-400', 'text-red-300', 'hover:bg-red-500/40', 'hover:bg-red-400/50');
         if (isCard) {
           targetBtn.classList.add('bg-zinc-900', 'text-zinc-400', 'hover:bg-green-500/10', 'hover:text-green-500');
         } else {
-          targetBtn.classList.add('bg-zinc-800', 'text-zinc-500', 'hover:bg-green-500/10', 'hover:text-green-400');
+          targetBtn.classList.add('bg-zinc-800', 'text-zinc-500', 'hover:bg-red-500/10', 'hover:text-red-400');
         }
       }
-      targetBtn.querySelector('circle')?.setAttribute('fill', watched ? 'currentColor' : 'none');
-    }
+      const logo = targetBtn.querySelector("img");
+
+      if (logo) {
+        logo.src = watched
+          ? logo.dataset.watchdRed || logo.src
+          : logo.dataset.watchdWhite || logo.src;
+      }
+
+      }
 
     // ── Watch history modal ────────────────────────────────────────────────────
     let _watchHistoryTmdbId = '';
     let _watchHistoryMediaType = '';
-    let _watchHistoryDateMode: 'now' | 'custom' | 'unknown' = 'now';
+    let _watchHistoryDateMode: 'now' | 'custom' | 'unknown' | 'watching' = 'now';
+    let _watchHistoryIsWatched = false;
     let _watchHistoryShowTmdbId = '';
     let _watchHistorySeasonNumber = '';
     let _watchHistoryEpisodeNumber = '';
@@ -1014,16 +1015,19 @@ const bottomNavItem = (active: boolean) =>
       const nowBtn = document.getElementById('watch-history-now-btn')!;
       const customBtn = document.getElementById('watch-history-custom-btn')!;
       const unknownBtn = document.getElementById('watch-history-unknown-btn')!;
+      const watchingBtn = document.getElementById('watch-history-watching-btn')!;
       const dateInput = document.getElementById('watch-history-date-input') as HTMLInputElement;
       const activeClass = 'flex-1 px-3 py-2 rounded-xl text-sm font-bold transition-all cursor-pointer bg-blue-600 text-white';
       const inactiveClass = 'flex-1 px-3 py-2 rounded-xl text-sm font-bold transition-all cursor-pointer bg-zinc-800 text-zinc-400 border border-zinc-700 hover:text-zinc-200';
       nowBtn.className = activeClass;
       customBtn.className = inactiveClass;
       unknownBtn.className = inactiveClass;
+      watchingBtn.className = inactiveClass;
       dateInput.classList.add('hidden');
       dateInput.value = toLocal(new Date());
       dateInput.max = toLocal(new Date());
 
+      _watchHistoryIsWatched = false;
       document.getElementById('watch-history-log-btn')!.textContent = 'Mark as watched';
       document.getElementById('watch-history-modal')!.classList.remove('hidden');
       await loadWatchHistoryEvents();
@@ -1035,7 +1039,7 @@ const bottomNavItem = (active: boolean) =>
       const unwatchBtn = document.getElementById('watch-history-unwatch-btn') as HTMLButtonElement;
       unwatchBtn.classList.add('hidden');
       try {
-        const events: Array<{ id: number; watched_at: string | null }> = await apiFetch(
+        const events: Array<{ id: number; watched_at: string | null; watch_source: string | null }> = await apiFetch(
           `/history/item-events?tmdb_id=${_watchHistoryTmdbId}&media_type=${_watchHistoryMediaType}`
         );
         if (events.length === 0) {
@@ -1043,10 +1047,18 @@ const bottomNavItem = (active: boolean) =>
         } else {
           eventsEl.innerHTML = events.map(ev => {
             const fmt = ev.watched_at
-              ? new Date(ev.watched_at + 'Z').toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: !(window as any).__USE_24H__ })
+              ? new Date(ev.watched_at + 'Z').toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: false })
               : 'Unknown date';
-            return `<div class="flex items-center justify-between px-4 py-2.5 hover:bg-zinc-800/50 group">
-              <span class="text-sm text-zinc-200">${esc(fmt)}</span>
+            const sources = ['', 'Cinema', 'Blu-ray', '4K', 'DVD', 'Cable', 'VHS', 'TV', 'Netflix', 'Amazon', 'Disney+', 'AppleTV', 'PLEX', 'Digital file'];
+            const sourceOptions = sources.map(source => {
+              const label = source || 'No source';
+              return `<option value="${esc(source)}"${source === (ev.watch_source || '') ? ' selected' : ''}>${esc(label)}</option>`;
+            }).join('');
+            return `<div class="flex items-center gap-2 px-4 py-2.5 hover:bg-zinc-800/50 group">
+              <span class="min-w-0 flex-1 text-sm text-zinc-200">${esc(fmt)}</span>
+              <select class="max-w-36 rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-xs text-zinc-300 focus:outline-none focus:border-green-500" data-watch-source-event="${ev.id}" data-current-source="${esc(ev.watch_source || '')}" aria-label="Watch source for ${esc(fmt)}">
+                ${sourceOptions}
+              </select>
               <button class="text-zinc-600 group-hover:text-zinc-400 hover:!text-red-400 transition-colors cursor-pointer" data-delete-event="${ev.id}" aria-label="Remove">
                 <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
               </button>
@@ -1054,8 +1066,11 @@ const bottomNavItem = (active: boolean) =>
           }).join('');
         }
         const isWatched = events.length > 0;
+        _watchHistoryIsWatched = isWatched;
         unwatchBtn.classList.toggle('hidden', !isWatched);
-        document.getElementById('watch-history-log-btn')!.textContent = isWatched ? 'Log a rewatch' : 'Mark as watched';
+        document.getElementById('watch-history-log-btn')!.textContent = _watchHistoryDateMode === 'watching'
+          ? 'Start watching'
+          : isWatched ? 'Log a rewatch' : 'Mark as watched';
         document.querySelectorAll<HTMLElement>(
           `[data-card][data-tmdb-id="${_watchHistoryTmdbId}"][data-media-type="${_watchHistoryMediaType}"] [data-action="watched"]`
         ).forEach(b => updateWatchedButtonUI(b, isWatched));
@@ -1086,6 +1101,23 @@ const bottomNavItem = (active: boolean) =>
       }
     });
 
+    document.getElementById('watch-history-modal-events')!.addEventListener('change', async (e) => {
+      const sourceSelect = (e.target as Element).closest<HTMLSelectElement>('[data-watch-source-event]');
+      if (!sourceSelect) return;
+      const previousSource = sourceSelect.dataset.currentSource || '';
+      sourceSelect.disabled = true;
+      try {
+        await apiFetch(`/history/event/${sourceSelect.dataset.watchSourceEvent}`, 'PATCH', {
+          watch_source: sourceSelect.value || null,
+        });
+        sourceSelect.dataset.currentSource = sourceSelect.value;
+      } catch {
+        sourceSelect.value = previousSource;
+      } finally {
+        sourceSelect.disabled = false;
+      }
+    });
+
     document.getElementById('watch-history-unwatch-btn')!.addEventListener('click', async () => {
       const confirmed = await showConfirm(
         'Mark as unwatched?',
@@ -1110,13 +1142,18 @@ const bottomNavItem = (active: boolean) =>
     (() => {
       const activeClass = 'flex-1 px-3 py-2 rounded-xl text-sm font-bold transition-all cursor-pointer bg-blue-600 text-white';
       const inactiveClass = 'flex-1 px-3 py-2 rounded-xl text-sm font-bold transition-all cursor-pointer bg-zinc-800 text-zinc-400 border border-zinc-700 hover:text-zinc-200';
+      const setNormalActionLabel = () => {
+        document.getElementById('watch-history-log-btn')!.textContent = _watchHistoryIsWatched ? 'Log a rewatch' : 'Mark as watched';
+      };
 
       document.getElementById('watch-history-now-btn')!.addEventListener('click', () => {
         _watchHistoryDateMode = 'now';
         (document.getElementById('watch-history-now-btn') as HTMLElement).className = activeClass;
         (document.getElementById('watch-history-custom-btn') as HTMLElement).className = inactiveClass;
         (document.getElementById('watch-history-unknown-btn') as HTMLElement).className = inactiveClass;
+        (document.getElementById('watch-history-watching-btn') as HTMLElement).className = inactiveClass;
         document.getElementById('watch-history-date-input')!.classList.add('hidden');
+        setNormalActionLabel();
       });
 
       document.getElementById('watch-history-custom-btn')!.addEventListener('click', () => {
@@ -1124,10 +1161,12 @@ const bottomNavItem = (active: boolean) =>
         (document.getElementById('watch-history-now-btn') as HTMLElement).className = inactiveClass;
         (document.getElementById('watch-history-custom-btn') as HTMLElement).className = activeClass;
         (document.getElementById('watch-history-unknown-btn') as HTMLElement).className = inactiveClass;
+        (document.getElementById('watch-history-watching-btn') as HTMLElement).className = inactiveClass;
         const input = document.getElementById('watch-history-date-input') as HTMLInputElement;
         input.max = toLocal(new Date());
         input.classList.remove('hidden');
         input.focus();
+        setNormalActionLabel();
       });
 
       document.getElementById('watch-history-unknown-btn')!.addEventListener('click', () => {
@@ -1135,27 +1174,60 @@ const bottomNavItem = (active: boolean) =>
         (document.getElementById('watch-history-now-btn') as HTMLElement).className = inactiveClass;
         (document.getElementById('watch-history-custom-btn') as HTMLElement).className = inactiveClass;
         (document.getElementById('watch-history-unknown-btn') as HTMLElement).className = activeClass;
+        (document.getElementById('watch-history-watching-btn') as HTMLElement).className = inactiveClass;
         document.getElementById('watch-history-date-input')!.classList.add('hidden');
+        setNormalActionLabel();
+      });
+
+      document.getElementById('watch-history-watching-btn')!.addEventListener('click', () => {
+        _watchHistoryDateMode = 'watching';
+        (document.getElementById('watch-history-now-btn') as HTMLElement).className = inactiveClass;
+        (document.getElementById('watch-history-custom-btn') as HTMLElement).className = inactiveClass;
+        (document.getElementById('watch-history-unknown-btn') as HTMLElement).className = inactiveClass;
+        (document.getElementById('watch-history-watching-btn') as HTMLElement).className = activeClass;
+        document.getElementById('watch-history-date-input')!.classList.add('hidden');
+        document.getElementById('watch-history-log-btn')!.textContent = 'Start watching';
       });
 
       document.getElementById('watch-history-log-btn')!.addEventListener('click', async () => {
         const input = document.getElementById('watch-history-date-input') as HTMLInputElement;
-        const watchedAt = _watchHistoryDateMode === 'unknown'
-          ? null
-          : _watchHistoryDateMode === 'now'
-            ? toUTC(new Date())
-            : toUTC(new Date(input.value || toLocal(new Date())));
         const logBtn = document.getElementById('watch-history-log-btn') as HTMLButtonElement;
-        const idleLabel = logBtn.textContent || 'Mark as watched';
+        const idleLabel = _watchHistoryDateMode === 'watching'
+          ? 'Start watching'
+          : logBtn.textContent || 'Mark as watched';
         logBtn.disabled = true;
-        logBtn.textContent = 'Saving…';
+        logBtn.textContent = _watchHistoryDateMode === 'watching' ? 'Starting…' : 'Saving…';
         try {
+          if (_watchHistoryDateMode === 'watching') {
+            const sessionBody: Record<string, unknown> = {
+              tmdb_id: Number(_watchHistoryTmdbId),
+              media_type: _watchHistoryMediaType,
+            };
+            if (_watchHistoryMediaType === 'episode' && _watchHistoryShowTmdbId) {
+              sessionBody.show_tmdb_id = Number(_watchHistoryShowTmdbId);
+              if (_watchHistorySeasonNumber) sessionBody.season_number = Number(_watchHistorySeasonNumber);
+              if (_watchHistoryEpisodeNumber) sessionBody.episode_number = Number(_watchHistoryEpisodeNumber);
+            }
+            await apiFetch('/history/session/start', 'POST', sessionBody);
+            logBtn.textContent = 'Watching started';
+            logBtn.disabled = false;
+            window.setTimeout(closeWatchHistoryModal, 700);
+            return;
+          }
+
+          const watchedAt = _watchHistoryDateMode === 'unknown'
+            ? null
+            : _watchHistoryDateMode === 'now'
+              ? toUTC(new Date())
+              : toUTC(new Date(input.value || toLocal(new Date())));
           const watchBody: Record<string, unknown> = {
             tmdb_id: Number(_watchHistoryTmdbId),
             media_type: _watchHistoryMediaType,
             completed: true,
             watched_at: watchedAt,
           };
+          const watchSource = (document.getElementById('watch-history-source') as HTMLSelectElement).value;
+          if (watchSource) watchBody.watch_source = watchSource;
           if (_watchHistoryMediaType === 'episode' && _watchHistoryShowTmdbId) {
             watchBody.series_tmdb_id = Number(_watchHistoryShowTmdbId);
             if (_watchHistorySeasonNumber) watchBody.season_number = Number(_watchHistorySeasonNumber);
@@ -1163,12 +1235,15 @@ const bottomNavItem = (active: boolean) =>
           }
           await apiFetch('/history', 'POST', watchBody);
           await loadWatchHistoryEvents();
+          (document.getElementById('watch-history-source') as HTMLSelectElement).value = '';
           // Reset to "Just now" after logging
           _watchHistoryDateMode = 'now';
           (document.getElementById('watch-history-now-btn') as HTMLElement).className = activeClass;
           (document.getElementById('watch-history-custom-btn') as HTMLElement).className = inactiveClass;
           (document.getElementById('watch-history-unknown-btn') as HTMLElement).className = inactiveClass;
+          (document.getElementById('watch-history-watching-btn') as HTMLElement).className = inactiveClass;
           input.classList.add('hidden');
+          setNormalActionLabel();
         } catch { logBtn.textContent = idleLabel; }
         logBtn.disabled = false;
       });
@@ -1185,7 +1260,7 @@ const bottomNavItem = (active: boolean) =>
       if (!card) return;
 
       const action = btn.dataset.action;
-      const mediaActions = ['watched', 'list', 'collected', 'request', 'rate'];
+      const mediaActions = ['watched', 'watchlist', 'list', 'rate', 'collected'];
       if (!action || !mediaActions.includes(action)) return;
 
       e.preventDefault();
@@ -1280,6 +1355,53 @@ const bottomNavItem = (active: boolean) =>
           }
         } catch { /* ignore */ }
 
+            } else if (action === 'watchlist') {
+        const inWatchlist = btn.dataset.inWatchlist === 'true';
+
+        try {
+          if (inWatchlist) {
+            await apiFetch(`/watchlist/${Number(tmdbId)}`, 'DELETE');
+          } else {
+            await apiFetch(`/watchlist?tmdb_id=${Number(tmdbId)}`, 'POST');
+          }
+
+          const nowInWatchlist = !inWatchlist;
+          btn.dataset.inWatchlist = String(nowInWatchlist);
+          btn.dataset.state = nowInWatchlist ? 'active' : 'inactive';
+          btn.title = nowInWatchlist ? 'Remove from watchlist' : 'Add to watchlist';
+
+          btn.classList.remove(
+            'bg-yellow-500/50',
+            'text-yellow-300',
+            'hover:bg-yellow-400/50',
+            'bg-zinc-800',
+            'text-zinc-500',
+            'hover:text-yellow-300'
+          );
+
+          if (nowInWatchlist) {
+            btn.classList.add(
+              'bg-yellow-500/50',
+              'text-yellow-300',
+              'hover:bg-yellow-400/50'
+            );
+          } else {
+            btn.classList.add(
+              'bg-zinc-800',
+              'text-zinc-500',
+              'hover:bg-yellow-400/50',
+              'hover:text-yellow-300'
+            );
+          }
+
+          const svg = btn.querySelector('svg');
+          if (svg) {
+            svg.setAttribute('fill', nowInWatchlist ? 'currentColor' : 'none');
+          }
+        } catch {
+          // ignore
+        }
+
       } else if (action === 'list') {
         if (!tmdbId) { alert('Cannot add unmatched item to lists'); return; }
         if (document.getElementById('list-popover')!.classList.contains('hidden') || _activeListBtn !== btn) {
@@ -1352,7 +1474,9 @@ const bottomNavItem = (active: boolean) =>
           }
           // Season/show-level: reload so percentages and all sibling cards update
           window.location.reload();
-        } catch { /* ignore */ }
+        } catch (error) {
+          console.error("Collection action failed:", error);
+        }
 
       } else if (action === 'rate') {
         const currentRating = btn.dataset.userRating ? Number(btn.dataset.userRating) : null;

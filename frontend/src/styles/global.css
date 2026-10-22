@@ -298,12 +298,15 @@ html.blur-explicit [data-adult-backdrop="true"] img {
 }
 
 .section-headline {
-  @apply text-2xl font-black text-zinc-100 tracking-tight flex items-center gap-3;
+  @apply flex items-center gap-4
+         text-3xl font-bold
+         text-zinc-100 tracking-tight
+         mb-8;
 }
 
 .section-headline::before {
-  content: '';
-  @apply block w-1 h-6 bg-blue-600 rounded-full shrink-0;
+  content: "";
+  @apply w-1 h-8 bg-red-600 rounded-full shrink-0;
 }
 
 .group-label {
