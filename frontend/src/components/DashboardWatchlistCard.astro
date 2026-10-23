@@ -137,6 +137,7 @@ const imdb =
 
 .wd-watchlist{
     width:100%;
+    container-type:inline-size;
     display:flex;
     flex-direction:column;
     gap:12px;
@@ -256,6 +257,14 @@ const imdb =
 
 .wd-score--none{
     color:#a1a1aa;
+}
+
+/* Narrow grid cells (small windows): drop the IMDb badge and tighten the
+   buttons so the score still fits beside them. */
+@container (max-width:200px){
+    .wd-strip{ padding:0 6px 0 2px; }
+    .wd-btn{ width:28px; }
+    .wd-imdb{ display:none; }
 }
 
 .wd-meta{

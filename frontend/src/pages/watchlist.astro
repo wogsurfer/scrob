@@ -1,7 +1,7 @@
 ---
 import Base from "../layouts/Base.astro";
 import { api } from "../lib/api";
-import MoviePosterCard from "../components/MoviePosterCard.astro";
+import DashboardWatchlistCard from "../components/DashboardWatchlistCard.astro";
 import SectionHeading from "../components/SectionHeading.astro";
 
 export const prerender = false;
@@ -15,16 +15,11 @@ const movies = await api.watchlist.getAll(token!);
 
 <SectionHeading title="Watchlist" />
 
-<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-6">
+<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-x-6 gap-y-8">
 
     {movies.map((movie) => (
-    <MoviePosterCard
-        title={movie.title}
-        year={movie.year}
-        poster_path={movie.poster_path}
-        tmdb_rating={movie.tmdb_rating}
-    />
-))}
+        <DashboardWatchlistCard movie={movie} />
+    ))}
 
 </div>
 

@@ -413,12 +413,18 @@ async def get_imdb_rating(imdb_id: str) -> float | None:
     if hit and time.monotonic() - hit[0] < _IMDB_RATING_TTL:
         return hit[1]
 
+    # Reuse the shared client: creating one per call loads the SSL
+    # certificates synchronously and stalls the server during big backfills.
+    await start_http_client()
     async with _imdb_rating_limit:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(
+        try:
+            response = await _client.get(
                 "https://api.agregarr.org/api/ratings",
                 params={"id": imdb_id},
+                timeout=10.0,
             )
+        except httpx.HTTPError:
+            return None
 
     if not response.is_success:
         print("IMDb ratings HTTP error:", response.status_code, response.text)
