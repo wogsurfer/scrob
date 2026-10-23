@@ -697,7 +697,11 @@ async def _show_watch_pct(
             result[show_id] = {
                 "watched": watched,
                 "total": total,
-                "pct": round(100 * watched / total),
+                "pct": (
+                    max(1, min(99, watched * 100 // total))
+                    if 0 < watched < total
+                    else watched * 100 // total
+                ),
             }
 
     return result

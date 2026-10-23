@@ -267,7 +267,7 @@ function backdrop(path: string | null) {
           const seasonCards = [...progressSeasons.values()]
             .sort((a, b) => a.season_number - b.season_number);
 
-          const showPoster = poster(show.poster_path);
+          const showPoster = poster((show as any).season_poster_path ?? show.poster_path);
           const showBackdrop = backdrop(show.backdrop_path);
 
           return (
