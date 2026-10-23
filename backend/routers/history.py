@@ -239,6 +239,24 @@ async def _push_watch_state(
         await db.commit()
 
 
+def _season_poster(show: Show | None, season_number: int | None) -> str | None:
+    """A season's poster from the show's stored TMDB season list, as a full URL."""
+    if show is None or season_number is None:
+        return None
+    poster = next(
+        (
+            s.get("poster_path")
+            for s in ((show.tmdb_data or {}).get("seasons") or [])
+            if isinstance(s, dict) and s.get("season_number") == season_number
+        ),
+        None,
+    )
+    if not isinstance(poster, str) or not poster:
+        return None
+    # Stored season posters are either TMDB paths or already full URLs.
+    return poster if poster.startswith("http") else tmdb.poster_url(poster)
+
+
 def format_event(event: WatchEvent | PlaybackProgress, media: Media) -> dict:
     # PlaybackProgress has no watched_at; its updated_at remains the display timestamp.
     # A WatchEvent's watched_at may be None (unknown watch date) — preserve that as-is.
@@ -281,6 +299,7 @@ def format_event(event: WatchEvent | PlaybackProgress, media: Media) -> dict:
         data["media"]["show_poster_path"] = media.show.poster_path
         data["media"]["show_tmdb_id"] = media.show.tmdb_id
         data["media"]["show_tvdb_id"] = media.show.tvdb_id
+        data["media"]["season_poster_path"] = _season_poster(media.show, media.season_number)
 
     return data
 
@@ -325,19 +344,39 @@ async def _get_show_history(
         .limit(page_size)
     )
 
+    page_rows = rows.all()
+
+    # Season of each show's most recently watched episode, for its poster.
+    latest_season: dict[int, int] = {}
+    show_ids = [show.id for show, *_ in page_rows]
+    if show_ids:
+        season_rows = await db.execute(
+            select(Media.show_id, Media.season_number)
+            .join(WatchEvent, WatchEvent.media_id == Media.id)
+            .where(
+                WatchEvent.user_id == current_user.id,
+                WatchEvent.completed == True,
+                Media.show_id.in_(show_ids),
+                Media.media_type == MediaType.episode,
+            )
+            .order_by(Media.show_id, WatchEvent.watched_at.desc().nulls_last())
+            .distinct(Media.show_id)
+        )
+        latest_season = {sid: season for sid, season in season_rows.all()}
+
     results = [
         {
             "id": show.id,
             "tmdb_id": show.tmdb_id,
             "tvdb_id": show.tvdb_id,
             "title": show.title,
-            "poster_path": show.poster_path,
+            "poster_path": _season_poster(show, latest_season.get(show.id)) or show.poster_path,
             "status": show.status,
             "last_watched_at": last_watched.isoformat() if last_watched else None,
             "episodes_watched": episodes,
             "plays": plays,
         }
-        for show, last_watched, plays, episodes in rows.all()
+        for show, last_watched, plays, episodes in page_rows
     ]
 
     return {

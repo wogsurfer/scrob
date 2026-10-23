@@ -20,9 +20,11 @@ const showOrMovieTitle = isEpisode
   ? (media.show_title || media.title)
   : media.title;
 
+// Episodes show the poster of the season they belong to, falling back to the show's.
+const seasonPoster = (media as { season_poster_path?: string | null }).season_poster_path;
 const posterPath = tmdbImageUrl(
-  isEpisode && media.show_poster_path
-    ? media.show_poster_path
+  isEpisode
+    ? seasonPoster ?? media.show_poster_path ?? media.poster_path
     : media.poster_path,
   "w500",
 );
