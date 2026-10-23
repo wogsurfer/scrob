@@ -19,16 +19,63 @@ const settings = await api.auth.getSettings(token!);
 const hasTmdbKey = !!settings?.has_effective_tmdb_key;
 
 let data: { results: MediaItem[]; total_pages: number; page: number } = { results: [], total_pages: 0, page: 1 };
+
+// TMDB pages hold 20 movies, which leaves a part-filled last row in the grid.
+// Show 24 per page instead (fills every row at 2, 3, 4 and 6 columns) by
+// stitching together the one or two TMDB pages each of our pages covers.
+const PER_PAGE = 24;
+const TMDB_PER_PAGE = 20;
+const TMDB_MAX_PAGES = 500;
+
 if (hasTmdbKey) {
   try {
-    data = await api.media.tmdbList({
-      type: "movie",
-      category,
-      page,
-      ...(genre ? { genre } : {}),
-      ...(year ? { year } : {}),
-      ...(minRating ? { min_rating: minRating } : {}),
-    }, token);
+    const first = (page - 1) * PER_PAGE;
+    const firstTmdbPage = Math.floor(first / TMDB_PER_PAGE) + 1;
+    const lastTmdbPage = Math.min(
+      Math.floor((first + PER_PAGE - 1) / TMDB_PER_PAGE) + 1,
+      TMDB_MAX_PAGES,
+    );
+    const fetchTmdbPage = (tmdbPage: number) =>
+      api.media.tmdbList({
+        type: "movie",
+        category,
+        page: tmdbPage,
+        ...(genre ? { genre } : {}),
+        ...(year ? { year } : {}),
+        ...(minRating ? { min_rating: minRating } : {}),
+      }, token);
+    const tmdbPages = await Promise.all(
+      Array.from({ length: lastTmdbPage - firstTmdbPage + 1 }, (_, i) =>
+        fetchTmdbPage(firstTmdbPage + i),
+      ),
+    );
+    const offset = first - (firstTmdbPage - 1) * TMDB_PER_PAGE;
+    const pick = () => {
+      // Popular lists can shift between requests, repeating a movie across
+      // TMDB pages; show each movie once.
+      const seen = new Set<number>();
+      return tmdbPages
+        .flatMap(p => p.results)
+        .slice(offset)
+        .filter(item => !seen.has(item.tmdb_id) && seen.add(item.tmdb_id))
+        .slice(0, PER_PAGE);
+    };
+    let results = pick();
+    // A dropped repeat leaves the page one short; top it up from the next TMDB page.
+    const nextTmdbPage = lastTmdbPage + 1;
+    if (
+      results.length < PER_PAGE &&
+      nextTmdbPage <= Math.min(tmdbPages[0]?.total_pages ?? 0, TMDB_MAX_PAGES)
+    ) {
+      tmdbPages.push(await fetchTmdbPage(nextTmdbPage));
+      results = pick();
+    }
+    const totalResults = Math.min(
+      tmdbPages[0]?.total_results ?? 0,
+      (tmdbPages[0]?.total_pages ?? 0) * TMDB_PER_PAGE,
+      TMDB_MAX_PAGES * TMDB_PER_PAGE,
+    );
+    data = { results, page, total_pages: Math.ceil(totalResults / PER_PAGE) };
   } catch (e) {
     console.error("Failed to fetch TMDB movie list:", e);
   }
