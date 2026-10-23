@@ -589,8 +589,16 @@ async def enrich_with_state(
             item["collection_pct"] = pct
             item["in_library"] = pct > 0
             _w = show_watched_count_map.get(tid, 0)
-            _a = show_aired_count.get(tid, 0)
-            item["watch_pct"] = min(100, int((_w / _a) * 100)) if _a > 0 else 0
+            _a = max(show_aired_count.get(tid, 0), _w)
+            # Rounded down, and never 0% or 100% while partly watched (as on
+            # Progress and Up Next).
+            item["watch_pct"] = (
+                max(1, min(99, _w * 100 // _a)) if 0 < _w < _a
+                else _w * 100 // _a if _a
+                else 0
+            )
+            item["episodes_watched"] = _w
+            item["episodes_total"] = _a
 
         elif t == "episode":
             item["watched"] = tid in watched_episodes

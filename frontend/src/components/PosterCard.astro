@@ -17,6 +17,8 @@ const { item } = Astro.props;
 const extra = item as Partial<MediaItem> & Partial<WatchlistMovie> & {
     tmdb_id: number;
     title: string;
+    episodes_watched?: number;
+    episodes_total?: number;
 };
 
 const isSeries = extra.type === "series";
@@ -32,6 +34,18 @@ const inLists = extra.in_lists ?? [];
 const inLibrary = extra.in_library ?? false;
 const collectionPct = extra.collection_pct ?? (inLibrary ? 100 : 0);
 const collected = isSeries ? collectionPct > 0 : inLibrary;
+
+// Progress bar for shows the user has started, as on the Up Next cards.
+const epsWatched = extra.episodes_watched ?? null;
+const epsTotal = extra.episodes_total ?? null;
+const progress =
+    isSeries && watchPct > 0 ? Math.max(0, Math.min(100, Number(watchPct))) : null;
+const progressTip =
+    progress === null
+        ? ""
+        : epsWatched !== null && epsTotal !== null
+            ? `${epsWatched} of ${epsTotal} episodes watched · ${progress}%`
+            : `${progress}% watched`;
 
 const imdb =
     extra.imdb_rating != null
@@ -140,10 +154,17 @@ const userRating =
 
         </div>
 
+        {progress !== null && (
+            <div class="wd-progress" tabindex="0" role="img" aria-label={progressTip}>
+                <div class="wd-progress-fill" style={`width:${progress}%`}></div>
+            </div>
+        )}
+
     </div>
 
     <a href={href} class="wd-meta">
         <div class="wd-title">{extra.title}</div>
+        {progress !== null && <div class="wd-tip">{progressTip}</div>}
         {year && <div class="wd-year">{year}</div>}
     </a>
 
@@ -299,7 +320,63 @@ const userRating =
     .wd-imdb{ display:none; }
 }
 
+.wd-progress{
+    position:relative;
+    height:3px;
+    background:#27272a;
+    transform-origin:bottom;
+    transition:transform .15s ease;
+    outline:none;
+}
+
+/* extra invisible hit area so the thin line is easy to hover */
+.wd-progress::before{
+    content:"";
+    position:absolute;
+    left:0;
+    right:0;
+    top:-5px;
+    bottom:0;
+}
+
+.wd-progress:hover,
+.wd-progress:focus{
+    transform:scaleY(2);
+}
+
+.wd-progress-fill{
+    height:100%;
+    background:#ef4444;
+}
+
+.wd-tip{
+    position:absolute;
+    left:2px;
+    top:-6px;
+    z-index:5;
+    padding:5px 10px;
+    border-radius:8px;
+    background:#27272a;
+    border:1px solid #3f3f46;
+    color:#ffffff;
+    font-size:12px;
+    font-weight:700;
+    line-height:1.2;
+    white-space:nowrap;
+    pointer-events:none;
+    opacity:0;
+    transform:translateY(-2px);
+    transition:opacity .15s ease, transform .15s ease;
+}
+
+.wd-poster-card:has(.wd-progress:hover) .wd-tip,
+.wd-poster-card:has(.wd-progress:focus) .wd-tip{
+    opacity:1;
+    transform:none;
+}
+
 .wd-meta{
+    position:relative;
     display:block;
     padding:0 2px;
     text-decoration:none;
