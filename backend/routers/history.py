@@ -1134,6 +1134,44 @@ async def get_next_up(
         for m in next_up
     ]
 
+    # Poster of the season the next episode belongs to (falls back to the show
+    # poster on the card when TMDB has none for that season).
+    for m, item in zip(next_up, items):
+        season_poster = next(
+            (
+                s.get("poster_path")
+                for s in ((m.show.tmdb_data or {}).get("seasons") or [])
+                if isinstance(s, dict) and s.get("season_number") == m.season_number
+            ),
+            None,
+        ) if m.show else None
+        # Stored season posters are either TMDB paths or already full URLs.
+        item["season_poster_path"] = (
+            season_poster
+            if isinstance(season_poster, str) and season_poster.startswith("http")
+            else tmdb.poster_url(season_poster)
+        )
+
+    # A season newer than the stored show data has no stored poster; ask TMDB for those few.
+    missing = [
+        (m, item) for m, item in zip(next_up, items)
+        if not item["season_poster_path"] and m.show and m.show.tmdb_id
+    ]
+    if missing:
+        poster_key = await get_user_tmdb_key(db, current_user.id)
+        if check_tmdb_key(poster_key):
+            async def fetch_season_poster(m, item):
+                try:
+                    data = await tmdb.get_show_light(m.show.tmdb_id, api_key=poster_key)
+                except Exception:
+                    return
+                for s in data.get("seasons") or []:
+                    if s.get("season_number") == m.season_number and s.get("poster_path"):
+                        item["season_poster_path"] = tmdb.poster_url(s["poster_path"])
+                        return
+
+            await asyncio.gather(*(fetch_season_poster(m, item) for m, item in missing))
+
     progress_by_show = await _show_watch_pct(
         db,
         current_user.id,

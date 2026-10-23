@@ -17,10 +17,12 @@ const extra = item as MediaItem & {
   show_watch_pct?: number | null;
   show_episodes_watched?: number | null;
   show_episodes_total?: number | null;
+  season_poster_path?: string | null;
 };
 
+// The poster for the season of the next episode, so each show shows where you are.
 const poster = tmdbImageUrl(
-  item.show_poster_path ?? item.poster_path,
+  extra.season_poster_path ?? item.show_poster_path ?? item.poster_path,
   "w500",
 );
 
@@ -186,7 +188,7 @@ const code =
 .wd-panel{
     background:#18181b;
     border:1px solid #27272a;
-    border-radius:16px;
+    border-radius:16px 16px 0 0;
     overflow:hidden;
 }
 
