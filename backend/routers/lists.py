@@ -225,6 +225,7 @@ def _format_item(item: ListItem) -> dict:
             "backdrop_path": media.backdrop_path,
             "release_date": media.release_date,
             "tmdb_rating": media.tmdb_rating,
+            "imdb_rating": (media.tmdb_data or {}).get("imdb_rating"),
             "season_number": media.season_number,
             "episode_number": media.episode_number,
             "adult": media.adult,

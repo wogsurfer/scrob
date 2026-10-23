@@ -129,6 +129,85 @@ TV_STATUS_IDS: dict[str, int] = {
 }
 
 
+# TMDB id -> IMDb id, so repeat visits skip the external_ids call.
+_imdb_id_cache: dict[tuple[str, int], str | None] = {}
+# (type, TMDB id) being looked up now, so repeat page loads don't queue them again.
+_imdb_in_flight: set[tuple[str, int]] = set()
+
+
+async def add_imdb_ratings(db: AsyncSession, user_id: int, items: list[dict], wait: float = 1.5) -> None:
+    """Fill imdb_rating on movie and show items that lack it, for the poster
+    cards' IMDb score. Waits at most `wait` seconds; slower lookups finish in
+    the background. Ratings for items in the library are stored on the Media
+    row, so each is only looked up once."""
+    from routers.watchlist import _save_imdb_ratings
+
+    todo = [
+        i for i in items
+        if i.get("tmdb_id") and i.get("type") in ("movie", "series") and i.get("imdb_rating") is None
+    ]
+    if not todo:
+        return
+    # Set the key now: a lookup finishing after the response is built then
+    # only changes a value, never the dict's size mid-serialisation.
+    for item in todo:
+        item["imdb_rating"] = None
+
+    # Stored ratings and IMDb ids for items already in the database.
+    media_ids = [i["id"] for i in todo if isinstance(i.get("id"), int)]
+    stored: dict[int, tuple] = {}
+    if media_ids:
+        rows = await db.execute(
+            select(
+                Media.id,
+                Media.tmdb_data["imdb_rating"].astext,
+                func.coalesce(
+                    Media.tmdb_data["imdb_id"].astext,
+                    Media.tmdb_data["external_ids"]["imdb_id"].astext,
+                ),
+            ).where(Media.id.in_(media_ids))
+        )
+        stored = {mid: (rating, imdb_id) for mid, rating, imdb_id in rows.all()}
+
+    lookups = []
+    for item in todo:
+        rating, imdb_id = stored.get(item.get("id"), (None, None))
+        if rating not in (None, "null"):
+            item["imdb_rating"] = float(rating)
+            continue
+        key = ("movie" if item["type"] == "movie" else "series", item["tmdb_id"])
+        if imdb_id:
+            _imdb_id_cache.setdefault(key, imdb_id)
+        if key not in _imdb_in_flight:
+            lookups.append((item, key))
+    if not lookups:
+        return
+
+    tmdb_key = await get_user_tmdb_key(db, user_id)
+
+    async def lookup(item: dict, key: tuple[str, int]) -> None:
+        _imdb_in_flight.add(key)
+        try:
+            if key not in _imdb_id_cache:
+                ext = await tmdb.get_external_ids(key[1], key[0], api_key=tmdb_key)
+                _imdb_id_cache[key] = ext.get("imdb_id")
+            imdb_id = _imdb_id_cache[key]
+            rating = await tmdb.get_imdb_rating(imdb_id) if imdb_id else None
+            item["imdb_rating"] = rating
+            if rating is not None and isinstance(item.get("id"), int):
+                await _save_imdb_ratings({item["id"]: rating})
+        except Exception as e:
+            print(f"IMDb rating failed for {key}: {e}")
+        finally:
+            _imdb_in_flight.discard(key)
+
+    tasks = [asyncio.create_task(lookup(item, key)) for item, key in lookups]
+    _, pending = await asyncio.wait(tasks, timeout=wait)
+    _background_tasks.update(pending)
+    for task in pending:
+        task.add_done_callback(_background_tasks.discard)
+
+
 async def enrich_with_state(
     db: AsyncSession,
     user_id: int,
@@ -647,6 +726,7 @@ async def enrich_with_state(
         item["play_count"] = play_count_map.get(tid, 0)
         item["watch_source"] = watch_source_map.get(tid)
 
+    await add_imdb_ratings(db, user_id, items)
     return apply_local_ratings()
 
 

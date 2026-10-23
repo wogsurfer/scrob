@@ -83,6 +83,9 @@ const userRating =
             )}
         </a>
 
+        <!-- Extras from the page, e.g. the list page's remove button -->
+        <slot />
+
         <div class="wd-strip">
 
             <div class="wd-actions">
@@ -181,6 +184,7 @@ const userRating =
 }
 
 .wd-panel{
+    position:relative;
     background:#18181b;
     border:1px solid #27272a;
     border-radius:16px 16px 0 0;

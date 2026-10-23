@@ -2,6 +2,7 @@
 import type { MediaItem } from "../lib/api";
 import { tmdbImageUrl } from "../lib/api";
 import CardActionBar from "./CardActionBar.astro";
+import PosterCard from "./PosterCard.astro";
 
 interface Props {
   item: MediaItem;
@@ -46,7 +47,15 @@ const inLists = item.in_lists ?? [];
 const collectionPct = item.collection_pct ?? (item.in_library ? 100 : 0);
 const watchPct = item.watch_pct ?? (item.watched ? 100 : 0);
 const inLibrary = item.in_library ?? false;
+
+// Movies and shows use the same poster card as Explore and the Watchlist;
+// people, collections and episodes keep this layout.
+const usePosterCard = !!item.tmdb_id && (item.type === "movie" || item.type === "series");
 ---
+
+{usePosterCard ? (
+  <PosterCard item={item}><slot /></PosterCard>
+) : (
 
 <div
 class="relative flex flex-col rounded-md overflow-hidden bg-black border border-zinc-800 active:scale-95 active:opacity-70"  data-card
@@ -199,4 +208,4 @@ class="relative flex flex-col rounded-md overflow-hidden bg-black border border-
     </div>
   )}
 </div>
-
+)}
