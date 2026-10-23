@@ -2,6 +2,7 @@
 import "../styles/global.css";
 import logo from "../assets/watchd-icon-red.png";
 import WatchedAtPicker from "../components/WatchedAtPicker.astro";
+import NowWatching from "../components/NowWatching.astro";
 
 interface Props { title: string; hideNav?: boolean }
 const { title, hideNav } = Astro.props;
@@ -1055,8 +1056,6 @@ const bottomNavItem = (active: boolean) =>
       customBtn.className = inactiveClass;
       unknownBtn.className = inactiveClass;
       watchingBtn.className = inactiveClass;
-      // "Watch now" starts a playback session, which needs a TMDB id.
-      watchingBtn.classList.toggle('hidden', !!localId);
       dateInput.classList.add('hidden');
       dateInput.value = toLocal(new Date());
       dateInput.max = toLocal(new Date());
@@ -1247,16 +1246,19 @@ const bottomNavItem = (active: boolean) =>
         logBtn.textContent = _watchHistoryDateMode === 'watching' ? 'Starting…' : 'Saving…';
         try {
           if (_watchHistoryDateMode === 'watching') {
-            const sessionBody: Record<string, unknown> = {
-              tmdb_id: Number(_watchHistoryTmdbId),
-              media_type: _watchHistoryMediaType,
-            };
+            const sessionBody: Record<string, unknown> = _watchHistoryLocalId
+              ? { media_id: Number(_watchHistoryLocalId), media_type: 'movie' }
+              : { tmdb_id: Number(_watchHistoryTmdbId), media_type: _watchHistoryMediaType };
+            const sessionSource = (document.getElementById('watch-history-source') as HTMLSelectElement).value;
+            if (sessionSource) sessionBody.watch_source = sessionSource;
             if (_watchHistoryMediaType === 'episode' && _watchHistoryShowTmdbId) {
               sessionBody.show_tmdb_id = Number(_watchHistoryShowTmdbId);
               if (_watchHistorySeasonNumber) sessionBody.season_number = Number(_watchHistorySeasonNumber);
               if (_watchHistoryEpisodeNumber) sessionBody.episode_number = Number(_watchHistoryEpisodeNumber);
             }
             await apiFetch('/history/session/start', 'POST', sessionBody);
+            (document.getElementById('watch-history-source') as HTMLSelectElement).value = '';
+            window.dispatchEvent(new CustomEvent('watchd:session-changed'));
             logBtn.textContent = 'Watching started';
             logBtn.disabled = false;
             window.setTimeout(closeWatchHistoryModal, 700);
@@ -1810,5 +1812,6 @@ const bottomNavItem = (active: boolean) =>
       }
     }, true);
   </script>
+  {token && !hideNav && <NowWatching />}
 </body>
 </html>

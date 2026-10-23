@@ -337,7 +337,9 @@ async def lifespan(app: FastAPI):
             .where(SyncJob.status.in_([SyncStatus.pending, SyncStatus.running]))
             .values(status=SyncStatus.failed, error_message="Aborted due to server restart")
         )
-        await db.execute(delete(PlaybackSession))
+        # Media-server sessions can't survive a restart, but a manual "Watch
+        # now" session is timed from its start and should keep running.
+        await db.execute(delete(PlaybackSession).where(PlaybackSession.source != "manual"))
         await db.commit()
 
     await start_http_client()
