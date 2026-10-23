@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi import APIRouter, Depends
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,8 +16,13 @@ from collections import defaultdict
 from datetime import datetime, timedelta, UTC
 from core.genres import normalise_genre
 from models.emby_library_stats import EmbyLibraryStats
+from core import tmdb
+from routers.media import enrich_with_state
 
 router = APIRouter()
+
+# Keeps unfinished background lookups referenced until they complete.
+_background_tasks: set[asyncio.Task] = set()
 
 
 @router.get("/hero")
@@ -153,16 +160,50 @@ async def dashboard_watchlist(
         .limit(6)
     )
 
-    return [
+    rows = result.all()
+
+    async def imdb_rating(watch, media):
+        data = media.tmdb_data or {}
+        if data.get("imdb_rating") is not None:
+            return data["imdb_rating"]
+        imdb_id = (
+            watch.imdb_id
+            or data.get("imdb_id")
+            or (data.get("external_ids") or {}).get("imdb_id")
+        )
+        try:
+            return await tmdb.get_imdb_rating(imdb_id) if imdb_id else None
+        except Exception:
+            return None
+
+    # A cold IMDb lookup can take seconds; don't hold the dashboard for it.
+    # Unfinished lookups carry on in the background and are cached for next time.
+    tasks = [asyncio.create_task(imdb_rating(w, m)) for w, m in rows]
+    if tasks:
+        await asyncio.wait(tasks, timeout=1.5)
+    for task in tasks:
+        if not task.done():
+            _background_tasks.add(task)
+            task.add_done_callback(_background_tasks.discard)
+    ratings = [t.result() if t.done() else None for t in tasks]
+
+    items = [
         {
+            "id": media.id,
+            "type": "movie",
             "title": watch.title,
             "year": watch.year,
             "tmdb_id": watch.tmdb_id,
             "poster_path": media.poster_path,
             "tmdb_rating": media.tmdb_rating,
+            "imdb_rating": rating,
         }
-        for watch, media in result.all()
+        for (watch, media), rating in zip(rows, ratings)
     ]
+    # Watched / list / collection state for the card's action buttons.
+    if items:
+        await enrich_with_state(db, current_user.id, items)
+    return items
 
 @router.get("/runtime-test")
 async def runtime_test(
