@@ -140,8 +140,33 @@ async def enrich_with_state(
     ep_tmdb_ids    = [i["tmdb_id"] for i in items if i.get("type") == "episode" and i.get("tmdb_id")]
     all_tmdb_ids   = [i["tmdb_id"] for i in items if i.get("tmdb_id")]
 
-    if not all_tmdb_ids:
+    # Movies not on TMDB (no tmdb_id, e.g. fan films with TVDB details) are
+    # rated by media id; everything below is keyed by TMDB id.
+    local_ids = [
+        i["id"] for i in items
+        if not i.get("tmdb_id") and i.get("type") == "movie" and isinstance(i.get("id"), int)
+    ]
+    local_ratings: dict[int, float] = {}
+    if local_ids:
+        local_q = await db.execute(
+            select(Rating.media_id, func.max(Rating.rating))
+            .where(
+                Rating.user_id == user_id,
+                Rating.media_id.in_(local_ids),
+                Rating.season_number.is_(None),
+            )
+            .group_by(Rating.media_id)
+        )
+        local_ratings = dict(local_q.all())
+
+    def apply_local_ratings() -> list[dict]:
+        for item in items:
+            if item.get("id") in local_ratings and not item.get("tmdb_id"):
+                item["user_rating"] = local_ratings[item["id"]]
         return items
+
+    if not all_tmdb_ids:
+        return apply_local_ratings()
 
     # --- Radarr / Sonarr state (Request button logic) ---
     settings_q = await db.execute(select(UserSettings).where(UserSettings.user_id == user_id))
@@ -622,7 +647,7 @@ async def enrich_with_state(
         item["play_count"] = play_count_map.get(tid, 0)
         item["watch_source"] = watch_source_map.get(tid)
 
-    return items
+    return apply_local_ratings()
 
 
 async def _get_global_settings(db: AsyncSession) -> GlobalSettings | None:
