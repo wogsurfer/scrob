@@ -27,11 +27,19 @@ const posterPath = tmdbImageUrl(
   "w500",
 );
 
+// Movies: an edition TMDB doesn't list on its own (e.g. an extended cut) opens
+// its theatrical film's page; a movie that isn't on TMDB at all opens the
+// local movie page built from its stored details.
+const editionOf = (media as { edition_of?: number | null }).edition_of;
 const href = isEpisode
   ? media.show_tmdb_id && media.season_number != null && media.episode_number != null
     ? `/show/${media.show_tmdb_id}/season/${media.season_number}/${media.episode_number}`
     : "#"
-  : `/media/movie/${media.tmdb_id}`;
+  : editionOf
+    ? `/media/movie/${editionOf}`
+    : media.tmdb_id
+      ? `/media/movie/${media.tmdb_id}`
+      : `/movie/local/${media.id}`;
 
 const watchedAt = event.watched_at
   ? new Date(event.watched_at + "Z")

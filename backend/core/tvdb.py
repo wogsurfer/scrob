@@ -132,6 +132,32 @@ async def search_series(query: str, api_key: str) -> list[dict]:
     return results
 
 
+async def search_movies(query: str, api_key: str) -> list[dict]:
+    """Search for movies by title. Returns list of simplified movie dicts."""
+    data = await _get("/search", api_key, params={"query": query, "type": "movie"})
+    results = []
+    for item in data.get("data") or []:
+        tvdb_id_str = item.get("tvdb_id") or item.get("id") or ""
+        try:
+            tvdb_id = int(str(tvdb_id_str).removeprefix("movie-"))
+        except (ValueError, TypeError):
+            continue
+        results.append({
+            "tvdb_id": tvdb_id,
+            "title": item.get("name") or item.get("translations", {}).get("eng", ""),
+            "overview": item.get("overview") or item.get("overviews", {}).get("eng"),
+            "year": item.get("year"),
+            "image_url": _image_url(item.get("image_url") or item.get("thumbnail")),
+        })
+    return results
+
+
+async def get_movie(tvdb_id: int, api_key: str) -> dict:
+    """Fetch movie extended info (artwork, runtime, release dates, translations)."""
+    data = await _get(f"/movies/{tvdb_id}/extended", api_key, params={"meta": "translations"})
+    return data.get("data") or {}
+
+
 async def get_series(tvdb_id: int, api_key: str) -> dict:
     """Fetch series extended info including episodes for accurate per-season counts."""
     data = await _get(f"/series/{tvdb_id}/extended", api_key, params={"meta": "translations,episodes"})

@@ -262,6 +262,10 @@ def format_event(event: WatchEvent | PlaybackProgress, media: Media) -> dict:
             "runtime": media.runtime,
             "tagline": media.tagline,
             "genres": (media.tmdb_data or {}).get("genres", []),
+            # An edition TMDB doesn't list on its own (e.g. an extended cut)
+            # links to its theatrical film's page instead.
+            "edition_of": (media.tmdb_data or {}).get("edition_of"),
+            "edition": (media.tmdb_data or {}).get("edition"),
         },
         "user_id": event.user_id,
         "watched_at": watched_at.isoformat() if watched_at else None,

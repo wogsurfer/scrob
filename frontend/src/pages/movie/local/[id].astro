@@ -1,0 +1,478 @@
+---
+// Movie page for titles that aren't on TMDB (e.g. fan films), built from the
+// details stored locally (sourced from TVDB). It mirrors the layout of the main
+// movie page (/media/movie/[id]), which needs a TMDB id, so History links these
+// here instead. Its rating, watch, list and collection buttons use the
+// /media/local/{id}/... endpoints, which work by media id and stay local
+// (nothing is pushed to Trakt or other services).
+import Base from "../../../layouts/Base.astro";
+import { api, tmdbImageUrl } from "../../../lib/api";
+import { utcIso, formatWatchDate, formatWatchTime } from "../../../lib/time";
+
+import watchdIconWhite from "../../../assets/watchd-icon-white.png";
+import watchdIconRed from "../../../assets/watchd-icon-red.png";
+
+export const prerender = false;
+
+const { id } = Astro.params;
+const { token } = Astro.locals;
+Astro.response.headers.set("Cache-Control", "private, no-cache");
+
+let item: any = null;
+try {
+  item = await api.media.getLocal(Number(id), token);
+} catch {
+  item = null;
+}
+if (!item) {
+  return Astro.redirect("/404");
+}
+
+const year = item.release_date?.slice(0, 4) ?? null;
+const poster = tmdbImageUrl(item.poster_path, "w500");
+const backdrop = tmdbImageUrl(item.backdrop_path, "w1280");
+const fmtRating = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
+const userRated = item.user_rating != null;
+const inLists = (item.lists ?? []).filter((l: any) => l.item_id != null);
+const crewGroups = [
+  { title: "Director", jobs: ["Director"] },
+  { title: "Writers", jobs: ["Writer", "Screenplay", "Story"] },
+  { title: "Producers", jobs: ["Producer", "Executive Producer"] },
+];
+
+// Same button classes as components/ActionBar.astro
+const btn = "flex flex-col items-center justify-center gap-0.5 md:gap-1.5 px-2 py-3 md:py-3.5 transition-all cursor-pointer";
+const btnW = "w-[52px] min-w-[52px] md:flex-1";
+---
+
+<Base title={item.title}>
+  <div class="relative">
+    <!-- Backdrop -->
+    {backdrop && (
+      <div class="absolute -top-8 left-1/2 -translate-x-1/2 w-screen h-[600px] overflow-hidden">
+        <div class="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/40 to-transparent z-10"></div>
+        <img src={backdrop} alt="" class="w-full h-full object-cover opacity-50 blur-[1px]" loading="eager" decoding="async" />
+      </div>
+    )}
+
+    <div class="relative z-20 min-w-0">
+      <nav class="flex items-center gap-2 text-sm text-zinc-400 mb-8 overflow-hidden whitespace-nowrap">
+        <a href="/movies" class="hover:text-zinc-100 transition shrink-0">Movies</a>
+        <span class="text-zinc-700">/</span>
+        <span class="text-zinc-100 font-bold truncate">{item.title}</span>
+      </nav>
+
+      <div class="flex flex-col md:flex-row gap-8 lg:gap-12">
+
+        <!-- Poster -->
+        <div class="w-64 shrink-0 mx-auto md:mx-0">
+          <div class="aspect-[2/3] rounded-2xl overflow-hidden shadow-2xl border border-zinc-800 bg-zinc-900 ring-1 ring-white/10 relative">
+            {poster ? (
+              <img src={poster} alt={item.title} class="w-full h-full object-cover" loading="eager" decoding="async" />
+            ) : (
+              <div class="w-full h-full flex flex-col items-center justify-center text-zinc-400 p-4 text-center">
+                <span class="text-4xl mb-2">🎬</span>
+                <span class="text-sm font-medium">No Poster Available</span>
+              </div>
+            )}
+          </div>
+
+          {item.genres?.length > 0 && (
+            <div class="flex flex-wrap gap-2 mt-4 mb-6">
+              {item.genres.map((g: string) => (
+                <span class="px-2.5 py-1.5 bg-zinc-900/40 border border-zinc-800/50 rounded-xl text-zinc-400 text-[10px] font-black uppercase tracking-wider text-center">
+                  {g}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <!-- Info -->
+        <div class="flex-1 min-w-0 pt-4">
+          <h1 class="text-4xl md:text-6xl font-black text-zinc-100 mb-3 tracking-tight leading-none">{item.title}</h1>
+
+          {item.tagline && (
+            <p class="text-xl italic text-zinc-400 mb-8 font-light leading-relaxed">"{item.tagline}"</p>
+          )}
+
+          <div class="flex flex-wrap items-center gap-3">
+            <div class="flex flex-wrap items-center gap-4 text-zinc-300 text-sm bg-zinc-900/40 p-3 rounded-xl border border-zinc-800/50 backdrop-blur-sm">
+              {year && <span class="font-bold">{year}</span>}
+              {item.imdb_rating != null && item.imdb_id && (
+                <a
+                  href={`https://www.imdb.com/title/${item.imdb_id}/`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="flex items-center gap-2 text-[#f5c518] font-black hover:opacity-80 transition-opacity"
+                >
+                  <img src="/logos/imdb.png" alt="IMDb" class="w-9 h-5 object-contain" />
+                  <span>{Number(item.imdb_rating).toFixed(1)}</span>
+                </a>
+              )}
+
+              <!-- Your rating (opens the 1–10 picker) -->
+              <span class="relative">
+                <button
+                  type="button"
+                  id="la-rate"
+                  title={userRated ? `Your rating: ${fmtRating(item.user_rating)}/10` : "Rate this"}
+                  class={`flex items-center gap-1.5 font-black cursor-pointer transition-colors ${userRated ? "text-red-500" : "text-zinc-500 hover:text-red-400"}`}
+                  aria-expanded="false"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill={userRated ? "currentColor" : "none"} stroke="currentColor" stroke-width="2" stroke-linejoin="round" class="w-[18px] h-[18px]">
+                    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+                  </svg>
+                  <span id="la-rating-value">{userRated ? fmtRating(item.user_rating) : ""}</span>
+                </button>
+                <div id="la-rate-menu" class="hidden absolute left-0 top-full mt-3 z-40 rounded-2xl bg-zinc-900 border border-zinc-700 shadow-2xl p-3">
+                  <div class="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-2">Your rating</div>
+                  <div class="grid grid-cols-5 gap-1.5">
+                    {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
+                      <button
+                        type="button"
+                        class={`la-rate-pick w-10 h-9 rounded-lg text-sm font-black transition-colors ${userRated && item.user_rating === n ? "bg-red-500/50 text-red-200" : "bg-zinc-800 text-zinc-300 hover:bg-red-500/40 hover:text-red-200"}`}
+                        data-rating={n}
+                      >{n}</button>
+                    ))}
+                  </div>
+                  <button type="button" id="la-rate-clear" class={`mt-2 w-full text-xs font-bold text-zinc-500 hover:text-zinc-200 py-1 ${userRated ? "" : "hidden"}`}>
+                    Remove rating
+                  </button>
+                </div>
+              </span>
+
+              {item.runtime && (
+                <span class="flex items-center gap-1.5 font-medium">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="w-4 h-4 text-zinc-500">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                  </svg>
+                  {item.runtime} min
+                </span>
+              )}
+            </div>
+
+            {item.companies?.length > 0 && (
+              <div class="bg-zinc-900/40 p-3 rounded-xl border border-zinc-800/50 backdrop-blur-sm text-xs font-bold text-zinc-300">
+                {item.companies.join(" • ")}
+              </div>
+            )}
+          </div>
+
+          {item.release_date && (
+            <div class="flex items-center gap-4 mt-3 mb-2 text-sm text-zinc-400">
+              <span class="flex items-center gap-1.5">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4 text-zinc-500">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3.75 9.75h16.5M5.25 4.5h13.5a1.5 1.5 0 0 1 1.5 1.5v13.5a1.5 1.5 0 0 1-1.5 1.5H5.25a1.5 1.5 0 0 1-1.5-1.5V6a1.5 1.5 0 0 1 1.5-1.5Z" />
+                </svg>
+                <span class="font-medium">Released</span>
+                {new Date(item.release_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+              </span>
+            </div>
+          )}
+
+          <!-- Action bar (same look as components/ActionBar.astro) -->
+          <div class="mb-2" id="local-actions" data-media-id={item.id}>
+            <div class="flex w-full">
+              <div class="flex flex-row rounded-2xl border border-zinc-800 shadow-lg min-h-[52px] md:min-h-[64px] w-full">
+                <button
+                  type="button"
+                  id="la-watch"
+                  title={item.watched ? "Mark as unwatched" : "Mark as watched"}
+                  class={`${btn} ${btnW} rounded-l-2xl border-r border-zinc-800/60 ${item.watched ? "bg-red-500/50 text-red-300 hover:bg-red-400/50" : "bg-zinc-800 text-zinc-500 hover:bg-red-500/50 hover:text-red-300"}`}
+                >
+                  <img src={item.watched ? watchdIconRed.src : watchdIconWhite.src} data-red={watchdIconRed.src} data-white={watchdIconWhite.src} alt="Watchd" class="w-[22px] h-[22px] object-contain" />
+                </button>
+
+                <div class="relative flex md:flex-1">
+                  <button
+                    type="button"
+                    id="la-lists"
+                    title="Add to list"
+                    aria-expanded="false"
+                    class={`${btn} ${btnW} w-full border-r border-zinc-800/60 ${inLists.length > 0 ? "bg-sky-500/50 text-sky-300 hover:bg-sky-400/50" : "bg-zinc-800 text-zinc-500 hover:bg-sky-400/50 hover:text-sky-300"}`}
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                  </button>
+                  <div id="la-lists-menu" class="hidden absolute left-0 top-full mt-2 z-40 min-w-[220px] max-h-72 overflow-y-auto rounded-xl bg-zinc-900 border border-zinc-700 shadow-2xl p-1.5">
+                    {(item.lists ?? []).length === 0 ? (
+                      <div class="px-3 py-2 text-sm text-zinc-500">No lists yet</div>
+                    ) : (
+                      (item.lists ?? []).map((l: any) => (
+                        <label class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800 cursor-pointer">
+                          <input type="checkbox" class="la-list accent-sky-500" data-list-id={l.id} checked={l.item_id != null} />
+                          <span class="truncate">{l.name}</span>
+                        </label>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  id="la-collect"
+                  data-collected={String(item.in_library)}
+                  title={item.in_library ? "Remove from collection" : "Add to collection"}
+                  class={`${btn} ${btnW} rounded-r-2xl ${item.in_library ? "bg-purple-500/50 text-purple-300 hover:bg-purple-400/50" : "bg-zinc-800 text-zinc-500 hover:bg-purple-500/50 hover:text-purple-400"}`}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7"/><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><path d="M15 22v-4a3 3 0 0 0-6 0v4"/><path d="M2 7h20"/></svg>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="mb-4 mt-6">
+            <p class="text-zinc-300 leading-relaxed text-lg max-w-4xl font-medium opacity-90">
+              {item.overview}
+            </p>
+
+            {item.watch_history?.length > 0 && (
+              <div class="flex flex-col gap-2">
+                {item.watch_history.map((watch: any) => (
+                  <div class="mt-4 flex items-center gap-3 text-sm text-zinc-400 whitespace-nowrap">
+                    <span class="font-bold text-zinc-300">Watched</span>
+                    {watch.watched_at && (
+                      <>
+                        <span class="flex items-center gap-1.5">
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4 text-zinc-500">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3.75 9.75h16.5M5.25 4.5h13.5a1.5 1.5 0 0 1 1.5 1.5v13.5a1.5 1.5 0 0 1-1.5 1.5H5.25a1.5 1.5 0 0 1-1.5-1.5V6a1.5 1.5 0 0 1 1.5-1.5Z" />
+                          </svg>
+                          <time data-local="date" datetime={utcIso(watch.watched_at)}>{formatWatchDate(watch.watched_at)}</time>
+                        </span>
+                        <span class="flex items-center gap-1.5">
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4 text-zinc-500">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6l4 2" />
+                            <circle cx="12" cy="12" r="9" />
+                          </svg>
+                          <time data-local="time" datetime={utcIso(watch.watched_at)}>{formatWatchTime(watch.watched_at)}</time>
+                        </span>
+                      </>
+                    )}
+                    {watch.watch_source && <span class="text-zinc-400">{watch.watch_source}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <!-- Cast -->
+      {item.cast?.length > 0 && (
+        <div class="mt-24 border-zinc-900 pt-16">
+          <div class="flex items-center justify-between mb-10">
+            <h2 class="text-3xl font-black text-zinc-100 tracking-tighter uppercase">Top Cast</h2>
+          </div>
+          <div class="flex gap-6 overflow-x-auto pb-4 min-w-0 max-w-full">
+            {item.cast.map((person: any) => (
+              <a
+                href={person.tmdb_id ? `/person/${person.tmdb_id}` : undefined}
+                class="group/cast shrink-0 w-[240px] sm:w-[260px] bg-zinc-900/20 border border-zinc-800/40 p-4 rounded-3xl active:scale-95 active:opacity-70"
+              >
+                <div class="aspect-square w-full rounded-2xl overflow-hidden mb-5 ring-2 ring-zinc-800/50 shadow-lg">
+                  {person.profile_path ? (
+                    <img src={tmdbImageUrl(person.profile_path, "w185")} alt={person.name} class="w-full h-full object-cover" loading="lazy" decoding="async" />
+                  ) : (
+                    <div class="w-full h-full bg-zinc-800 flex items-center justify-center text-zinc-400 text-4xl">👤</div>
+                  )}
+                </div>
+                <div class="space-y-1.5 text-center">
+                  <p title={person.name} class="text-sm font-black text-zinc-100 line-clamp-1 leading-tight">{person.name}</p>
+                  <p title={person.character} class="text-[11px] text-zinc-500 font-bold uppercase tracking-wider line-clamp-1 opacity-80">{person.character}</p>
+                </div>
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <!-- Crew (same layout as components/CrewSection.astro) -->
+      {item.crew?.length > 0 && (
+        <section class="mt-16 border-t border-zinc-800/70 pt-10">
+          <h2 class="text-3xl font-black text-zinc-100 tracking-tighter uppercase mb-10">Crew</h2>
+          <div class="space-y-10">
+            {crewGroups.map(({ title, jobs }) => {
+              const members = item.crew.filter((p: any) => jobs.includes(p.job));
+              return members.length > 0 && (
+                <section>
+                  <h3 class="text-lg font-black text-zinc-200 tracking-tight uppercase mb-4">{title}</h3>
+                  <div class="flex gap-6 overflow-x-auto pb-4 min-w-0 max-w-full">
+                    {members.map((person: any) => (
+                      <a
+                        href={person.tmdb_id ? `/person/${person.tmdb_id}` : undefined}
+                        title={`${person.name} · ${person.job}`}
+                        class="group/crew shrink-0 w-[200px] sm:w-[220px] bg-zinc-900/20 border border-zinc-800/40 p-4 rounded-3xl active:scale-95 active:opacity-70"
+                      >
+                        <div class="aspect-square w-full rounded-2xl overflow-hidden mb-5 ring-2 ring-zinc-800/50 shadow-lg">
+                          {person.profile_path ? (
+                            <img src={tmdbImageUrl(person.profile_path, "w185")} alt={person.name} class="w-full h-full object-cover" loading="lazy" decoding="async" />
+                          ) : (
+                            <div class="w-full h-full bg-zinc-800 flex items-center justify-center text-zinc-400 text-4xl">👤</div>
+                          )}
+                        </div>
+                        <div class="space-y-1.5 text-center">
+                          <p title={person.name} class="text-sm font-black text-zinc-100 line-clamp-1 leading-tight">{person.name}</p>
+                          <p class="text-[11px] text-zinc-500 font-bold uppercase tracking-wider line-clamp-2 opacity-80">{person.job}</p>
+                        </div>
+                      </a>
+                    ))}
+                  </div>
+                </section>
+              );
+            })}
+          </div>
+        </section>
+      )}
+    </div>
+  </div>
+
+  <script>
+    const root = document.getElementById("local-actions");
+    const mediaId = root?.dataset.mediaId;
+    const token = () => (window as any).__AUTH_TOKEN__ ?? "";
+
+    async function call(path: string, method: string, body?: unknown) {
+      const res = await fetch(`/api/proxy${path}`, {
+        method,
+        headers: {
+          Authorization: `Bearer ${token()}`,
+          ...(body ? { "Content-Type": "application/json" } : {}),
+        },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    }
+
+    async function busy(el: HTMLButtonElement | HTMLInputElement, work: () => Promise<void>) {
+      el.disabled = true;
+      try {
+        await work();
+      } catch (e) {
+        console.error(e);
+        alert("Something went wrong — please try again.");
+      } finally {
+        el.disabled = false;
+      }
+    }
+
+    // Popover menus (rating picker, lists): open on click, close on outside click.
+    function popover(btnId: string, menuId: string) {
+      const btn = document.getElementById(btnId);
+      const menu = document.getElementById(menuId);
+      btn?.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const open = menu?.classList.toggle("hidden") === false;
+        btn.setAttribute("aria-expanded", String(open));
+      });
+      document.addEventListener("click", (e) => {
+        if (menu && !menu.contains(e.target as Node)) {
+          menu.classList.add("hidden");
+          btn?.setAttribute("aria-expanded", "false");
+        }
+      });
+    }
+    popover("la-rate", "la-rate-menu");
+    popover("la-lists", "la-lists-menu");
+
+    // Watched: opens the shared watch-history box (Base.astro) in its local
+    // mode. The box reports changes back so the button and list stay current.
+    const watchBtn = document.getElementById("la-watch") as HTMLButtonElement | null;
+    const WATCH_ON = ["bg-red-500/50", "text-red-300", "hover:bg-red-400/50"];
+    const WATCH_OFF = ["bg-zinc-800", "text-zinc-500", "hover:bg-red-500/50", "hover:text-red-300"];
+    let historyOpened = false;
+    watchBtn?.addEventListener("click", () => {
+      historyOpened = true;
+      window.dispatchEvent(new CustomEvent("watchd:open-local-watch-history", { detail: { mediaId } }));
+    });
+    window.addEventListener("watchd:local-watch-history", (e) => {
+      const { isWatched } = (e as CustomEvent).detail;
+      watchBtn?.classList.remove(...WATCH_ON, ...WATCH_OFF);
+      watchBtn?.classList.add(...(isWatched ? WATCH_ON : WATCH_OFF));
+      if (watchBtn) watchBtn.title = isWatched ? "Mark as unwatched" : "Mark as watched";
+      const logo = watchBtn?.querySelector("img");
+      if (logo) logo.src = (isWatched ? logo.dataset.red : logo.dataset.white) ?? logo.src;
+    });
+    // Plays, dates or sources may have changed in the box; refresh the list below.
+    window.addEventListener("watchd:watch-history-closed", () => {
+      if (historyOpened) location.reload();
+    });
+
+    // Lists: a checkbox per list.
+    const listsBtn = document.getElementById("la-lists");
+    const LIST_ON = ["bg-sky-500/50", "text-sky-300", "hover:bg-sky-400/50"];
+    const LIST_OFF = ["bg-zinc-800", "text-zinc-500", "hover:bg-sky-400/50", "hover:text-sky-300"];
+    const refreshListsBtn = () => {
+      const any = document.querySelectorAll<HTMLInputElement>(".la-list:checked").length > 0;
+      listsBtn?.classList.remove(...LIST_ON, ...LIST_OFF);
+      listsBtn?.classList.add(...(any ? LIST_ON : LIST_OFF));
+    };
+    document.querySelectorAll<HTMLInputElement>(".la-list").forEach((box) => {
+      box.addEventListener("change", () => {
+        const add = box.checked;
+        busy(box, async () => {
+          try {
+            await call(`/media/local/${mediaId}/lists/${box.dataset.listId}`, add ? "POST" : "DELETE");
+          } catch (e) {
+            box.checked = !add;
+            throw e;
+          }
+          refreshListsBtn();
+        });
+      });
+    });
+
+    // Collection toggle.
+    const collectBtn = document.getElementById("la-collect") as HTMLButtonElement | null;
+    const COLL_ON = ["bg-purple-500/50", "text-purple-300", "hover:bg-purple-400/50"];
+    const COLL_OFF = ["bg-zinc-800", "text-zinc-500", "hover:bg-purple-500/50", "hover:text-purple-400"];
+    collectBtn?.addEventListener("click", () => {
+      const collected = collectBtn.dataset.collected === "true";
+      busy(collectBtn, async () => {
+        await call(`/media/local/${mediaId}/collect`, collected ? "DELETE" : "POST");
+        collectBtn.dataset.collected = String(!collected);
+        collectBtn.classList.remove(...COLL_ON, ...COLL_OFF);
+        collectBtn.classList.add(...(collected ? COLL_OFF : COLL_ON));
+        collectBtn.title = collected ? "Add to collection" : "Remove from collection";
+      });
+    });
+
+    // Your rating: 1–10 picker, plus remove.
+    const rateBtn = document.getElementById("la-rate");
+    const rateMenu = document.getElementById("la-rate-menu");
+    const ratingValue = document.getElementById("la-rating-value");
+    const clearBtn = document.getElementById("la-rate-clear") as HTMLButtonElement | null;
+    const picks = [...document.querySelectorAll<HTMLButtonElement>(".la-rate-pick")];
+    const PICK_ON = ["bg-red-500/50", "text-red-200"];
+    const PICK_OFF = ["bg-zinc-800", "text-zinc-300", "hover:bg-red-500/40", "hover:text-red-200"];
+    const showRating = (r: number | null) => {
+      if (ratingValue) ratingValue.textContent = r != null ? String(r) : "";
+      rateBtn?.classList.toggle("text-red-500", r != null);
+      rateBtn?.classList.toggle("text-zinc-500", r == null);
+      rateBtn?.querySelector("svg")?.setAttribute("fill", r != null ? "currentColor" : "none");
+      if (rateBtn) rateBtn.title = r != null ? `Your rating: ${r}/10` : "Rate this";
+      picks.forEach((p) => {
+        const on = r != null && Number(p.dataset.rating) === r;
+        p.classList.remove(...PICK_ON, ...PICK_OFF);
+        p.classList.add(...(on ? PICK_ON : PICK_OFF));
+      });
+      clearBtn?.classList.toggle("hidden", r == null);
+      rateMenu?.classList.add("hidden");
+    };
+    picks.forEach((pick) => {
+      pick.addEventListener("click", () => {
+        const r = Number(pick.dataset.rating);
+        busy(pick, async () => {
+          await call(`/media/local/${mediaId}/rating`, "POST", { rating: r });
+          showRating(r);
+        });
+      });
+    });
+    clearBtn?.addEventListener("click", () => {
+      busy(clearBtn, async () => {
+        await call(`/media/local/${mediaId}/rating`, "DELETE");
+        showRating(null);
+      });
+    });
+  </script>
+</Base>

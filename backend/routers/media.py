@@ -4539,6 +4539,303 @@ async def report_session(
     return {"ok": True}
 
 
+async def _local_movie(db: AsyncSession, media_id: int) -> Media:
+    media = await db.get(Media, media_id)
+    if media is None or media.media_type != MediaType.movie:
+        raise HTTPException(status_code=404, detail="Movie not found")
+    return media
+
+
+@router.get("/local/{media_id}")
+async def get_local_movie(
+    media_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """A movie that only exists locally (not on TMDB), from its stored details.
+
+    Used for titles such as fan films whose details come from TVDB. The
+    rating, watch, list and collection actions for these work by media id
+    (see the /local/{media_id}/... endpoints below), since everything else
+    in the app identifies movies by TMDB id.
+    """
+    media = await _local_movie(db, media_id)
+
+    data = media.tmdb_data or {}
+    history_q = await db.execute(
+        select(WatchEvent.id, WatchEvent.watched_at, WatchEvent.watch_source)
+        .where(
+            WatchEvent.user_id == current_user.id,
+            WatchEvent.media_id == media.id,
+            WatchEvent.completed.is_(True),
+        )
+        .order_by(WatchEvent.watched_at.desc())
+    )
+    rating_q = await db.execute(
+        select(func.max(Rating.rating)).where(
+            Rating.user_id == current_user.id,
+            Rating.media_id == media.id,
+            Rating.season_number.is_(None),
+        )
+    )
+    collected_q = await db.execute(
+        select(Collection.id).where(
+            Collection.user_id == current_user.id,
+            Collection.media_id == media.id,
+        )
+    )
+    lists_q = await db.execute(
+        select(UserList.id, UserList.name, ListItem.id)
+        .outerjoin(
+            ListItem,
+            (ListItem.list_id == UserList.id) & (ListItem.media_id == media.id),
+        )
+        .where(UserList.user_id == current_user.id)
+        .order_by(UserList.name)
+    )
+    imdb_id = data.get("imdb_id")
+    try:
+        imdb_rating = await tmdb.get_imdb_rating(imdb_id) if imdb_id else None
+    except Exception:
+        imdb_rating = None
+
+    watch_history = [
+        {
+            "id": row.id,
+            "watched_at": row.watched_at.isoformat() if row.watched_at else None,
+            "watch_source": row.watch_source,
+        }
+        for row in history_q.all()
+    ]
+    return {
+        "id": media.id,
+        "type": "movie",
+        "title": media.title,
+        "overview": media.overview,
+        "tagline": media.tagline,
+        "poster_path": media.poster_path,
+        "backdrop_path": media.backdrop_path,
+        "release_date": media.release_date,
+        "runtime": media.runtime,
+        "genres": data.get("genres", []),
+        "cast": data.get("cast", []),
+        "crew": data.get("crew", []),
+        "companies": data.get("companies", []),
+        "imdb_id": imdb_id,
+        "imdb_rating": imdb_rating,
+        "tvdb_movie_id": data.get("tvdb_movie_id"),
+        "user_rating": rating_q.scalar_one_or_none(),
+        "watched": bool(watch_history),
+        "in_library": collected_q.first() is not None,
+        "lists": [
+            {"id": list_id, "name": name, "item_id": item_id}
+            for list_id, name, item_id in lists_q.all()
+        ],
+        "watch_history": watch_history,
+    }
+
+
+class LocalRatingIn(BaseModel):
+    rating: float
+
+
+@router.post("/local/{media_id}/rating")
+async def rate_local_movie(
+    media_id: int,
+    body: LocalRatingIn,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Rate a movie that isn't on TMDB (stays local; not pushed to Trakt)."""
+    from datetime import datetime as _datetime
+    if not 0 <= body.rating <= 10:
+        raise HTTPException(status_code=400, detail="Rating must be between 0 and 10")
+    media = await _local_movie(db, media_id)
+    existing = (
+        await db.execute(
+            select(Rating).where(
+                Rating.user_id == current_user.id,
+                Rating.media_id == media.id,
+                Rating.season_number.is_(None),
+            )
+        )
+    ).scalars().first()
+    if existing:
+        existing.rating = body.rating
+        existing.rated_at = _datetime.utcnow()
+    else:
+        db.add(Rating(user_id=current_user.id, media_id=media.id, rating=body.rating))
+    await db.commit()
+    return {"status": "ok", "rating": body.rating}
+
+
+@router.delete("/local/{media_id}/rating")
+async def unrate_local_movie(
+    media_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    media = await _local_movie(db, media_id)
+    await db.execute(
+        sa_delete(Rating).where(
+            Rating.user_id == current_user.id,
+            Rating.media_id == media.id,
+            Rating.season_number.is_(None),
+        )
+    )
+    await db.commit()
+    return {"status": "ok"}
+
+
+class LocalWatchIn(BaseModel):
+    # UTC; None records a watch with an unknown date.
+    watched_at: Optional[str] = None
+    watch_source: Optional[str] = None
+
+
+@router.post("/local/{media_id}/watch")
+async def watch_local_movie(
+    media_id: int,
+    body: LocalWatchIn,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Log a watch (remove one with DELETE /history/event/{id})."""
+    from datetime import datetime as _datetime, timezone as _tz
+    media = await _local_movie(db, media_id)
+    try:
+        watched_at = _datetime.fromisoformat(body.watched_at) if body.watched_at else None
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid watched_at")
+    if watched_at is not None and watched_at.tzinfo is not None:
+        watched_at = watched_at.astimezone(_tz.utc).replace(tzinfo=None)
+    event = WatchEvent(
+        user_id=current_user.id,
+        media_id=media.id,
+        watched_at=watched_at,
+        completed=True,
+        progress_percent=1.0,
+        watch_source=body.watch_source or None,
+    )
+    db.add(event)
+    await db.commit()
+    return {"status": "ok", "id": event.id}
+
+
+@router.delete("/local/{media_id}/watch")
+async def unwatch_local_movie(
+    media_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Remove every recorded play (mark as unwatched)."""
+    media = await _local_movie(db, media_id)
+    await db.execute(
+        sa_delete(WatchEvent).where(
+            WatchEvent.user_id == current_user.id,
+            WatchEvent.media_id == media.id,
+        )
+    )
+    await db.commit()
+    return {"status": "ok"}
+
+
+@router.post("/local/{media_id}/collect")
+async def collect_local_movie(
+    media_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    media = await _local_movie(db, media_id)
+    existing = (
+        await db.execute(
+            select(Collection).where(
+                Collection.user_id == current_user.id,
+                Collection.media_id == media.id,
+            )
+        )
+    ).scalars().first()
+    if existing:
+        return {"status": "ok"}
+    coll = Collection(user_id=current_user.id, media_id=media.id)
+    db.add(coll)
+    await db.flush()
+    db.add(CollectionFile(
+        collection_id=coll.id,
+        source=CollectionSource.manual,
+        source_id=f"local:{media.id}",
+    ))
+    await db.commit()
+    return {"status": "ok"}
+
+
+@router.delete("/local/{media_id}/collect")
+async def uncollect_local_movie(
+    media_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    media = await _local_movie(db, media_id)
+    await db.execute(
+        sa_delete(Collection).where(
+            Collection.user_id == current_user.id,
+            Collection.media_id == media.id,
+        )
+    )
+    await db.commit()
+    return {"status": "ok"}
+
+
+async def _own_list(db: AsyncSession, user_id: int, list_id: int) -> UserList:
+    lst = (
+        await db.execute(
+            select(UserList).where(UserList.id == list_id, UserList.user_id == user_id)
+        )
+    ).scalar_one_or_none()
+    if not lst:
+        raise HTTPException(status_code=404, detail="List not found")
+    return lst
+
+
+@router.post("/local/{media_id}/lists/{list_id}")
+async def list_local_movie(
+    media_id: int,
+    list_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Add to one of the user's lists (not pushed to Trakt/MDBList)."""
+    media = await _local_movie(db, media_id)
+    await _own_list(db, current_user.id, list_id)
+    existing = (
+        await db.execute(
+            select(ListItem).where(ListItem.list_id == list_id, ListItem.media_id == media.id)
+        )
+    ).scalars().first()
+    if existing:
+        return {"status": "ok", "item_id": existing.id}
+    item = ListItem(list_id=list_id, media_id=media.id)
+    db.add(item)
+    await db.commit()
+    return {"status": "ok", "item_id": item.id}
+
+
+@router.delete("/local/{media_id}/lists/{list_id}")
+async def unlist_local_movie(
+    media_id: int,
+    list_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    media = await _local_movie(db, media_id)
+    await _own_list(db, current_user.id, list_id)
+    await db.execute(
+        sa_delete(ListItem).where(ListItem.list_id == list_id, ListItem.media_id == media.id)
+    )
+    await db.commit()
+    return {"status": "ok"}
+
+
 @router.get("/{type}/{tmdb_id}")
 async def get_media_details(
     type: MediaType,
@@ -4789,18 +5086,28 @@ async def get_media_details(
         # DB operations must run sequentially — async session doesn't support concurrent use
         await enrich_with_state(db, current_user.id, [state_item])
 
-        # Complete watch history for this media
+        # Complete watch history for this media, including editions TMDB
+        # doesn't list on their own (e.g. an extended cut) that point here.
+        edition_q = await db.execute(
+            select(Media.id, Media.tmdb_data["edition"].astext).where(
+                Media.media_type == type,
+                Media.tmdb_data["edition_of"].astext == str(tmdb_id),
+            )
+        )
+        edition_by_media = {mid: edition for mid, edition in edition_q.all()}
+        history_media_ids = [*all_media_ids, *edition_by_media]
         watch_history = []
-        if all_media_ids:
+        if history_media_ids:
             watch_history_q = await db.execute(
                 select(
                     WatchEvent.id,
+                    WatchEvent.media_id,
                     WatchEvent.watched_at,
                     WatchEvent.watch_source,
                 )
                 .where(
                     WatchEvent.user_id == current_user.id,
-                    WatchEvent.media_id.in_(all_media_ids),
+                    WatchEvent.media_id.in_(history_media_ids),
                     WatchEvent.completed.is_(True),
                 )
                 .order_by(WatchEvent.watched_at.desc())
@@ -4811,6 +5118,7 @@ async def get_media_details(
                     "id": row.id,
                     "watched_at": row.watched_at.isoformat() if row.watched_at else None,
                     "watch_source": row.watch_source,
+                    "edition": edition_by_media.get(row.media_id),
                 }
                 for row in watch_history_q.all()
             ]

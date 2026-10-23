@@ -182,7 +182,7 @@ const refreshUrl = isEpisode
                 class="flex items-center gap-2 text-[#f5c518] font-black hover:opacity-80 transition-opacity"
               >
                 <img
-                  src="/logos/imdb.svg"
+                  src="/logos/imdb.png"
                   alt="IMDb"
                   class="w-9 h-5 object-contain"
                 />
@@ -411,6 +411,12 @@ const refreshUrl = isEpisode
                 <div class="mt-4 flex items-center gap-3 text-sm text-zinc-400 whitespace-nowrap">
 
                   <span class="font-bold text-zinc-300">Watched</span>
+
+                  {watch.edition && (
+                    <span class="text-[11px] font-bold uppercase tracking-wider text-red-400 border border-red-500/40 rounded px-1.5 py-0.5">
+                      {watch.edition} Edition
+                    </span>
+                  )}
 
                   {watch.watched_at && (
                     <>
