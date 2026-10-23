@@ -1005,6 +1005,10 @@ const bottomNavItem = (active: boolean) =>
     let _watchHistoryShowTmdbId = '';
     let _watchHistorySeasonNumber = '';
     let _watchHistoryEpisodeNumber = '';
+    // Set for a movie that isn't on TMDB (pages/movie/local): the modal then
+    // reads and writes through /media/local/{id} instead of TMDB ids.
+    let _watchHistoryLocalId = '';
+    const localWatchPath = () => `/media/local/${_watchHistoryLocalId}`;
 
     const toLocal = (d: Date) => {
       const p = (n: number) => String(n).padStart(2, '0');
@@ -1013,10 +1017,14 @@ const bottomNavItem = (active: boolean) =>
     const toUTC = (d: Date) => d.toISOString().slice(0, 16);
 
     function closeWatchHistoryModal() {
-      document.getElementById('watch-history-modal')!.classList.add('hidden');
+      const modal = document.getElementById('watch-history-modal')!;
+      if (modal.classList.contains('hidden')) return;
+      modal.classList.add('hidden');
+      window.dispatchEvent(new CustomEvent('watchd:watch-history-closed'));
     }
 
-    async function openWatchHistoryModal(_btn: HTMLElement, tmdbId: string, mediaType: string, showTmdbId = '', seasonNumber = '', episodeNumber = '') {
+    async function openWatchHistoryModal(_btn: HTMLElement, tmdbId: string, mediaType: string, showTmdbId = '', seasonNumber = '', episodeNumber = '', localId = '') {
+      _watchHistoryLocalId = localId;
       _watchHistoryTmdbId = tmdbId;
       _watchHistoryMediaType = mediaType;
       _watchHistoryShowTmdbId = showTmdbId;
@@ -1036,6 +1044,8 @@ const bottomNavItem = (active: boolean) =>
       customBtn.className = inactiveClass;
       unknownBtn.className = inactiveClass;
       watchingBtn.className = inactiveClass;
+      // "Watch now" starts a playback session, which needs a TMDB id.
+      watchingBtn.classList.toggle('hidden', !!localId);
       dateInput.classList.add('hidden');
       dateInput.value = toLocal(new Date());
       dateInput.max = toLocal(new Date());
@@ -1052,9 +1062,11 @@ const bottomNavItem = (active: boolean) =>
       const unwatchBtn = document.getElementById('watch-history-unwatch-btn') as HTMLButtonElement;
       unwatchBtn.classList.add('hidden');
       try {
-        const events: Array<{ id: number; watched_at: string | null; watch_source: string | null }> = await apiFetch(
-          `/history/item-events?tmdb_id=${_watchHistoryTmdbId}&media_type=${_watchHistoryMediaType}`
-        );
+        const events: Array<{ id: number; watched_at: string | null; watch_source: string | null }> = _watchHistoryLocalId
+          ? (await apiFetch(localWatchPath())).watch_history
+          : await apiFetch(
+            `/history/item-events?tmdb_id=${_watchHistoryTmdbId}&media_type=${_watchHistoryMediaType}`
+          );
         if (events.length === 0) {
           eventsEl.innerHTML = '<div class="px-4 py-3 text-sm text-zinc-500 italic">No plays recorded yet</div>';
         } else {
@@ -1084,6 +1096,12 @@ const bottomNavItem = (active: boolean) =>
         document.getElementById('watch-history-log-btn')!.textContent = _watchHistoryDateMode === 'watching'
           ? 'Start watching'
           : isWatched ? 'Log a rewatch' : 'Mark as watched';
+        if (_watchHistoryLocalId) {
+          window.dispatchEvent(new CustomEvent('watchd:local-watch-history', {
+            detail: { mediaId: _watchHistoryLocalId, isWatched, events },
+          }));
+          return;
+        }
         document.querySelectorAll<HTMLElement>(
           `[data-card][data-tmdb-id="${_watchHistoryTmdbId}"][data-media-type="${_watchHistoryMediaType}"] [data-action="watched"]`
         ).forEach(b => updateWatchedButtonUI(b, isWatched));
@@ -1093,6 +1111,10 @@ const bottomNavItem = (active: boolean) =>
     }
 
     document.getElementById('watch-history-modal-close')!.addEventListener('click', closeWatchHistoryModal);
+    window.addEventListener('watchd:open-local-watch-history', (e) => {
+      const { mediaId } = (e as CustomEvent<{ mediaId: string }>).detail;
+      openWatchHistoryModal(document.body, '', 'movie', '', '', '', String(mediaId));
+    });
     document.getElementById('watch-history-modal')!.addEventListener('click', (e) => {
       if (e.target === document.getElementById('watch-history-modal')) closeWatchHistoryModal();
     });
@@ -1143,7 +1165,9 @@ const bottomNavItem = (active: boolean) =>
       unwatchBtn.textContent = 'Removing…';
       try {
         await apiFetch(
-          `/history/item?tmdb_id=${encodeURIComponent(_watchHistoryTmdbId)}&media_type=${encodeURIComponent(_watchHistoryMediaType)}`,
+          _watchHistoryLocalId
+            ? `${localWatchPath()}/watch`
+            : `/history/item?tmdb_id=${encodeURIComponent(_watchHistoryTmdbId)}&media_type=${encodeURIComponent(_watchHistoryMediaType)}`,
           'DELETE'
         );
         await loadWatchHistoryEvents();
@@ -1246,7 +1270,14 @@ const bottomNavItem = (active: boolean) =>
             if (_watchHistorySeasonNumber) watchBody.season_number = Number(_watchHistorySeasonNumber);
             if (_watchHistoryEpisodeNumber) watchBody.episode_number = Number(_watchHistoryEpisodeNumber);
           }
-          await apiFetch('/history', 'POST', watchBody);
+          if (_watchHistoryLocalId) {
+            await apiFetch(`${localWatchPath()}/watch`, 'POST', {
+              watched_at: watchedAt,
+              watch_source: watchSource || null,
+            });
+          } else {
+            await apiFetch('/history', 'POST', watchBody);
+          }
           await loadWatchHistoryEvents();
           (document.getElementById('watch-history-source') as HTMLSelectElement).value = '';
           // Reset to "Just now" after logging

@@ -1110,6 +1110,10 @@ export const api = {
     get: (type: string, tmdbId: number, token?: string) =>
       get<MediaItem>(`/media/${type}/${tmdbId}`, undefined, token),
 
+    // A movie that isn't on TMDB, from its stored details (see /movie/local/[id]).
+    getLocal: (mediaId: number, token?: string) =>
+      get<any>(`/media/local/${mediaId}`, undefined, token),
+
     getRecommendations: (type: string, tmdbId: number, token?: string) =>
       get<{ results: MediaItem[] }>(`/media/${type}/${tmdbId}/recommendations`, undefined, token),
 
