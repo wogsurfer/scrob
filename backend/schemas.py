@@ -271,6 +271,10 @@ class ManualSessionStart(BaseModel):
     show_tmdb_id: Optional[int] = None  # episode context
     season_number: Optional[int] = None
     episode_number: Optional[int] = None
+    watch_source: Optional[Literal[
+        "Cinema", "Blu-ray", "4K", "DVD", "Cable", "VHS", "TV",
+        "Netflix", "Amazon", "Disney+", "AppleTV", "PLEX", "YouTube", "Digital file",
+    ]] = None
 
 
 class ManualSessionUpdate(BaseModel):

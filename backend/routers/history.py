@@ -1956,9 +1956,13 @@ async def _get_or_create_media_for_session(
 
     if body.tmdb_id:
         result = await db.execute(
-            select(Media).where(Media.tmdb_id == body.tmdb_id, Media.media_type == body.media_type)
+            select(Media)
+            .where(Media.tmdb_id == body.tmdb_id, Media.media_type == body.media_type)
+            .order_by(Media.id)
         )
-        media = result.scalar_one_or_none()
+        # A film can have more than one row (e.g. a media-server stub and a
+        # Trakt row); use the oldest rather than failing.
+        media = result.scalars().first()
         if media:
             return media
 
@@ -2025,11 +2029,55 @@ async def start_manual_session(
         state="playing",
         progress_seconds=0,
         progress_percent=0.0,
+        watch_source=body.watch_source,
     )
     db.add(session)
     await db.commit()
 
     return {"session_key": session_key, "media_id": media.id, "runtime": media.runtime}
+
+
+@router.get("/session/active")
+async def list_manual_sessions(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """The user's running "Watch now" sessions, for the Now watching bar."""
+    result = await db.execute(
+        select(PlaybackSession, Media)
+        .options(selectinload(Media.show))
+        .join(Media, Media.id == PlaybackSession.media_id)
+        .where(
+            PlaybackSession.user_id == current_user.id,
+            PlaybackSession.source == "manual",
+        )
+        .order_by(PlaybackSession.started_at.desc())
+    )
+    sessions = []
+    for session, media in result.all():
+        show = media.show if media.media_type == MediaType.episode else None
+        sessions.append({
+            "session_key": session.session_key,
+            "state": session.state,
+            "progress_seconds": session.progress_seconds,
+            # Naive UTC timestamps, like the rest of the API
+            "started_at": session.started_at.isoformat(),
+            "updated_at": session.updated_at.isoformat(),
+            "watch_source": session.watch_source,
+            "runtime": media.runtime,
+            "media": {
+                "id": media.id,
+                "tmdb_id": media.tmdb_id,
+                "type": media.media_type,
+                "title": media.title,
+                "poster_path": (show.poster_path if show else None) or media.poster_path,
+                "show_title": show.title if show else None,
+                "show_tmdb_id": show.tmdb_id if show else None,
+                "season_number": media.season_number,
+                "episode_number": media.episode_number,
+            },
+        })
+    return sessions
 
 
 @router.patch("/session/{session_key}")
@@ -2145,6 +2193,7 @@ async def auto_complete_manual_sessions(db: AsyncSession) -> None:
             completed=True,
             play_count=1,
             progress_percent=1.0,
+            watch_source=session.watch_source,
         ))
         completed.append((session.user_id, session.media_id))
     if completed:
@@ -2171,6 +2220,7 @@ async def complete_manual_session(
         raise HTTPException(status_code=404, detail="Session not found")
 
     media_id = session.media_id
+    watch_source = session.watch_source
     await db.execute(delete(PlaybackSession).where(PlaybackSession.session_key == session_key))
     await db.execute(
         delete(PlaybackProgress).where(
@@ -2186,6 +2236,7 @@ async def complete_manual_session(
         completed=True,
         play_count=1,
         progress_percent=1.0,
+        watch_source=watch_source,
     ))
     await db.commit()
 

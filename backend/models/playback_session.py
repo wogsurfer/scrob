@@ -23,3 +23,5 @@ class PlaybackSession(Base):
     progress_seconds : Mapped[int]            = mapped_column(Integer, default=0, nullable=False)
     started_at       : Mapped[datetime]       = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at       : Mapped[datetime]       = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    # Manual ("Watch now") sessions: where it's being watched, copied to the watch event.
+    watch_source     : Mapped[Optional[str]]  = mapped_column(String(32), nullable=True)

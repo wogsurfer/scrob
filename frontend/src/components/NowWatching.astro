@@ -1,0 +1,218 @@
+---
+// "Now watching" bar for manual Watch now sessions (started from the Watch
+// History box). Shows on every page while a session runs: live progress and
+// end time, with Pause/Resume, Finish (records the watch now) and Cancel.
+// When the runtime has passed, the backend's session completer records the
+// watch, with the session's source, within a minute.
+---
+
+<div
+  id="now-watching"
+  class="hidden fixed z-40 right-4 bottom-24 md:bottom-6 w-[calc(100vw-2rem)] max-w-[380px] rounded-2xl border border-zinc-800 bg-zinc-900/95 backdrop-blur-md shadow-2xl overflow-hidden"
+  role="region"
+  aria-label="Now watching"
+>
+  <div class="flex gap-3 p-3">
+    <a id="nw-link" class="shrink-0 w-12 aspect-[2/3] rounded-lg overflow-hidden bg-zinc-800 block">
+      <img id="nw-poster" alt="" class="w-full h-full object-cover" />
+    </a>
+    <div class="min-w-0 flex-1">
+      <div class="flex items-center gap-2">
+        <span id="nw-state" class="text-[10px] font-black uppercase tracking-widest text-red-500">Now watching</span>
+        <span id="nw-source" class="text-[10px] font-bold uppercase tracking-wider text-zinc-500"></span>
+      </div>
+      <a id="nw-title-link" class="block text-sm font-bold text-zinc-100 truncate hover:text-red-400"><span id="nw-title"></span></a>
+      <div id="nw-times" class="text-xs text-zinc-400 mt-0.5"></div>
+    </div>
+  </div>
+
+  <div class="h-1 bg-zinc-800">
+    <div id="nw-progress" class="h-full bg-red-600 transition-[width] duration-1000" style="width:0%"></div>
+  </div>
+
+  <div class="grid grid-cols-3 text-xs font-bold">
+    <button type="button" id="nw-pause" class="py-2.5 text-zinc-300 hover:bg-zinc-800 transition-colors">Pause</button>
+    <button type="button" id="nw-finish" class="py-2.5 text-green-400 hover:bg-zinc-800 border-x border-zinc-800 transition-colors">Finish</button>
+    <button type="button" id="nw-cancel" class="py-2.5 text-zinc-500 hover:text-red-400 hover:bg-zinc-800 transition-colors">Cancel</button>
+  </div>
+</div>
+
+<script>
+  type Session = {
+    session_key: string;
+    state: "playing" | "paused";
+    progress_seconds: number;
+    started_at: string;
+    updated_at: string;
+    watch_source: string | null;
+    runtime: number | null;
+    media: {
+      tmdb_id: number | null;
+      id: number;
+      type: string;
+      title: string;
+      poster_path: string | null;
+      show_title: string | null;
+      show_tmdb_id: number | null;
+      season_number: number | null;
+      episode_number: number | null;
+    };
+  };
+
+  const el = document.getElementById("now-watching")!;
+  const token = () => (window as any).__AUTH_TOKEN__ ?? "";
+  let session: Session | null = null;
+  let tick: number | undefined;
+
+  async function call(path: string, method = "GET", body?: unknown) {
+    const res = await fetch(`/api/proxy${path}`, {
+      method,
+      headers: {
+        Authorization: `Bearer ${token()}`,
+        ...(body ? { "Content-Type": "application/json" } : {}),
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+  }
+
+  const utc = (iso: string) => new Date(/(Z|[+-]\d\d:?\d\d)$/.test(iso) ? iso : `${iso}Z`);
+  const hm = (d: Date) => d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+  const dur = (sec: number) => {
+    const m = Math.max(0, Math.round(sec / 60));
+    return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`;
+  };
+  const poster = (p: string | null) => {
+    if (!p) return "";
+    const m = /image\.tmdb\.org\/t\/p\/([^/]+)(\/.+)$/.exec(p);
+    if (m) return `/api/proxy/media/image/w185${m[2]}`;
+    return p.startsWith("http") ? p : `/api/proxy/media/image/w185${p.startsWith("/") ? p : `/${p}`}`;
+  };
+
+  // Seconds watched so far: the saved position, plus time since the last
+  // update while playing (the same sum the backend completer uses).
+  function elapsed(s: Session) {
+    const base = s.progress_seconds;
+    if (s.state !== "playing") return base;
+    return base + (Date.now() - utc(s.updated_at).getTime()) / 1000;
+  }
+
+  function href(s: Session) {
+    const m = s.media;
+    if (m.type === "episode" && m.show_tmdb_id && m.season_number != null && m.episode_number != null) {
+      return `/show/${m.show_tmdb_id}/season/${m.season_number}/${m.episode_number}`;
+    }
+    return m.tmdb_id ? `/media/movie/${m.tmdb_id}` : `/movie/local/${m.id}`;
+  }
+
+  function render() {
+    if (!session) {
+      el.classList.add("hidden");
+      return;
+    }
+    const s = session;
+    const runtime = (s.runtime ?? 0) * 60;
+    const done = elapsed(s);
+    const pct = runtime ? Math.min(100, (done / runtime) * 100) : 0;
+    const title = s.media.show_title
+      ? `${s.media.show_title} · ${String(s.media.season_number).padStart(2, "0")}x${String(s.media.episode_number).padStart(2, "0")}`
+      : s.media.title;
+
+    (document.getElementById("nw-title") as HTMLElement).textContent = title;
+    (document.getElementById("nw-title-link") as HTMLAnchorElement).href = href(s);
+    (document.getElementById("nw-link") as HTMLAnchorElement).href = href(s);
+    (document.getElementById("nw-poster") as HTMLImageElement).src = poster(s.media.poster_path);
+    (document.getElementById("nw-source") as HTMLElement).textContent = s.watch_source ?? "";
+    (document.getElementById("nw-progress") as HTMLElement).style.width = `${pct}%`;
+
+    const stateEl = document.getElementById("nw-state")!;
+    const timesEl = document.getElementById("nw-times")!;
+    const pauseBtn = document.getElementById("nw-pause")!;
+    const started = hm(utc(s.started_at));
+    if (!runtime) {
+      stateEl.textContent = s.state === "paused" ? "Paused" : "Now watching";
+      timesEl.textContent = `Started ${started} · runtime unknown, use Finish when done`;
+    } else if (done >= runtime) {
+      stateEl.textContent = "Finished";
+      timesEl.textContent = "Recording your watch…";
+    } else if (s.state === "paused") {
+      stateEl.textContent = "Paused";
+      timesEl.textContent = `Started ${started} · ${dur(runtime - done)} left`;
+    } else {
+      stateEl.textContent = "Now watching";
+      const ends = new Date(Date.now() + (runtime - done) * 1000);
+      timesEl.textContent = `Started ${started} · ends ${hm(ends)} · ${dur(runtime - done)} left`;
+    }
+    pauseBtn.textContent = s.state === "paused" ? "Resume" : "Pause";
+    el.classList.remove("hidden");
+  }
+
+  async function load() {
+    if (!token()) return;
+    try {
+      const sessions: Session[] = await call("/history/session/active");
+      session = sessions[0] ?? null;
+    } catch {
+      session = null;
+    }
+    render();
+    clearInterval(tick);
+    if (session) {
+      tick = window.setInterval(() => {
+        render();
+        // Once the runtime has passed, check back until the backend records it.
+        const s = session;
+        if (s && s.runtime && elapsed(s) >= s.runtime * 60) load();
+      }, 15000);
+    }
+  }
+
+  async function act(btn: HTMLElement, work: () => Promise<void>) {
+    btn.setAttribute("disabled", "");
+    try {
+      await work();
+    } catch (e) {
+      console.error(e);
+      alert("Something went wrong — please try again.");
+    } finally {
+      btn.removeAttribute("disabled");
+    }
+    await load();
+  }
+
+  document.getElementById("nw-pause")!.addEventListener("click", (e) => {
+    const s = session;
+    if (!s) return;
+    act(e.currentTarget as HTMLElement, async () => {
+      await call(`/history/session/${encodeURIComponent(s.session_key)}`, "PATCH", {
+        progress_seconds: Math.round(elapsed(s)),
+        state: s.state === "paused" ? "playing" : "paused",
+      });
+    });
+  });
+
+  document.getElementById("nw-finish")!.addEventListener("click", (e) => {
+    const s = session;
+    if (!s) return;
+    if (!confirm(`Finish now and record "${s.media.title}" as watched?`)) return;
+    act(e.currentTarget as HTMLElement, async () => {
+      await call(`/history/session/${encodeURIComponent(s.session_key)}/complete`, "POST");
+    });
+  });
+
+  document.getElementById("nw-cancel")!.addEventListener("click", (e) => {
+    const s = session;
+    if (!s) return;
+    if (!confirm("Cancel this session without recording a watch?")) return;
+    act(e.currentTarget as HTMLElement, async () => {
+      await call(`/history/session/${encodeURIComponent(s.session_key)}`, "DELETE");
+    });
+  });
+
+  window.addEventListener("watchd:session-changed", load);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") load();
+  });
+  load();
+</script>
