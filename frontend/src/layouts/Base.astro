@@ -8,7 +8,6 @@ const { title, hideNav } = Astro.props;
 const { user, token } = Astro.locals;
 
 const blurExplicit = Astro.cookies.get("blur_explicit")?.value !== "false";
-const use24h = Astro.cookies.get("time_format_24h")?.value === "true";
 
 const pathname = Astro.url.pathname;
 const activeMovies = pathname.startsWith('/movies') || pathname.startsWith('/collection/movies') || pathname.startsWith('/trending/movies') || pathname.startsWith('/media/movie');
@@ -474,10 +473,9 @@ const bottomNavItem = (active: boolean) =>
     });
   </script>
 
-  <script define:vars={{ __layoutAuthToken: token ?? '', __use24h: use24h }}>
+  <script define:vars={{ __layoutAuthToken: token ?? '' }}>
     // Expose the server-side token for the card action script (httpOnly cookie is not JS-readable)
     window.__AUTH_TOKEN__ = __layoutAuthToken;
-    window.__USE_24H__ = __use24h;
 
     // Load the admin badge after first paint so it doesn't hold up every page render.
     if (__layoutAuthToken && document.getElementById('pending-request-count')) {
@@ -1062,7 +1060,7 @@ const bottomNavItem = (active: boolean) =>
         } else {
           eventsEl.innerHTML = events.map(ev => {
             const fmt = ev.watched_at
-              ? new Date(ev.watched_at + 'Z').toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: false })
+              ? new Date(ev.watched_at + 'Z').toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
               : 'Unknown date';
             const sources = ['', 'Cinema', 'Blu-ray', '4K', 'DVD', 'Cable', 'VHS', 'TV', 'Netflix', 'Amazon', 'Disney+', 'AppleTV', 'PLEX', 'Digital file'];
             const sourceOptions = sources.map(source => {

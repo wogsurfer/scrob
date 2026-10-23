@@ -19,9 +19,11 @@ export const WATCH_DATE_FORMAT: Intl.DateTimeFormatOptions = {
   year: "numeric",
 };
 
+/** All times in the app are shown in 24-hour format (e.g. 23:31). */
 export const WATCH_TIME_FORMAT: Intl.DateTimeFormatOptions = {
-  hour: "numeric",
+  hour: "2-digit",
   minute: "2-digit",
+  hourCycle: "h23",
 };
 
 export function formatWatchDate(value: string): string {

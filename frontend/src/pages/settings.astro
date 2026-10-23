@@ -1239,22 +1239,6 @@ if (me.totp_enabled) {
               <div class="w-11 h-6 bg-zinc-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
             </label>
           </div>
-          <div class="flex items-start justify-between gap-6 p-4 bg-zinc-900/60 rounded-xl border border-zinc-800">
-            <div>
-              <p class="text-sm font-semibold text-zinc-100 mb-1">24-hour time format</p>
-              <p class="text-xs text-zinc-400">Display watch times in 24-hour format (e.g. 23:31) instead of 12-hour (e.g. 11:31 PM).</p>
-            </div>
-            <label class="relative inline-flex items-center shrink-0 cursor-pointer mt-0.5">
-              <input
-                type="checkbox"
-                name="time_format_24h"
-                id="time-format-24h-toggle"
-                class="sr-only peer"
-                checked={settings.time_format_24h !== false}
-              />
-              <div class="w-11 h-6 bg-zinc-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
-            </label>
-          </div>
           <div>
             <p class="text-sm text-zinc-400">Accent color</p>
             <div class="flex flex-wrap gap-3 mt-3" id="accent-swatches">
@@ -3946,7 +3930,6 @@ if (me.totp_enabled) {
           'mdblist_sync_watched', 'mdblist_sync_ratings', 'mdblist_sync_watchlist',
           'mdblist_push_watched', 'mdblist_push_ratings', 'mdblist_push_watchlist', 'mdblist_push_collection', 'mdblist_scrobble',
           'blur_explicit',
-          'time_format_24h',
           'use_hls_player',
         ] as const;
         const syncPrefs: Record<string, boolean> = {};
@@ -3961,11 +3944,6 @@ if (me.totp_enabled) {
           const val = blurEl.checked ? 'true' : 'false';
           document.cookie = `blur_explicit=${val}; path=/; SameSite=Lax; Max-Age=31536000`;
           document.documentElement.classList.toggle('blur-explicit', blurEl.checked);
-        }
-
-        const timeFormatEl = form.querySelector<HTMLInputElement>('[name="time_format_24h"]');
-        if (timeFormatEl) {
-          document.cookie = `time_format_24h=${timeFormatEl.checked ? 'true' : 'false'}; path=/; SameSite=Lax; Max-Age=31536000`;
         }
 
         saves.push(fetch(`/api/proxy/auth/settings`, {
@@ -4229,22 +4207,6 @@ if (me.totp_enabled) {
     });
   }
 
-  // Sync time_format_24h cookie from the server-rendered value on page load.
-  const timeFormatToggle = document.getElementById('time-format-24h-toggle') as HTMLInputElement | null;
-  if (timeFormatToggle) {
-    document.cookie = `time_format_24h=${timeFormatToggle.checked ? 'true' : 'false'}; path=/; SameSite=Lax; Max-Age=31536000`;
-
-    timeFormatToggle.addEventListener('change', async () => {
-      document.cookie = `time_format_24h=${timeFormatToggle.checked ? 'true' : 'false'}; path=/; SameSite=Lax; Max-Age=31536000`;
-      const tok = (document.getElementById('app-data') as HTMLElement | null)?.dataset.token ?? '';
-      await fetch('/api/proxy/auth/settings', {
-        method: 'PATCH',
-        headers: { 'Authorization': `Bearer ${tok}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ time_format_24h: timeFormatToggle.checked }),
-      });
-    });
-  }
-
   // Sync use_hls_player cookie from the server-rendered value on page load.
   const hlsPlayerToggle = document.getElementById('use-hls-player-toggle') as HTMLInputElement | null;
   if (hlsPlayerToggle) {
@@ -4370,7 +4332,7 @@ if (me.totp_enabled) {
 
         const warnings: any[] = job.warnings;
         const _updatedAt = job.updated_at.endsWith('Z') || job.updated_at.includes('+') ? job.updated_at : job.updated_at + 'Z';
-        const date = new Date(_updatedAt).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' });
+        const date = new Date(_updatedAt).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short', hourCycle: 'h23' });
         const detailsId = `conn-warnings-details-${connId}`;
 
         const enrichmentWarnings = warnings.filter((w: any) => w.tmdb_id !== undefined && w.season !== undefined);
