@@ -18,6 +18,7 @@ const extra = movie as WatchlistMovie & {
     in_lists?: string[];
     in_library?: boolean;
     collection_pct?: number;
+    user_rating?: number | null;
 };
 
 const poster = tmdbImageUrl(movie.poster_path, "w500");
@@ -31,6 +32,13 @@ const collectionPct = extra.collection_pct ?? (inLibrary ? 100 : 0);
 const imdb =
     extra.imdb_rating != null
         ? Number(extra.imdb_rating).toFixed(1)
+        : null;
+
+const userRating =
+    extra.user_rating != null
+        ? extra.user_rating % 1 === 0
+            ? String(extra.user_rating)
+            : extra.user_rating.toFixed(1)
         : null;
 ---
 
@@ -51,6 +59,9 @@ const imdb =
                 <div class="wd-poster-empty">
                     <span>{movie.title}</span>
                 </div>
+            )}
+            {userRating && (
+                <span class="wd-my-rating" title={`Your rating: ${userRating}`}>★ {userRating}</span>
             )}
         </a>
 
@@ -151,7 +162,23 @@ const imdb =
 }
 
 .wd-poster-link{
+    position:relative;
     display:block;
+}
+
+.wd-my-rating{
+    position:absolute;
+    top:8px;
+    right:8px;
+    padding:3px 8px;
+    border-radius:8px;
+    background:rgba(0,0,0,.8);
+    border:1px solid rgba(239,68,68,.5);
+    color:#ef4444;
+    font-size:13px;
+    font-weight:800;
+    line-height:1.2;
+    backdrop-filter:blur(6px);
 }
 
 .wd-poster{
