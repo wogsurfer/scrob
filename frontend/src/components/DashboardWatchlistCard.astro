@@ -2,8 +2,8 @@
 import type { WatchlistMovie } from "../lib/api";
 import { tmdbImageUrl } from "../lib/api";
 
-import watchdRed from "../assets/watchd-icon-red.png";
-import watchdWhite from "../assets/watchd-icon-white.png";
+import wRed from "../assets/watchd-w-red.png";
+import wWhite from "../assets/watchd-w-white.png";
 
 interface Props {
     movie: WatchlistMovie;
@@ -11,143 +11,274 @@ interface Props {
 
 const { movie } = Astro.props;
 
-const poster = tmdbImageUrl(movie.poster_path, "w500");
+// State added by /dashboard/watchlist for the action strip (not in the WatchlistMovie type yet)
+const extra = movie as WatchlistMovie & {
+    imdb_rating?: number | null;
+    watched?: boolean;
+    in_lists?: string[];
+    in_library?: boolean;
+    collection_pct?: number;
+};
 
-// We'll wire this to the real watch state later.
-const watched = false;
+const poster = tmdbImageUrl(movie.poster_path, "w500");
+const href = `/media/movie/${movie.tmdb_id}`;
+
+const watched = extra.watched ?? false;
+const inLists = extra.in_lists ?? [];
+const inLibrary = extra.in_library ?? false;
+const collectionPct = extra.collection_pct ?? (inLibrary ? 100 : 0);
+
+const imdb =
+    extra.imdb_rating != null
+        ? Number(extra.imdb_rating).toFixed(1)
+        : null;
 ---
 
-<div class="watchd-card">
+<div
+    class="wd-watchlist"
+    data-card
+    data-id={movie.id}
+    data-tmdb-id={movie.tmdb_id}
+    data-media-type="movie"
+>
 
-    <a href={`/media/movie/${movie.tmdb_id}`} class="poster-link">
+    <div class="wd-panel">
 
-        <img
-            src={poster}
-            alt={movie.title}
-            class="poster"
-        />
+        <a href={href} class="wd-poster-link">
+            {poster ? (
+                <img src={poster} alt={movie.title} class="wd-poster" loading="lazy" />
+            ) : (
+                <div class="wd-poster-empty">
+                    <span>{movie.title}</span>
+                </div>
+            )}
+        </a>
 
-        <button class="watch-button">
-            <img
-                src={watched ? watchdRed.src : watchdWhite.src}
-                alt="Watch"
-                class="watch-logo"
-            />
-        </button>
+        <div class="wd-strip">
 
-    </a>
+            <div class="wd-actions">
 
-    <div class="content">
-        <h3>{movie.title}</h3>
+                <button
+                    type="button"
+                    class="wd-btn"
+                    data-action="watched"
+                    data-watched={String(watched)}
+                    data-state={watched ? "active" : "inactive"}
+                    title={watched ? "Mark as unwatched" : "Mark as watched"}
+                    aria-label={watched ? "Mark as unwatched" : "Mark as watched"}
+                >
+                    <img
+                        src={watched ? wRed.src : wWhite.src}
+                        data-watchd-red={wRed.src}
+                        data-watchd-white={wWhite.src}
+                        alt=""
+                        width="25"
+                        height="22"
+                        class="wd-w"
+                    />
+                </button>
+
+                <button
+                    type="button"
+                    class="wd-btn"
+                    data-action="list"
+                    data-in-lists={JSON.stringify(inLists)}
+                    data-state={inLists.length > 0 ? "active" : "inactive"}
+                    title="Add to list"
+                    aria-label="Add to list"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <line x1="8" y1="6" x2="21" y2="6"/>
+                        <line x1="8" y1="12" x2="21" y2="12"/>
+                        <line x1="8" y1="18" x2="21" y2="18"/>
+                        <line x1="3" y1="6" x2="3.01" y2="6"/>
+                        <line x1="3" y1="12" x2="3.01" y2="12"/>
+                        <line x1="3" y1="18" x2="3.01" y2="18"/>
+                    </svg>
+                </button>
+
+                <button
+                    type="button"
+                    class="wd-btn"
+                    data-action="collected"
+                    data-in-library={String(inLibrary)}
+                    data-collection-pct={String(collectionPct)}
+                    data-state={inLibrary ? "active" : "inactive"}
+                    title={inLibrary ? "Remove from collection" : "Add to collection"}
+                    aria-label={inLibrary ? "Remove from collection" : "Add to collection"}
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7"/>
+                        <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/>
+                        <path d="M15 22v-4a3 3 0 0 0-6 0v4"/>
+                        <path d="M2 7h20"/>
+                    </svg>
+                </button>
+
+            </div>
+
+            <div class="wd-rating" title={imdb ? `IMDb ${imdb}` : "No IMDb rating"}>
+                <span class="wd-imdb">IMDb</span>
+                <span class:list={["wd-score", { "wd-score--none": !imdb }]}>{imdb ?? "—"}</span>
+            </div>
+
+        </div>
+
     </div>
+
+    <a href={href} class="wd-meta">
+        <div class="wd-title">{movie.title}</div>
+        {movie.year && <div class="wd-year">{movie.year}</div>}
+    </a>
 
 </div>
 
 <style>
 
-.watchd-card{
-
+.wd-watchlist{
     width:100%;
+    display:flex;
+    flex-direction:column;
+    gap:12px;
+}
 
-    background:#0b0b0b;
-
+.wd-panel{
+    background:#18181b;
     border:1px solid #27272a;
-
-    border-radius:16px;
-
+    border-radius:16px 16px 0 0;
     overflow:hidden;
-
-    transition:.25s;
-
 }
 
-.poster{
-
-    width:100%;
-
-    aspect-ratio:2/3;
-
-    object-fit:cover;
-
-}
-
-.content{
-
-    padding:16px;
-
-}
-
-.content h3{
-
-    color:#ffffff;
-
-    font-size:15px;
-    font-weight:600;
-
-    white-space:nowrap;
-    overflow:hidden;
-    text-overflow:ellipsis;
-
-    margin:0;
-
-    text-align:center;
-
-}
-
-.poster-link{
-
-    position:relative;
-
+.wd-poster-link{
     display:block;
-
 }
 
-.watch-button{
+.wd-poster{
+    display:block;
+    width:100%;
+    aspect-ratio:2/3;
+    object-fit:cover;
+}
 
-    position:absolute;
-
-    left:50%;
-    bottom:-21px;
-
-    transform:translateX(-50%);
-
-    width:42px;
-    height:42px;
-
-    border-radius:50%;
-    overflow:hidden;
-
-    background:#0b0b0b;
-
-    border:2px solid #3a3a3a;
-
-    box-shadow:0 4px 12px rgba(0,0,0,.55);
-
+.wd-poster-empty{
+    aspect-ratio:2/3;
     display:flex;
     align-items:center;
     justify-content:center;
+    padding:0 20px;
+    text-align:center;
+    background:#18181b;
+    color:#52525b;
+    font-size:11px;
+    font-weight:800;
+    letter-spacing:.2em;
+    text-transform:uppercase;
+}
 
+.wd-strip{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    height:48px;
+    padding:0 10px 0 4px;
+    box-sizing:border-box;
+    border-top:1px solid #27272a;
+}
+
+.wd-actions{
+    display:flex;
+    align-items:center;
+}
+
+/* Narrower than the Up Next buttons so the strip fits the 210px card.
+   The shared click handlers in Base.astro add background/colour classes to
+   these buttons, so they are neutralised here and driven from data-state. */
+.wd-btn{
+    width:36px;
+    height:38px;
+    padding:0;
+    border:0;
+    border-radius:10px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
     cursor:pointer;
-
-    z-index:20;
-
+    background:transparent !important;
+    color:#71717a !important;
+    transition:filter .15s ease;
 }
 
-.watch-button:hover{
-
-    transform:translateX(-50%) scale(1.08);
-
+.wd-btn:hover{
+    filter:brightness(1.3);
 }
 
-.watch-logo{
+.wd-btn:focus-visible{
+    outline:2px solid #ef4444;
+    outline-offset:1px;
+}
 
-    width:30px;
-    height:30px;
+.wd-btn[data-action="list"][data-state="active"]{
+    color:#38bdf8 !important;
+}
 
-    object-fit:cover;
+.wd-btn[data-action="collected"][data-state="active"]{
+    color:#c084fc !important;
+}
 
-    border-radius:50%;
+.wd-w{
+    display:block;
+    width:25px;
+    height:22px;
+    object-fit:contain;
+}
 
+.wd-rating{
+    display:flex;
+    align-items:center;
+    gap:5px;
+}
+
+.wd-imdb{
+    background:#f5c518;
+    color:#000;
+    font-size:10px;
+    font-weight:900;
+    line-height:1.3;
+    padding:1px 4px;
+    border-radius:3px;
+}
+
+.wd-score{
+    font-size:15px;
+    font-weight:800;
+    color:#f5c518;
+}
+
+.wd-score--none{
+    color:#a1a1aa;
+}
+
+.wd-meta{
+    display:block;
+    padding:0 2px;
+    text-decoration:none;
+}
+
+.wd-title{
+    color:#ffffff;
+    font-size:16px;
+    font-weight:600;
+    line-height:1.25;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+}
+
+.wd-year{
+    margin-top:3px;
+    color:#a1a1aa;
+    font-size:14px;
+    line-height:1.3;
 }
 
 </style>
