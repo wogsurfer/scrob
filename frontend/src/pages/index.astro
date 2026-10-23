@@ -1,7 +1,7 @@
 ---
 import Base from "../layouts/Base.astro";
 import MediaRow from "../components/MediaRow.astro";
-import DashboardWatchlistCard from "../components/DashboardWatchlistCard.astro";
+import PosterCard from "../components/PosterCard.astro";
 import UpNextCard from "../components/UpNextCard.astro";
 import EpisodeCard from "../components/EpisodeCard.astro";
 import ContinueWatchingCard from "../components/ContinueWatchingCard.astro";
@@ -238,7 +238,7 @@ if (token) {
         <div class="flex gap-10 overflow-x-auto pb-3 scrollbar-none -mx-6 px-6 md:mx-0 md:px-0">
             {watchlist.map((movie) => (
                 <div class="flex-shrink-0 w-[210px]">
-                    <DashboardWatchlistCard movie={movie} />
+                    <PosterCard item={movie} />
                 </div>
             ))}
         </div>

@@ -1,7 +1,7 @@
 ---
 import Base from "../layouts/Base.astro";
 import { api } from "../lib/api";
-import DashboardWatchlistCard from "../components/DashboardWatchlistCard.astro";
+import PosterCard from "../components/PosterCard.astro";
 import SectionHeading from "../components/SectionHeading.astro";
 
 export const prerender = false;
@@ -18,7 +18,7 @@ const movies = await api.watchlist.getAll(token!);
 <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-x-6 gap-y-8">
 
     {movies.map((movie) => (
-        <DashboardWatchlistCard movie={movie} />
+        <PosterCard item={movie} />
     ))}
 
 </div>
