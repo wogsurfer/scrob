@@ -2,6 +2,7 @@
 import Base from "../layouts/Base.astro";
 import { api } from "../lib/api";
 import MoviePosterCard from "../components/MoviePosterCard.astro";
+import SectionHeading from "../components/SectionHeading.astro";
 
 export const prerender = false;
 
@@ -11,10 +12,6 @@ const movies = await api.watchlist.getAll(token!);
 ---
 
 <Base title="Watchlist">
-
----
-import SectionHeading from "../components/SectionHeading.astro";
----
 
 <SectionHeading title="Watchlist" />
 

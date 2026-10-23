@@ -1,7 +1,7 @@
 ---
 import Base from "../layouts/Base.astro";
 
-Astro.response.headers.set("Cache-Control", "no-store");
+Astro.response.headers.set("Cache-Control", "private, no-cache");
 
 const currentVersion = process.env.APP_VERSION ?? 'dev';
 

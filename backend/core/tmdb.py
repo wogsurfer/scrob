@@ -15,7 +15,8 @@ _RETRYABLE = (httpx.ConnectError, httpx.TimeoutException, httpx.RemoteProtocolEr
 _client: httpx.AsyncClient | None = None
 _response_cache: OrderedDict[str, tuple[float, dict]] = OrderedDict()
 _CACHE_TTL_SECONDS = 300
-_CACHE_MAX_ENTRIES = 128
+# A single page can make dozens of TMDB calls; 128 entries evicted them before the next page.
+_CACHE_MAX_ENTRIES = 1000
 
 
 async def start_http_client() -> None:
@@ -397,27 +398,40 @@ async def get_movie_watch_providers(movie_id: int, api_key: str = None) -> dict:
 async def get_show_watch_providers(show_id: int, api_key: str = None) -> dict:
     return await _get(f"{TMDB_BASE}/tv/{show_id}/watch/providers", headers=get_headers(api_key))
 
+# IMDb ratings barely move, and the ratings service slows right down under
+# 20-40 concurrent requests, so cache them for a day and limit concurrency.
+_IMDB_RATING_TTL = 24 * 3600
+_imdb_rating_cache: dict[str, tuple[float, float | None]] = {}
+_imdb_rating_limit = asyncio.Semaphore(5)
+
+
 async def get_imdb_rating(imdb_id: str) -> float | None:
     if not imdb_id:
         return None
 
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        response = await client.get(
-            "https://api.agregarr.org/api/ratings",
-            params={"id": imdb_id},
-        )
+    hit = _imdb_rating_cache.get(imdb_id)
+    if hit and time.monotonic() - hit[0] < _IMDB_RATING_TTL:
+        return hit[1]
+
+    async with _imdb_rating_limit:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                "https://api.agregarr.org/api/ratings",
+                params={"id": imdb_id},
+            )
 
     if not response.is_success:
         print("IMDb ratings HTTP error:", response.status_code, response.text)
         return None
 
     data = response.json()
-    if not isinstance(data, list) or not data:
-        return None
+    rating = None
+    if isinstance(data, list) and data:
+        try:
+            raw = data[0].get("rating")
+            rating = float(raw) if raw is not None else None
+        except (TypeError, ValueError):
+            rating = None
 
-    rating = data[0].get("rating")
-
-    try:
-        return float(rating) if rating is not None else None
-    except (TypeError, ValueError):
-        return None
+    _imdb_rating_cache[imdb_id] = (time.monotonic(), rating)
+    return rating

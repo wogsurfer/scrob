@@ -20,7 +20,7 @@ import {
 
 const { token } = Astro.locals;
 
-Astro.response.headers.set("Cache-Control", "no-store");
+Astro.response.headers.set("Cache-Control", "private, no-cache");
 
 const apiUrl =
   import.meta.env.PUBLIC_API_URL ??

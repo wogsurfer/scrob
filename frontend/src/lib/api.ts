@@ -1283,6 +1283,11 @@ export const api = {
       get("/dashboard/last30", undefined, token),
   },
 
+  watchlist: {
+    getAll: (token: string) =>
+      get<WatchlistMovie[]>("/watchlist", undefined, token),
+  },
+
   calendar: {
     upcoming: (
       token?: string,

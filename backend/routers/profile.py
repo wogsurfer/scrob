@@ -1,4 +1,6 @@
 import asyncio
+import functools
+import time
 from collections import defaultdict
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, File
@@ -1424,8 +1426,21 @@ _SO_CREW_CATEGORIES = {
 }
 
 
+@functools.lru_cache(maxsize=4096)
+def _so_job_cats(job):
+    return tuple(cat for cat, matches in _SO_CREW_CATEGORIES.items() if matches(job))
+
+
 def _so_crew_cats(jobs):
-    return [cat for cat, matches in _SO_CREW_CATEGORIES.items() if any(matches(j) for j in jobs if j)]
+    # Called for every crew credit (hundreds of thousands per All Time page), so
+    # each distinct job string is categorised once.
+    cats = []
+    for job in jobs:
+        if job:
+            for cat in _so_job_cats(job):
+                if cat not in cats:
+                    cats.append(cat)
+    return cats
 
 
 _CREDITS_TABLE_READY = False
@@ -1477,7 +1492,43 @@ async def _so_episode_credit_rows(db, episodes_by_show, show_tmdb):
     return cached, watched, len(needed - set(cached))
 
 
+# Cast & crew is the slowest part of the stats page (~10 s for All Time), so the
+# result is kept, keyed on everything it depends on: the watched titles, episodes
+# per show and the state of the episode credits cache. Any new watch or credits
+# fetch changes the key; the TTL only bounds staleness from metadata refreshes.
+_PEOPLE_CACHE_TTL = 6 * 3600
+_PEOPLE_CACHE: dict[int, tuple[float, dict]] = {}
+
+
 async def _so_build_people(db, movie_info, show_info, episodes_by_show):
+    credits_state = None
+    try:
+        from models.episode_credits import EpisodeCredits
+        async with db.begin_nested():
+            credits_state = (await db.execute(
+                select(func.count(), func.max(EpisodeCredits.fetched_at))
+            )).one()
+            credits_state = tuple(credits_state)
+    except Exception:
+        pass
+    key = hash((
+        tuple(sorted(movie_info.items())),
+        tuple(sorted(show_info.items())),
+        tuple(sorted((sid, tuple(sorted(ids))) for sid, ids in episodes_by_show.items())),
+        credits_state,
+    ))
+    now = time.monotonic()
+    for stale in [k for k, (at, _) in _PEOPLE_CACHE.items() if now - at > _PEOPLE_CACHE_TTL]:
+        _PEOPLE_CACHE.pop(stale, None)
+    hit = _PEOPLE_CACHE.get(key)
+    if hit:
+        return hit[1]
+    people = await _so_build_people_uncached(db, movie_info, show_info, episodes_by_show)
+    _PEOPLE_CACHE[key] = (now, people)
+    return people
+
+
+async def _so_build_people_uncached(db, movie_info, show_info, episodes_by_show):
     """Most-watched cast & crew, counting title-level credits plus guest roles and
     one-off crew credits on the individual episodes that were watched.
 

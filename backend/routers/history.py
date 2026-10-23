@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from datetime import datetime, UTC, date, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -701,6 +702,12 @@ async def _show_watch_pct(
 
     return result
 
+# TVDB episode air dates per (show id, season), shared across Next Up requests so
+# every page load doesn't repeat the same TVDB/TMDB lookups.
+_TVDB_DATES_TTL = 6 * 3600
+_TVDB_DATES: dict[tuple[int, int], dict[int, str | None]] = {}
+_TVDB_DATES_AT: dict[tuple[int, int], float] = {}
+
 @router.get("/next-up")
 async def get_next_up(
     db: AsyncSession = Depends(get_db),
@@ -771,8 +778,12 @@ async def get_next_up(
     # Never show episodes with missing, invalid, placeholder, or future air dates.
     next_per_show: dict[int, Media] = {}
 
-    # TVDB episode air dates, cached once per show for this request.
-    tvdb_dates: dict[tuple[int, int], dict[int, str | None]] = {}
+    # TVDB episode air dates, cached per show/season for a few hours.
+    now_mono = time.monotonic()
+    for expired in [k for k, at in _TVDB_DATES_AT.items() if now_mono - at > _TVDB_DATES_TTL]:
+        _TVDB_DATES.pop(expired, None)
+        _TVDB_DATES_AT.pop(expired, None)
+    tvdb_dates = _TVDB_DATES
 
     tvmaze_dates: dict[int, dict[tuple[int, int], datetime | None]] = {}
 
@@ -870,6 +881,7 @@ async def get_next_up(
         key = (show.id, season)
         if key not in tvdb_dates:
             tvdb_dates[key] = {}
+            _TVDB_DATES_AT[key] = time.monotonic()
 
             tvdb_series_id = show.tvdb_id
 
@@ -907,6 +919,8 @@ async def get_next_up(
                     }
                 except Exception:
                     tvdb_dates[key] = {}
+                    # Retry a failed lookup after ~10 minutes rather than the full TTL.
+                    _TVDB_DATES_AT[key] = time.monotonic() - _TVDB_DATES_TTL + 600
 
         return tvdb_dates.get(key, {}).get(episode)
 

@@ -5,7 +5,7 @@ import Pagination from "../components/Pagination.astro";
 import { api, tmdbImageUrl, type WatchEvent } from "../lib/api";
 
 const { token } = Astro.locals;
-Astro.response.headers.set("Cache-Control", "no-store");
+Astro.response.headers.set("Cache-Control", "private, no-cache");
 const page = Number(Astro.url.searchParams.get("page") || 1);
 const type = Astro.url.searchParams.get("type") || undefined;
 const use24h = Astro.cookies.get("time_format_24h")?.value === "true";

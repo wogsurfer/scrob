@@ -31,7 +31,7 @@ if (!list && !error) {
   return Astro.redirect("/lists");
 }
 
-Astro.response.headers.set("Cache-Control", "no-store");
+Astro.response.headers.set("Cache-Control", "private, no-cache");
 
 const origin = Astro.url.origin;
 const hasMovies = list ? list.items.some(i => i.media.type === "movie") : false;

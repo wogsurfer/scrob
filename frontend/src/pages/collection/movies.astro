@@ -13,7 +13,7 @@ const years = Astro.url.searchParams.getAll("year").map(Number).filter((n) => !N
 const watched = Astro.url.searchParams.getAll("watched");
 const page = Number(Astro.url.searchParams.get("page") ?? 1);
 const { token } = Astro.locals;
-Astro.response.headers.set("Cache-Control", "no-store");
+Astro.response.headers.set("Cache-Control", "private, no-cache");
 
 const data = await api.media.list({
   type: "movie",

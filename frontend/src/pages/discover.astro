@@ -4,7 +4,7 @@ import { api, tmdbImageUrl } from "../lib/api";
 export const prerender = false;
 
 const { token } = Astro.locals;
-Astro.response.headers.set("Cache-Control", "no-store");
+Astro.response.headers.set("Cache-Control", "private, no-cache");
 const [settings, profileData] = await Promise.all([
   api.auth.getSettings(token!),
   api.profile.get(token!).catch(() => null),
