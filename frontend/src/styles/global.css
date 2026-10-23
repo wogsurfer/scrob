@@ -342,3 +342,22 @@ video::-webkit-media-text-track-display-backdrop,
 video::-webkit-media-text-track-container {
   font-size: clamp(1.1rem, 2vw, 2.2rem) !important;
 }
+
+/* Detail pages: Trakt-style action buttons (components/ActionStack.astro) in a
+   right-hand column beside the title, info and overview on wide screens.
+   The host is the page's info column; the slot wraps the ActionStack. Every
+   other child stays in the left column, in its normal order. */
+@media (min-width: 1024px) {
+  .action-stack-host {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 13rem;
+    column-gap: 2.5rem;
+    align-items: start;
+  }
+  .action-stack-host > * { grid-column: 1; }
+  .action-stack-host > .action-stack-slot {
+    grid-column: 2;
+    grid-row: 1 / span 30;
+    align-self: start;
+  }
+}

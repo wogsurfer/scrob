@@ -1,4 +1,6 @@
 ---
+import ActionBar from "../../../../../components/ActionBar.astro";
+import ActionStack from "../../../../../components/ActionStack.astro";
 import { api, type TvdbSeasonDetail } from "../../../../../lib/api";
 
 export const prerender = false;
@@ -84,7 +86,7 @@ return Astro.redirect(
             </div>
           </div>
 
-          <div class="flex-1 pt-4 text-center md:text-left">
+          <div class="flex-1 min-w-0 pt-4 action-stack-host text-center md:text-left">
             <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-2">
               <h1 class="text-4xl md:text-5xl font-black text-zinc-100 tracking-tight">{seasonTitle}</h1>
 
@@ -142,8 +144,9 @@ return Astro.redirect(
               )}
             </div>
 
-            <div class="mb-6">
-              <ActionBar
+            <div class="action-stack-slot">
+              <ActionStack
+                hideRate
                 tmdbId={season.show.tmdb_id ?? Number(id)}
                 mediaType="series"
                 watched={season.season_watched}

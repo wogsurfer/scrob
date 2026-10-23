@@ -1,4 +1,6 @@
 ---
+import ActionBar from "../../../../../../components/ActionBar.astro";
+import ActionStack from "../../../../../../components/ActionStack.astro";
 import { api, type TvdbEpisodeDetail } from "../../../../../../lib/api";
 
 export const prerender = false;
@@ -95,29 +97,11 @@ return Astro.redirect(
               )}
             </div>
             
-            <div class="mt-4 w-full">
-              <ActionBar
-                tmdbId={episode.tmdb_id ?? episode.tvdb_id ?? Number(id)}
-                mediaType="episode"
-                watched={episode.watched}
-                inLists={episode.in_lists}
-                inLibrary={episode.in_library}
-                collectionPct={episode.in_library ? 100 : 0}
-                showTmdbId={episode.show_tmdb_id ?? episode.show.tmdb_id ?? undefined}
-                seasonNumber={episode.tmdb_season_number}
-                episodeNumber={episode.tmdb_episode_number}
-                displaySeasonNumber={Number(season_number)}
-                episodeOrder="tvdb"
-                tvdbId={Number(id)}
-                mediaId={episode.id}
-                hideRequest={true}
-                userRating={episode.user_rating}
-              />
-            </div>
+            
         </div>
 
           <!-- Info -->
-          <div class="flex-1 min-w-0 pt-2">
+          <div class="flex-1 min-w-0 action-stack-host pt-2">
             <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-4 mb-2">
               <div class="min-w-0">
                 <h1 class="text-3xl md:text-5xl font-black text-zinc-100 mb-2 tracking-tight leading-tight">
@@ -131,8 +115,10 @@ return Astro.redirect(
                 </div>
               </div>
 
+            </div>
+            <div class="action-stack-slot">
               {episode.episodes && episode.episodes.length > 1 && (
-                <div class="flex items-center gap-2 shrink-0">
+                <div class="flex items-center justify-between gap-2 mb-3">
                   {(() => {
                     const currentEp = Number(episode_number);
                     const sorted = [...episode.episodes].sort((a, b) => a.episode_number - b.episode_number);
@@ -165,6 +151,24 @@ return Astro.redirect(
                   })()}
                 </div>
               )}
+              <ActionStack
+              hideRate
+              tmdbId={episode.tmdb_id ?? episode.tvdb_id ?? Number(id)}
+              mediaType="episode"
+              watched={episode.watched}
+              inLists={episode.in_lists}
+              inLibrary={episode.in_library}
+              collectionPct={episode.in_library ? 100 : 0}
+              showTmdbId={episode.show_tmdb_id ?? episode.show.tmdb_id ?? undefined}
+              seasonNumber={episode.tmdb_season_number}
+              episodeNumber={episode.tmdb_episode_number}
+              displaySeasonNumber={Number(season_number)}
+              episodeOrder="tvdb"
+              tvdbId={Number(id)}
+              mediaId={episode.id}
+              hideRequest={true}
+              userRating={episode.user_rating}
+              />
             </div>
 
             <div class="flex flex-wrap items-center gap-4 text-zinc-300 text-sm mb-8 bg-zinc-900/40 p-3 rounded-xl border border-zinc-800/50 backdrop-blur-sm inline-flex">

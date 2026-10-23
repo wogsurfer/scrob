@@ -1,6 +1,7 @@
 ---
 import Base from "../../../../layouts/Base.astro";
 import ActionBar from "../../../../components/ActionBar.astro";
+import ActionStack from "../../../../components/ActionStack.astro";
 import { api, type Season } from "../../../../lib/api";
 export const prerender = false;
 
@@ -75,7 +76,7 @@ const show = season?.show;
             </div>
           </div>
 
-          <div class="flex-1 pt-4 text-center md:text-left">
+          <div class="flex-1 min-w-0 pt-4 action-stack-host text-center md:text-left">
             <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-2">
               <h1 class="text-4xl md:text-5xl font-black text-zinc-100 tracking-tight">{season.name}</h1>
               
@@ -152,8 +153,9 @@ const show = season?.show;
               )}
             </div>
 
-            <div class="mb-6">
-              <ActionBar
+            <div class="action-stack-slot">
+              <ActionStack
+                hideRate
                 tmdbId={Number(id)}
                 mediaType="series"
                 watched={season.season_watched ?? false}

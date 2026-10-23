@@ -1,7 +1,7 @@
 ---
 import Base from "../../../layouts/Base.astro";
 import MediaRow from "../../../components/MediaRow.astro";
-import ActionBar from "../../../components/ActionBar.astro";
+import ActionStack from "../../../components/ActionStack.astro";
 import VideoPlayer from "../../../components/VideoPlayer.astro";
 import CrewSection from "../../../components/CrewSection.astro";
 import { api, type MediaItem } from "../../../lib/api";
@@ -153,7 +153,7 @@ const refreshUrl = isEpisode
           </div>
 
       <!-- Info -->
-      <div class="flex-1 min-w-0 pt-4">
+      <div class="flex-1 min-w-0 pt-4 action-stack-host">
 
         <h1 class="text-4xl md:text-6xl font-black text-zinc-100 mb-3 tracking-tight leading-none">{item.title}</h1>
 
@@ -315,8 +315,8 @@ const refreshUrl = isEpisode
               </div>
             )}
 
-            <div class="mb-2">
-              <ActionBar
+            <div class="action-stack-slot">
+              <ActionStack
                 tmdbId={item.tmdb_id}
                 mediaType={item.type}
                 watched={item.watched ?? false}

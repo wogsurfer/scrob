@@ -1,6 +1,7 @@
 ---
 import Base from "../../../../../layouts/Base.astro";
 import ActionBar from "../../../../../components/ActionBar.astro";
+import ActionStack from "../../../../../components/ActionStack.astro";
 import VideoPlayer from "../../../../../components/VideoPlayer.astro";
 import CrewSection from "../../../../../components/CrewSection.astro";
 import { utcIso, formatWatchDate, formatWatchTime } from "../../../../../lib/time";
@@ -89,21 +90,7 @@ const thumbnail = episode?.still_path || show?.poster_path || null;
                 </div>
               )}
             </div>
-            <div class="mt-2">
-              <ActionBar
-                tmdbId={episode.tmdb_id}
-                mediaType="episode"
-                watched={episode.watched ?? false}
-                inLists={episode.in_lists ?? []}
-                inLibrary={episode.in_library ?? false}
-                collectionPct={episode.collection_pct ?? (episode.in_library ? 100 : 0)}
-                showTmdbId={Number(id)}
-                seasonNumber={Number(season_number)}
-                episodeNumber={Number(episode_number)}
-                mediaId={episode.id ?? null}
-                userRating={episode.user_rating ?? null}
-              />
-            </div>
+            
 
             {episode.show.genres?.length > 0 && (
                   <div class="flex flex-wrap gap-2 mt-3">
@@ -118,7 +105,7 @@ const thumbnail = episode?.still_path || show?.poster_path || null;
           </div>
 
           <!-- Info -->
-          <div class="flex-1 min-w-0 pt-2">
+          <div class="flex-1 min-w-0 action-stack-host pt-2">
             <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-4 mb-2">
               <div class="min-w-0">
                 <div class="flex flex-wrap items-center gap-3 mb-2">
@@ -138,8 +125,10 @@ const thumbnail = episode?.still_path || show?.poster_path || null;
                 </div>
               </div>
               
+            </div>
+            <div class="action-stack-slot">
               {episode.episodes && episode.episodes.length > 1 && (
-                <div class="flex items-center gap-2 shrink-0">
+                <div class="flex items-center justify-between gap-2 mb-3">
                   {(() => {
                     const currentEpisode = Number(episode_number);
                     const episodes = episode.episodes
@@ -176,6 +165,20 @@ const thumbnail = episode?.still_path || show?.poster_path || null;
                   })()}
                 </div>
               )}
+              <ActionStack
+              hideRate
+              tmdbId={episode.tmdb_id}
+              mediaType="episode"
+              watched={episode.watched ?? false}
+              inLists={episode.in_lists ?? []}
+              inLibrary={episode.in_library ?? false}
+              collectionPct={episode.collection_pct ?? (episode.in_library ? 100 : 0)}
+              showTmdbId={Number(id)}
+              seasonNumber={Number(season_number)}
+              episodeNumber={Number(episode_number)}
+              mediaId={episode.id ?? null}
+              userRating={episode.user_rating ?? null}
+              />
             </div>
 
           <div class="flex items-start gap-4 mb10">
