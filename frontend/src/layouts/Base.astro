@@ -330,6 +330,7 @@ const bottomNavItem = (active: boolean) =>
           <option>Disney+</option>
           <option>AppleTV</option>
           <option>PLEX</option>
+          <option>YouTube</option>
           <option>Digital file</option>
         </select>
         <button id="watch-history-log-btn" class="w-full px-4 py-2.5 bg-green-600 hover:bg-green-500 text-white font-bold text-sm rounded-xl transition-all cursor-pointer active:scale-95">
@@ -1084,7 +1085,7 @@ const bottomNavItem = (active: boolean) =>
             const fmt = ev.watched_at
               ? new Date(ev.watched_at + 'Z').toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
               : 'Unknown date';
-            const sources = ['', 'Cinema', 'Blu-ray', '4K', 'DVD', 'Cable', 'VHS', 'TV', 'Netflix', 'Amazon', 'Disney+', 'AppleTV', 'PLEX', 'Digital file'];
+            const sources = ['', 'Cinema', 'Blu-ray', '4K', 'DVD', 'Cable', 'VHS', 'TV', 'Netflix', 'Amazon', 'Disney+', 'AppleTV', 'PLEX', 'YouTube', 'Digital file'];
             const sourceOptions = sources.map(source => {
               const label = source || 'No source';
               return `<option value="${esc(source)}"${source === (ev.watch_source || '') ? ' selected' : ''}>${esc(label)}</option>`;

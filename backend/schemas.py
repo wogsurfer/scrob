@@ -247,7 +247,7 @@ class WatchEventCreate(BaseModel):
     watched_at: Optional[datetime] = None  # omitted = now; explicit null = unknown date
     watch_source: Optional[Literal[
         "Cinema", "Blu-ray", "4K", "DVD", "Cable", "VHS", "TV",
-        "Netflix", "Amazon", "Disney+", "AppleTV", "PLEX", "Digital file",
+        "Netflix", "Amazon", "Disney+", "AppleTV", "PLEX", "YouTube", "Digital file",
     ]] = None
     completed: bool = True
     series_tmdb_id: Optional[int] = None
@@ -258,7 +258,7 @@ class WatchEventCreate(BaseModel):
 class WatchEventSourceUpdate(BaseModel):
     watch_source: Optional[Literal[
         "Cinema", "Blu-ray", "4K", "DVD", "Cable", "VHS", "TV",
-        "Netflix", "Amazon", "Disney+", "AppleTV", "PLEX", "Digital file",
+        "Netflix", "Amazon", "Disney+", "AppleTV", "PLEX", "YouTube", "Digital file",
     ]] = None
 
 
