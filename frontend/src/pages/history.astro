@@ -3,6 +3,7 @@ import Base from "../layouts/Base.astro";
 import HistoryCard from "../components/HistoryCard.astro";
 import Pagination from "../components/Pagination.astro";
 import { api, tmdbImageUrl, type WatchEvent } from "../lib/api";
+import { HOME_TIME_ZONE } from "../lib/time";
 
 const { token } = Astro.locals;
 Astro.response.headers.set("Cache-Control", "private, no-cache");
@@ -22,6 +23,7 @@ const fmtTime = (iso: string | null) =>
         hour: "2-digit",
         minute: "2-digit",
         hour12: !use24h,
+        timeZone: HOME_TIME_ZONE,
       })
     : "";
 
@@ -34,6 +36,7 @@ for (const show of shows) {
         month: "long",
         day: "numeric",
         year: "numeric",
+        timeZone: HOME_TIME_ZONE,
       })
     : "Date unknown";
   (groupedShows[dateStr] ??= []).push(show);
@@ -49,7 +52,8 @@ const groupedHistory: Record<string, WatchEvent[]> = isShows
             weekday: 'long',
             month: 'long',
             day: 'numeric',
-            year: 'numeric'
+            year: 'numeric',
+            timeZone: HOME_TIME_ZONE,
           })
         : 'Date unknown';
 
