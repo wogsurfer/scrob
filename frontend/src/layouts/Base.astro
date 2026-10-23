@@ -385,6 +385,21 @@ const bottomNavItem = (active: boolean) =>
   </div>
 
   <script>
+    // ── Local watch times ──────────────────────────────────────────────────────
+    // Pages render watch times server-side, where the clock is UTC; re-format
+    // them in the viewer's own time zone (see lib/time.ts).
+    import { WATCH_DATE_FORMAT, WATCH_TIME_FORMAT } from '../lib/time';
+
+    document.querySelectorAll<HTMLTimeElement>('time[data-local]').forEach((el) => {
+      const when = new Date(el.dateTime);
+      if (Number.isNaN(when.getTime())) return;
+      el.textContent = el.dataset.local === 'time'
+        ? when.toLocaleTimeString('en-US', WATCH_TIME_FORMAT)
+        : when.toLocaleDateString('en-US', WATCH_DATE_FORMAT);
+    });
+  </script>
+
+  <script>
     // ── Theme toggle ───────────────────────────────────────────────────────────
     const themeToggle = document.getElementById('theme-toggle');
 

@@ -1,6 +1,7 @@
 ---
 import type { WatchEvent } from "../lib/api";
 import { tmdbImageUrl } from "../lib/api";
+import { HOME_TIME_ZONE } from "../lib/time";
 
 interface Props {
   event: WatchEvent;
@@ -42,6 +43,7 @@ const timeString = watchedAt
       hour: "2-digit",
       minute: "2-digit",
       hour12: !use24h,
+      timeZone: HOME_TIME_ZONE,
     })
   : "";
 

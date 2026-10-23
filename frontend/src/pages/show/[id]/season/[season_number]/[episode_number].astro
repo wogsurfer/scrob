@@ -3,6 +3,7 @@ import Base from "../../../../../layouts/Base.astro";
 import ActionBar from "../../../../../components/ActionBar.astro";
 import VideoPlayer from "../../../../../components/VideoPlayer.astro";
 import CrewSection from "../../../../../components/CrewSection.astro";
+import { utcIso, formatWatchDate, formatWatchTime } from "../../../../../lib/time";
 import { api, type EpisodeDetail } from "../../../../../lib/api";
 
 export const prerender = false;
@@ -374,11 +375,9 @@ const thumbnail = episode?.still_path || show?.poster_path || null;
                               />
                             </svg>
 
-                            {new Date(watch.watched_at).toLocaleDateString("en-US", {
-                              month: "short",
-                              day: "numeric",
-                              year: "numeric",
-                            })}
+                            <time data-local="date" datetime={utcIso(watch.watched_at)}>
+                              {formatWatchDate(watch.watched_at)}
+                            </time>
                           </span>
 
                           <span class="flex items-center gap-1.5">
@@ -398,10 +397,9 @@ const thumbnail = episode?.still_path || show?.poster_path || null;
                               <circle cx="12" cy="12" r="9" />
                             </svg>
 
-                            {new Date(watch.watched_at).toLocaleTimeString("en-US", {
-                              hour: "numeric",
-                              minute: "2-digit",
-                            })}
+                            <time data-local="time" datetime={utcIso(watch.watched_at)}>
+                              {formatWatchTime(watch.watched_at)}
+                            </time>
                           </span>
                         </>
                       )}
