@@ -1,10 +1,11 @@
 ---
 import Base from "../layouts/Base.astro";
-import DashboardWatchlistCard from "../components/DashboardWatchlistCard.astro";
+import PosterCard from "../components/PosterCard.astro";
 import Pagination from "../components/Pagination.astro";
 import FilterPanel from "../components/FilterPanel.astro";
 import SortButton from "../components/SortButton.astro";
-import { api, type MediaItem } from "../lib/api";
+import { api } from "../lib/api";
+import { fetchExplorePage, type ExplorePage } from "../lib/explore";
 export const prerender = false;
 
 const category = Astro.url.searchParams.get("category") ?? "popular";
@@ -18,64 +19,16 @@ Astro.response.headers.set("Cache-Control", "private, no-cache");
 const settings = await api.auth.getSettings(token!);
 const hasTmdbKey = !!settings?.has_effective_tmdb_key;
 
-let data: { results: MediaItem[]; total_pages: number; page: number } = { results: [], total_pages: 0, page: 1 };
-
-// TMDB pages hold 20 movies, which leaves a part-filled last row in the grid.
-// Show 24 per page instead (fills every row at 2, 3, 4 and 6 columns) by
-// stitching together the one or two TMDB pages each of our pages covers.
-const PER_PAGE = 24;
-const TMDB_PER_PAGE = 20;
-const TMDB_MAX_PAGES = 500;
-
+let data: ExplorePage = { results: [], total_pages: 0, page: 1 };
 if (hasTmdbKey) {
   try {
-    const first = (page - 1) * PER_PAGE;
-    const firstTmdbPage = Math.floor(first / TMDB_PER_PAGE) + 1;
-    const lastTmdbPage = Math.min(
-      Math.floor((first + PER_PAGE - 1) / TMDB_PER_PAGE) + 1,
-      TMDB_MAX_PAGES,
-    );
-    const fetchTmdbPage = (tmdbPage: number) =>
-      api.media.tmdbList({
-        type: "movie",
-        category,
-        page: tmdbPage,
-        ...(genre ? { genre } : {}),
-        ...(year ? { year } : {}),
-        ...(minRating ? { min_rating: minRating } : {}),
-      }, token);
-    const tmdbPages = await Promise.all(
-      Array.from({ length: lastTmdbPage - firstTmdbPage + 1 }, (_, i) =>
-        fetchTmdbPage(firstTmdbPage + i),
-      ),
-    );
-    const offset = first - (firstTmdbPage - 1) * TMDB_PER_PAGE;
-    const pick = () => {
-      // Popular lists can shift between requests, repeating a movie across
-      // TMDB pages; show each movie once.
-      const seen = new Set<number>();
-      return tmdbPages
-        .flatMap(p => p.results)
-        .slice(offset)
-        .filter(item => !seen.has(item.tmdb_id) && seen.add(item.tmdb_id))
-        .slice(0, PER_PAGE);
-    };
-    let results = pick();
-    // A dropped repeat leaves the page one short; top it up from the next TMDB page.
-    const nextTmdbPage = lastTmdbPage + 1;
-    if (
-      results.length < PER_PAGE &&
-      nextTmdbPage <= Math.min(tmdbPages[0]?.total_pages ?? 0, TMDB_MAX_PAGES)
-    ) {
-      tmdbPages.push(await fetchTmdbPage(nextTmdbPage));
-      results = pick();
-    }
-    const totalResults = Math.min(
-      tmdbPages[0]?.total_results ?? 0,
-      (tmdbPages[0]?.total_pages ?? 0) * TMDB_PER_PAGE,
-      TMDB_MAX_PAGES * TMDB_PER_PAGE,
-    );
-    data = { results, page, total_pages: Math.ceil(totalResults / PER_PAGE) };
+    data = await fetchExplorePage({
+      type: "movie",
+      category,
+      ...(genre ? { genre } : {}),
+      ...(year ? { year } : {}),
+      ...(minRating ? { min_rating: minRating } : {}),
+    }, page, token);
   } catch (e) {
     console.error("Failed to fetch TMDB movie list:", e);
   }
@@ -151,9 +104,7 @@ const baseUrl = `/movies?${baseParams.toString()}`;
     <>
       <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-x-6 gap-y-8">
         {data.results.map(item => (
-          <DashboardWatchlistCard
-            movie={{ ...item, year: item.release_date ? Number(item.release_date.slice(0, 4)) : null } as any}
-          />
+          <PosterCard item={item} />
         ))}
       </div>
 

@@ -1,10 +1,11 @@
 ---
 import Base from "../layouts/Base.astro";
-import MediaCard from "../components/MediaCard.astro";
+import PosterCard from "../components/PosterCard.astro";
 import Pagination from "../components/Pagination.astro";
 import FilterPanel from "../components/FilterPanel.astro";
 import SortButton from "../components/SortButton.astro";
-import { api, type MediaItem } from "../lib/api";
+import { api } from "../lib/api";
+import { fetchExplorePage, type ExplorePage } from "../lib/explore";
 export const prerender = false;
 
 const category = Astro.url.searchParams.get("category") ?? "popular";
@@ -20,19 +21,18 @@ Astro.response.headers.set("Cache-Control", "private, no-cache");
 const settings = await api.auth.getSettings(token!);
 const hasTmdbKey = !!settings?.has_effective_tmdb_key;
 
-let data: { results: MediaItem[]; total_pages: number; page: number } = { results: [], total_pages: 0, page: 1 };
+let data: ExplorePage = { results: [], total_pages: 0, page: 1 };
 if (hasTmdbKey) {
   try {
-    data = await api.media.tmdbList({
+    data = await fetchExplorePage({
       type: "series",
       category,
-      page,
       ...(genre ? { genre } : {}),
       ...(year ? { year } : {}),
       ...(minRating ? { min_rating: minRating } : {}),
       ...(status ? { status } : {}),
       ...(watched ? { watched } : {}),
-    }, token);
+    }, page, token);
   } catch (e) {
     console.error("Failed to fetch TMDB show list:", e);
   }
@@ -124,8 +124,8 @@ const baseUrl = `/shows?${baseParams.toString()}`;
     </div>
   ) : (
     <>
-      <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-6">
-        {data.results.map(item => <MediaCard item={item} />)}
+      <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-x-6 gap-y-8">
+        {data.results.map(item => <PosterCard item={item} />)}
       </div>
 
       <Pagination

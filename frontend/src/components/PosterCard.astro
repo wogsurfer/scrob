@@ -1,33 +1,37 @@
 ---
-import type { WatchlistMovie } from "../lib/api";
+import type { MediaItem, WatchlistMovie } from "../lib/api";
 import { tmdbImageUrl } from "../lib/api";
 
 import wRed from "../assets/watchd-w-red.png";
 import wWhite from "../assets/watchd-w-white.png";
 
+// Poster card in the Up Next style, for movies and shows: Explore Movies and
+// Shows, the Watchlist page and the dashboard Watchlist row.
 interface Props {
-    movie: WatchlistMovie;
+    item: MediaItem | WatchlistMovie;
 }
 
-const { movie } = Astro.props;
+const { item } = Astro.props;
 
-// State added by /dashboard/watchlist for the action strip (not in the WatchlistMovie type yet)
-const extra = movie as WatchlistMovie & {
-    imdb_rating?: number | null;
-    watched?: boolean;
-    in_lists?: string[];
-    in_library?: boolean;
-    collection_pct?: number;
-    user_rating?: number | null;
+// Fields the list endpoints add for the action strip (not on every type)
+const extra = item as Partial<MediaItem> & Partial<WatchlistMovie> & {
+    tmdb_id: number;
+    title: string;
 };
 
-const poster = tmdbImageUrl(movie.poster_path, "w500");
-const href = `/media/movie/${movie.tmdb_id}`;
+const isSeries = extra.type === "series";
+const poster = tmdbImageUrl(extra.poster_path ?? null, "w500");
+const href = isSeries ? `/show/${extra.tmdb_id}` : `/media/movie/${extra.tmdb_id}`;
+const year = extra.year ?? extra.release_date?.slice(0, 4) ?? null;
 
-const watched = extra.watched ?? false;
+// A show counts as watched once every aired episode is; the collection icon
+// lights up when any of it is in the library.
+const watchPct = extra.watch_pct ?? 0;
+const watched = isSeries ? watchPct >= 100 : (extra.watched ?? false);
 const inLists = extra.in_lists ?? [];
 const inLibrary = extra.in_library ?? false;
 const collectionPct = extra.collection_pct ?? (inLibrary ? 100 : 0);
+const collected = isSeries ? collectionPct > 0 : inLibrary;
 
 const imdb =
     extra.imdb_rating != null
@@ -43,21 +47,21 @@ const userRating =
 ---
 
 <div
-    class="wd-watchlist"
+    class="wd-poster-card"
     data-card
-    data-id={movie.id}
-    data-tmdb-id={movie.tmdb_id}
-    data-media-type="movie"
+    data-id={extra.id ?? undefined}
+    data-tmdb-id={extra.tmdb_id}
+    data-media-type={isSeries ? "series" : "movie"}
 >
 
     <div class="wd-panel">
 
         <a href={href} class="wd-poster-link">
             {poster ? (
-                <img src={poster} alt={movie.title} class="wd-poster" loading="lazy" />
+                <img src={poster} alt={extra.title} class="wd-poster" loading="lazy" />
             ) : (
                 <div class="wd-poster-empty">
-                    <span>{movie.title}</span>
+                    <span>{extra.title}</span>
                 </div>
             )}
             {userRating && (
@@ -74,8 +78,9 @@ const userRating =
                     class="wd-btn"
                     data-action="watched"
                     data-watched={String(watched)}
+                    data-watch-pct={isSeries ? String(watchPct) : undefined}
                     data-state={watched ? "active" : "inactive"}
-                    title={watched ? "Mark as unwatched" : "Mark as watched"}
+                    title={isSeries ? `${watchPct}% watched` : watched ? "Mark as unwatched" : "Mark as watched"}
                     aria-label={watched ? "Mark as unwatched" : "Mark as watched"}
                 >
                     <img
@@ -114,8 +119,8 @@ const userRating =
                     data-action="collected"
                     data-in-library={String(inLibrary)}
                     data-collection-pct={String(collectionPct)}
-                    data-state={inLibrary ? "active" : "inactive"}
-                    title={inLibrary ? "Remove from collection" : "Add to collection"}
+                    data-state={collected ? "active" : "inactive"}
+                    title={isSeries ? `${collectionPct}% in library` : inLibrary ? "Remove from collection" : "Add to collection"}
                     aria-label={inLibrary ? "Remove from collection" : "Add to collection"}
                 >
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -138,15 +143,15 @@ const userRating =
     </div>
 
     <a href={href} class="wd-meta">
-        <div class="wd-title">{movie.title}</div>
-        {movie.year && <div class="wd-year">{movie.year}</div>}
+        <div class="wd-title">{extra.title}</div>
+        {year && <div class="wd-year">{year}</div>}
     </a>
 
 </div>
 
 <style>
 
-.wd-watchlist{
+.wd-poster-card{
     width:100%;
     container-type:inline-size;
     display:flex;
