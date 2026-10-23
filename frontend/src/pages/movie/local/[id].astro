@@ -111,35 +111,21 @@ const btnW = "w-[52px] min-w-[52px] md:flex-1";
                 </a>
               )}
 
-              <!-- Your rating (opens the 1–10 picker) -->
-              <span class="relative">
+              <!-- Your rating: the shared rating popover (Base.astro), in its local mode -->
+              <span data-card data-local-id={String(item.id)} data-media-type="movie" class="contents">
                 <button
                   type="button"
-                  id="la-rate"
+                  data-action="rate"
+                  data-rating-style="pill"
+                  data-user-rating={userRated ? String(item.user_rating) : ""}
                   title={userRated ? `Your rating: ${fmtRating(item.user_rating)}/10` : "Rate this"}
                   class={`flex items-center gap-1.5 font-black cursor-pointer transition-colors ${userRated ? "text-red-500" : "text-zinc-500 hover:text-red-400"}`}
-                  aria-expanded="false"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill={userRated ? "currentColor" : "none"} stroke="currentColor" stroke-width="2" stroke-linejoin="round" class="w-[18px] h-[18px]">
                     <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
                   </svg>
-                  <span id="la-rating-value">{userRated ? fmtRating(item.user_rating) : ""}</span>
+                  <span data-rating-value>{userRated ? fmtRating(item.user_rating) : ""}</span>
                 </button>
-                <div id="la-rate-menu" class="hidden absolute left-0 top-full mt-3 z-40 rounded-2xl bg-zinc-900 border border-zinc-700 shadow-2xl p-3">
-                  <div class="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-2">Your rating</div>
-                  <div class="grid grid-cols-5 gap-1.5">
-                    {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
-                      <button
-                        type="button"
-                        class={`la-rate-pick w-10 h-9 rounded-lg text-sm font-black transition-colors ${userRated && item.user_rating === n ? "bg-red-500/50 text-red-200" : "bg-zinc-800 text-zinc-300 hover:bg-red-500/40 hover:text-red-200"}`}
-                        data-rating={n}
-                      >{n}</button>
-                    ))}
-                  </div>
-                  <button type="button" id="la-rate-clear" class={`mt-2 w-full text-xs font-bold text-zinc-500 hover:text-zinc-200 py-1 ${userRated ? "" : "hidden"}`}>
-                    Remove rating
-                  </button>
-                </div>
               </span>
 
               {item.runtime && (
@@ -356,7 +342,7 @@ const btnW = "w-[52px] min-w-[52px] md:flex-1";
       }
     }
 
-    // Popover menus (rating picker, lists): open on click, close on outside click.
+    // Lists popover: open on click, close on outside click.
     function popover(btnId: string, menuId: string) {
       const btn = document.getElementById(btnId);
       const menu = document.getElementById(menuId);
@@ -372,7 +358,6 @@ const btnW = "w-[52px] min-w-[52px] md:flex-1";
         }
       });
     }
-    popover("la-rate", "la-rate-menu");
     popover("la-lists", "la-lists-menu");
 
     // Watched: opens the shared watch-history box (Base.astro) in its local
@@ -434,44 +419,6 @@ const btnW = "w-[52px] min-w-[52px] md:flex-1";
         collectBtn.classList.remove(...COLL_ON, ...COLL_OFF);
         collectBtn.classList.add(...(collected ? COLL_OFF : COLL_ON));
         collectBtn.title = collected ? "Add to collection" : "Remove from collection";
-      });
-    });
-
-    // Your rating: 1–10 picker, plus remove.
-    const rateBtn = document.getElementById("la-rate");
-    const rateMenu = document.getElementById("la-rate-menu");
-    const ratingValue = document.getElementById("la-rating-value");
-    const clearBtn = document.getElementById("la-rate-clear") as HTMLButtonElement | null;
-    const picks = [...document.querySelectorAll<HTMLButtonElement>(".la-rate-pick")];
-    const PICK_ON = ["bg-red-500/50", "text-red-200"];
-    const PICK_OFF = ["bg-zinc-800", "text-zinc-300", "hover:bg-red-500/40", "hover:text-red-200"];
-    const showRating = (r: number | null) => {
-      if (ratingValue) ratingValue.textContent = r != null ? String(r) : "";
-      rateBtn?.classList.toggle("text-red-500", r != null);
-      rateBtn?.classList.toggle("text-zinc-500", r == null);
-      rateBtn?.querySelector("svg")?.setAttribute("fill", r != null ? "currentColor" : "none");
-      if (rateBtn) rateBtn.title = r != null ? `Your rating: ${r}/10` : "Rate this";
-      picks.forEach((p) => {
-        const on = r != null && Number(p.dataset.rating) === r;
-        p.classList.remove(...PICK_ON, ...PICK_OFF);
-        p.classList.add(...(on ? PICK_ON : PICK_OFF));
-      });
-      clearBtn?.classList.toggle("hidden", r == null);
-      rateMenu?.classList.add("hidden");
-    };
-    picks.forEach((pick) => {
-      pick.addEventListener("click", () => {
-        const r = Number(pick.dataset.rating);
-        busy(pick, async () => {
-          await call(`/media/local/${mediaId}/rating`, "POST", { rating: r });
-          showRating(r);
-        });
-      });
-    });
-    clearBtn?.addEventListener("click", () => {
-      busy(clearBtn, async () => {
-        await call(`/media/local/${mediaId}/rating`, "DELETE");
-        showRating(null);
       });
     });
   </script>
