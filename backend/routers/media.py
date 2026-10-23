@@ -41,6 +41,8 @@ from models.show import Show as ShowModel
 from models.global_settings import GlobalSettings
 
 router = APIRouter()
+# Keeps references to fire-and-forget tasks so they aren't garbage collected mid-run.
+_background_tasks: set[asyncio.Task] = set()
 _PLAYABLE_COLLECTION_SOURCES = {
     CollectionSource.jellyfin,
     CollectionSource.emby,
@@ -435,6 +437,20 @@ async def enrich_with_state(
                     total_aired = 0
                     today = date.today()
 
+                    # Episodes air in order, so everything up to TMDB's last aired
+                    # episode has aired: whole earlier seasons plus that season's
+                    # episodes up to it. One request instead of one per season.
+                    last = show.get("last_episode_to_air") or {}
+                    last_season = last.get("season_number")
+                    last_episode = last.get("episode_number")
+                    if isinstance(last_season, int) and last_season > 0 and isinstance(last_episode, int):
+                        total_aired = last_episode + sum(
+                            season.get("episode_count") or 0
+                            for season in show.get("seasons", [])
+                            if 0 < (season.get("season_number") or 0) < last_season
+                        )
+                        return tid, total_aired
+
                     for season in show.get("seasons", []):
                         season_number = season.get("season_number", 0)
 
@@ -466,8 +482,13 @@ async def enrich_with_state(
                     print(f"TMDB aired count failed for {tid}: {e}")
                     return tid, 0
 
+            # Only shows with watched episodes can be "watched", so skip the rest.
             aired_results = await asyncio.gather(
-                *[fetch_aired_count(tid) for tid in show_tmdb_ids]
+                *[
+                    fetch_aired_count(tid)
+                    for tid in show_tmdb_ids
+                    if show_watched_count_map.get(tid, 0) > 0
+                ]
             )
 
             show_aired_count = dict(aired_results)
@@ -1917,29 +1938,16 @@ async def get_tmdb_list(
                 print(f"IMDb rating failed for {res.get('id')}: {e}")
                 return res["id"], None
 
-        imdb_results = await asyncio.gather(
-            *[fetch_imdb_rating(res) for res in results]
-        )
-        imdb_rating_map = dict(imdb_results)
-
-        # Fetch IMDb ratings for all results
-        async def fetch_imdb_rating(res):
-            try:
-                external_ids = await tmdb.get_external_ids(
-                    res["id"],
-                    "movie" if type == MediaType.movie else "series",
-                    api_key=tmdb_key,
-                )
-                imdb_id = external_ids.get("imdb_id")
-                return res["id"], await tmdb.get_imdb_rating(imdb_id) if imdb_id else None
-            except Exception as e:
-                print(f"IMDb rating failed for {res.get('id')}: {e}")
-                return res["id"], None
-
-        imdb_results = await asyncio.gather(
-            *[fetch_imdb_rating(res) for res in results]
-        )
-        imdb_rating_map = dict(imdb_results)
+        # Don't hold the page for slow ratings: whatever isn't back within 1.5s
+        # keeps loading in the background and is cached for the next visit.
+        imdb_tasks = [asyncio.create_task(fetch_imdb_rating(res)) for res in results]
+        imdb_rating_map = {}
+        if imdb_tasks:
+            done, pending = await asyncio.wait(imdb_tasks, timeout=1.5)
+            imdb_rating_map = dict(task.result() for task in done)
+            _background_tasks.update(pending)
+            for task in pending:
+                task.add_done_callback(_background_tasks.discard)
 
         # ---------------------------------------------------------
         # Check local library

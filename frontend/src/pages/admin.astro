@@ -9,7 +9,7 @@ if (!user?.is_admin) {
   return Astro.redirect("/", 302);
 }
 
-Astro.response.headers.set("Cache-Control", "no-store");
+Astro.response.headers.set("Cache-Control", "private, no-cache");
 
 const [globalSettings, users] = await Promise.all([
   api.admin.getSettings(token!),

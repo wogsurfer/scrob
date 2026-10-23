@@ -6,7 +6,7 @@ const PAGE_SIZE = 60;
 
 const { id } = Astro.params;
 const { token, user: currentUser } = Astro.locals;
-Astro.response.headers.set("Cache-Control", "no-store");
+Astro.response.headers.set("Cache-Control", "private, no-cache");
 
 // /stats/all-time/shows · /stats/ytd/shows · /stats/2025/shows · /stats/<user id>/shows
 const nowYear = new Date().getFullYear();

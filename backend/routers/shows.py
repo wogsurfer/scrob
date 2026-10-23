@@ -1,4 +1,5 @@
 import asyncio
+from collections import defaultdict
 from datetime import datetime, date, timedelta, timezone
 from zoneinfo import ZoneInfo
 from pydantic import BaseModel
@@ -854,6 +855,34 @@ async def list_progress_shows(
         for show_id, watched_at in last_watched_result.all()
     }
 
+    # Watching date range and sources per show, in one query each rather than per show.
+    show_watch_filters = (
+        WatchEvent.user_id == current_user.id,
+        WatchEvent.completed == True,
+        Media.show_id.in_(show_ids),
+        Media.media_type == MediaType.episode,
+        WatchEvent.watched_at.isnot(None),
+    )
+    watch_dates_result = await db.execute(
+        select(Media.show_id, func.min(WatchEvent.watched_at), func.max(WatchEvent.watched_at))
+        .join(Media, Media.id == WatchEvent.media_id)
+        .where(*show_watch_filters)
+        .group_by(Media.show_id)
+    )
+    watch_dates_by_show = {
+        show_id: (first, last) for show_id, first, last in watch_dates_result.all()
+    }
+    watch_sources_result = await db.execute(
+        select(Media.show_id, WatchEvent.watch_source)
+        .join(Media, Media.id == WatchEvent.media_id)
+        .where(*show_watch_filters, WatchEvent.watch_source.isnot(None))
+        .distinct()
+    )
+    watch_sources_by_show = defaultdict(set)
+    for show_id, source in watch_sources_result.all():
+        if source:
+            watch_sources_by_show[show_id].add(source)
+
     # Only consult TVMaze for episodes scheduled today whose local catalog
     # entry has a date but no precise airing timestamp. TVMaze timestamps are
     # converted to Malta time by the shared calendar helper.
@@ -957,6 +986,10 @@ async def list_progress_shows(
 
         return 0
 
+    episodes_by_show_id = defaultdict(list)
+    for ep in episodes:
+        episodes_by_show_id[ep.show_id].append(ep)
+
     for show in shows:
         # The local episode table can contain extras or stale records. Use
         # stored season sizes to constrain those rows, unless a precise
@@ -1038,10 +1071,7 @@ async def list_progress_shows(
         # Collapse duplicate local records by episode position. If one copy is
         # watched, prefer it so imported watch history is never lost.
         episodes_by_position = {}
-        for ep in episodes:
-            if ep.show_id != show.id:
-                continue
-
+        for ep in episodes_by_show_id.get(show.id, ()):
             season_number = int(ep.season_number)
             episode_number = int(ep.episode_number)
             canonical_season_count = season_ep_counts.get(season_number)
@@ -1384,22 +1414,7 @@ async def list_progress_shows(
         show_info = format_show(show)
 
         # Watching dates + source
-        watch_dates_q = await db.execute(
-            select(
-                func.min(WatchEvent.watched_at),
-                func.max(WatchEvent.watched_at),
-            )
-            .join(Media, Media.id == WatchEvent.media_id)
-            .where(
-                WatchEvent.user_id == user_id,
-                WatchEvent.completed == True,
-                Media.show_id == show.id,
-                Media.media_type == MediaType.episode,
-                WatchEvent.watched_at.isnot(None),
-            )
-        )
-
-        first_watched, last_watched = watch_dates_q.one()
+        first_watched, last_watched = watch_dates_by_show.get(show.id, (None, None))
 
         show_info["watch_start_date"] = (
             first_watched.date().isoformat() if first_watched else None
@@ -1408,40 +1423,7 @@ async def list_progress_shows(
             last_watched.date().isoformat() if last_watched else None
         )
 
-        first_watched, last_watched = watch_dates_q.one()
-
-        show_info["watch_start_date"] = (
-            first_watched.date().isoformat() if first_watched else None
-        )
-        show_info["watch_end_date"] = (
-            last_watched.date().isoformat() if last_watched else None
-        )    
-        
-        first_watched, last_watched = watch_dates_q.one()
-
-        show_info["watch_start_date"] = (
-            first_watched.date().isoformat() if first_watched else None
-        )
-        show_info["watch_end_date"] = (
-            last_watched.date().isoformat() if last_watched else None
-        )
-
-        watch_source_q = await db.execute(
-            select(WatchEvent.watch_source)
-            .join(Media, Media.id == WatchEvent.media_id)
-            .where(
-                WatchEvent.user_id == user_id,
-                WatchEvent.completed == True,
-                Media.show_id == show.id,
-                Media.media_type == MediaType.episode,
-                WatchEvent.watched_at.isnot(None),
-                WatchEvent.watch_source.isnot(None),
-            )
-            .distinct()
-            .order_by(WatchEvent.watch_source.asc())
-        )
-
-        watch_sources = [source for source in watch_source_q.scalars().all() if source]
+        watch_sources = sorted(watch_sources_by_show.get(show.id, ()), key=str)
 
         show_info["watch_sources"] = watch_sources
 

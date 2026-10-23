@@ -8,9 +8,10 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db import get_db
+from db import get_db, engine, AsyncSessionLocal
 from dependencies import get_current_user
 
+from models.tvmaze_cache import TvmazeCache
 from models.users import User
 from models.media import Media
 from models.events import WatchEvent
@@ -77,6 +78,163 @@ def get_network_name(show) -> str | None:
 # TVMaze
 # =========================================================
 
+# TVMaze allows 20 requests per 10 seconds, and every page that shows schedules
+# (calendar, Next Up, progress) needs two requests per show. Episode lists are
+# cached in the tvmaze_cache table: a fresh entry is used as is, a stale one is
+# served immediately while it refreshes in the background, and TVMaze is only
+# waited on for a show that has never been fetched.
+_TVMAZE_FRESH = timedelta(hours=6)
+_tvmaze_memory: dict[str, tuple[datetime, dict]] = {}
+_tvmaze_inflight: dict[str, asyncio.Task] = {}
+_tvmaze_limit = asyncio.Semaphore(4)
+_tvmaze_loaded = False
+_tvmaze_load_lock = asyncio.Lock()
+
+
+async def _load_tvmaze_cache():
+    """Create the cache table if needed and load every row into memory, once per process."""
+    global _tvmaze_loaded
+    if _tvmaze_loaded:
+        return
+    async with _tvmaze_load_lock:
+        if _tvmaze_loaded:
+            return
+        try:
+            async with engine.begin() as conn:
+                await conn.run_sync(TvmazeCache.__table__.create, checkfirst=True)
+            async with AsyncSessionLocal() as db:
+                rows = await db.execute(
+                    select(TvmazeCache.title_key, TvmazeCache.fetched_at, TvmazeCache.data)
+                )
+                for key, fetched_at, data in rows.all():
+                    _tvmaze_memory.setdefault(key, (fetched_at, data or {}))
+        except Exception as e:
+            print("TVMAZE CACHE LOAD ERROR:", f"{type(e).__name__}: {e}")
+        _tvmaze_loaded = True
+
+
+async def _tvmaze_get(client: httpx.AsyncClient, url: str, params: dict | None = None):
+    response = None
+    for attempt in range(4):
+        async with _tvmaze_limit:
+            response = await client.get(url, params=params)
+        if response.status_code != 429:
+            return response
+        await asyncio.sleep(float(response.headers.get("Retry-After") or 2 * (attempt + 1)))
+    return response
+
+
+async def _fetch_tvmaze(show_title: str) -> dict | None:
+    """{"episodes": [...]} (empty when TVMaze has no matching show), or None on an error."""
+    try:
+        async with httpx.AsyncClient(
+            timeout=15.0,
+            headers={
+                "User-Agent": "Scrob/1.0",
+            },
+        ) as client:
+
+            response = await _tvmaze_get(
+                client,
+                "https://api.tvmaze.com/singlesearch/shows",
+                {"q": show_title},
+            )
+
+            if response.status_code == 404:
+                print(
+                    "CALENDAR TVMAZE: no show found:",
+                    show_title,
+                )
+                return {"episodes": []}
+
+            response.raise_for_status()
+
+            show_data = response.json()
+
+            tvmaze_title = show_data.get("name")
+
+            # Protect against an obviously bad fuzzy match.
+            if (
+                normalise_title(tvmaze_title)
+                != normalise_title(show_title)
+            ):
+                print(
+                    "CALENDAR TVMAZE: fuzzy match rejected:",
+                    show_title,
+                    "->",
+                    tvmaze_title,
+                )
+                return {"episodes": []}
+
+            tvmaze_id = show_data.get("id")
+
+            if not tvmaze_id:
+                return {"episodes": []}
+
+            # Get the complete episode list.
+            response = await _tvmaze_get(
+                client,
+                f"https://api.tvmaze.com/shows/{tvmaze_id}/episodes",
+            )
+
+            response.raise_for_status()
+
+            return {"tvmaze_id": tvmaze_id, "episodes": response.json()}
+
+    except Exception as e:
+        print(
+            "CALENDAR TVMAZE ERROR:",
+            show_title,
+            f"{type(e).__name__}: {e}",
+        )
+        return None
+
+
+async def _refresh_tvmaze(key: str, show_title: str) -> dict | None:
+    data = await _fetch_tvmaze(show_title)
+    if data is None:
+        return None  # keep whatever is cached
+    now = datetime.utcnow()
+    _tvmaze_memory[key] = (now, data)
+    try:
+        async with AsyncSessionLocal() as db:
+            row = await db.get(TvmazeCache, key)
+            if row:
+                row.data = data
+                row.fetched_at = now
+            else:
+                db.add(TvmazeCache(title_key=key, data=data, fetched_at=now))
+            await db.commit()
+    except Exception as e:
+        print("TVMAZE CACHE SAVE ERROR:", show_title, f"{type(e).__name__}: {e}")
+    return data
+
+
+def _refresh_tvmaze_once(key: str, show_title: str) -> asyncio.Task:
+    """One refresh per show at a time, however many requests ask for it."""
+    task = _tvmaze_inflight.get(key)
+    if task is None or task.done():
+        task = asyncio.create_task(_refresh_tvmaze(key, show_title))
+        _tvmaze_inflight[key] = task
+        task.add_done_callback(
+            lambda t, k=key: _tvmaze_inflight.pop(k, None) if _tvmaze_inflight.get(k) is t else None
+        )
+    return task
+
+
+async def _cached_tvmaze_episodes(show_title: str) -> list:
+    await _load_tvmaze_cache()
+    key = normalise_title(show_title)
+    hit = _tvmaze_memory.get(key)
+    if hit:
+        if datetime.utcnow() - hit[0] > _TVMAZE_FRESH:
+            _refresh_tvmaze_once(key, show_title)
+        return hit[1].get("episodes") or []
+    # Shielded so a cancelled page request doesn't abort a fetch others may share.
+    data = await asyncio.shield(_refresh_tvmaze_once(key, show_title))
+    return (data or {}).get("episodes") or []
+
+
 async def get_tvmaze_episodes(
     show_title: str,
     today: date,
@@ -96,68 +254,7 @@ async def get_tvmaze_episodes(
     if not show_title:
         return []
 
-    try:
-        async with httpx.AsyncClient(
-            timeout=15.0,
-            headers={
-                "User-Agent": "Scrob/1.0",
-            },
-        ) as client:
-
-            response = await client.get(
-                "https://api.tvmaze.com/singlesearch/shows",
-                params={
-                    "q": show_title,
-                },
-            )
-
-            if response.status_code == 404:
-                print(
-                    "CALENDAR TVMAZE: no show found:",
-                    show_title,
-                )
-                return []
-
-            response.raise_for_status()
-
-            show_data = response.json()
-
-            tvmaze_title = show_data.get("name")
-
-            # Protect against an obviously bad fuzzy match.
-            if (
-                normalise_title(tvmaze_title)
-                != normalise_title(show_title)
-            ):
-                print(
-                    "CALENDAR TVMAZE: fuzzy match rejected:",
-                    show_title,
-                    "->",
-                    tvmaze_title,
-                )
-                return []
-
-            tvmaze_id = show_data.get("id")
-
-            if not tvmaze_id:
-                return []
-
-            # Get the complete episode list.
-            response = await client.get(
-                f"https://api.tvmaze.com/shows/{tvmaze_id}/episodes"
-            )
-
-            response.raise_for_status()
-
-            episodes = response.json()
-
-    except Exception as e:
-        print(
-            "CALENDAR TVMAZE ERROR:",
-            show_title,
-            f"{type(e).__name__}: {e}",
-        )
-        return []
+    episodes = await _cached_tvmaze_episodes(show_title)
 
     results = []
 

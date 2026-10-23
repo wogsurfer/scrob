@@ -6,7 +6,7 @@ export const prerender = false;
 const { id, season_number } = Astro.params;
 const { token } = Astro.locals;
 
-Astro.response.headers.set("Cache-Control", "no-store");
+Astro.response.headers.set("Cache-Control", "private, no-cache");
 
 let season: TvdbSeasonDetail | null = null;
 

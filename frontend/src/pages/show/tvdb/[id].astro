@@ -6,7 +6,7 @@ export const prerender = false;
 const { id } = Astro.params;
 const { token } = Astro.locals;
 
-Astro.response.headers.set("Cache-Control", "no-store");
+Astro.response.headers.set("Cache-Control", "private, no-cache");
 
 let show: TvdbShow | null = null;
 
