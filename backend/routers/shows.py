@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy import select, update, func, case, cast as sa_cast, Text, or_, and_
 from sqlalchemy.orm import aliased
 import os
+import time
 
 from models.events import WatchEvent
 from models.collection import Collection, CollectionFile
@@ -760,6 +761,84 @@ async def get_active_episode_order_job(
 
     results = results[offset:offset + page_size]
 
+# Show id -> monotonic time its TMDB season list was last refreshed for Progress.
+_PROGRESS_META_REFRESHED: dict[int, float] = {}
+_PROGRESS_META_TTL = 6 * 60 * 60
+
+
+async def _refresh_airing_show_meta(db: AsyncSession, user_id: int, shows) -> None:
+    """Bring the stored TMDB season list up to date for shows still airing.
+
+    Progress counts come from Show.tmdb_data, which is only written when a show
+    is synced or opened. For a show that is still airing that copy goes stale:
+    a new season is missing and the latest season's last aired episode is old,
+    so the totals come out short. Refresh those shows (at most every 6 hours).
+    """
+    now = time.monotonic()
+    recent_cutoff = (date.today() - timedelta(days=90)).isoformat()
+    stale = [
+        show for show in shows
+        if show.tmdb_id
+        and now - _PROGRESS_META_REFRESHED.get(show.id, float("-inf")) > _PROGRESS_META_TTL
+        and (
+            (show.status or "").strip().lower() not in {"ended", "canceled", "cancelled"}
+            or str(show.last_air_date or "")[:10] >= recent_cutoff
+        )
+    ]
+    if not stale:
+        return
+    try:
+        api_key = await get_user_tmdb_key(db, user_id)
+    except Exception:
+        return
+    if not check_tmdb_key(api_key):
+        return
+
+    gate = asyncio.Semaphore(8)
+
+    async def fetch(show):
+        async with gate:
+            try:
+                return show, await tmdb.get_show_light(show.tmdb_id, api_key=api_key)
+            except Exception:
+                return show, None
+
+    changed = False
+    for show, data in await asyncio.gather(*(fetch(show) for show in stale)):
+        if not data or not data.get("seasons"):
+            continue
+        _PROGRESS_META_REFRESHED[show.id] = now
+        old_seasons = {
+            s.get("season_number"): s
+            for s in (show.tmdb_data or {}).get("seasons", []) or []
+            if isinstance(s, dict)
+        }
+        seasons = [
+            {
+                **old_seasons.get(s["season_number"], {}),
+                "season_number": s["season_number"],
+                "poster_path": tmdb.poster_url(s.get("poster_path"))
+                or old_seasons.get(s["season_number"], {}).get("poster_path"),
+                "episode_count": s.get("episode_count"),
+                "name": s.get("name"),
+                "air_date": s.get("air_date"),
+                "overview": s.get("overview"),
+            }
+            for s in data["seasons"]
+        ]
+        show.status = data.get("status") or show.status
+        show.last_air_date = data.get("last_air_date") or show.last_air_date
+        show.tmdb_data = {
+            **(show.tmdb_data or {}),
+            "last_episode_to_air": data.get("last_episode_to_air"),
+            "next_episode_to_air": data.get("next_episode_to_air"),
+            "seasons": seasons,
+        }
+        changed = True
+    if changed:
+        await db.commit()
+
+
 @router.get("/progress")
 async def list_progress_shows(
     db: AsyncSession = Depends(get_db),
@@ -797,6 +876,8 @@ async def list_progress_shows(
             "results": [],
             "total_results": 0,
         }
+
+    await _refresh_airing_show_meta(db, current_user.id, shows)
 
     show_ids = [show.id for show in shows]
 
@@ -1075,9 +1156,12 @@ async def list_progress_shows(
             season_number = int(ep.season_number)
             episode_number = int(ep.episode_number)
             canonical_season_count = season_ep_counts.get(season_number)
+            # A watched episode is never an extra: TMDB sometimes numbers a
+            # season shorter than the broadcast order the user watched in.
             if (
                 canonical_season_count
                 and episode_number > canonical_season_count
+                and ep.id not in watched_ids
                 and not is_schedulable_show
                 and season_number not in scheduled_seasons_by_show.get(show.id, set())
             ):
@@ -1368,8 +1452,11 @@ async def list_progress_shows(
             missing_unwatched_runtime and estimated_episode_runtime
         )
         watch_pct = (
-            round((watched_count / total_count) * 100)
-            if total_count
+            # Rounded down, and never 0% or 100% while partly watched, so a
+            # long show one episode short does not read as finished.
+            max(1, min(99, watched_count * 100 // total_count))
+            if 0 < watched_count < total_count
+            else watched_count * 100 // total_count if total_count
             else 0
         )
 
@@ -1405,13 +1492,42 @@ async def list_progress_shows(
                 "episode_count": season_total,
                 "has_aired": True,
                 "watch_pct": (
-                    round((season_watched / season_total) * 100)
-                    if season_total
+                    max(1, min(99, season_watched * 100 // season_total))
+                    if 0 < season_watched < season_total
+                    else season_watched * 100 // season_total if season_total
                     else 0
                 ),
             }
 
         show_info = format_show(show)
+
+        # Poster of the season the user is up to, like the Up Next cards: the
+        # season of the furthest watched episode, or the next season once that
+        # one is finished.
+        current_season = None
+        if watched_positions_by_season:
+            current_season = max(watched_positions_by_season)
+            if (
+                max(watched_positions_by_season[current_season])
+                >= effective_season_counts.get(current_season, 0)
+            ):
+                current_season = min(
+                    (n for n in effective_season_counts if n > current_season),
+                    default=current_season,
+                )
+        season_poster = next(
+            (
+                s.get("poster_path")
+                for s in tmdb_data.get("seasons", []) or []
+                if isinstance(s, dict) and s.get("season_number") == current_season
+            ),
+            None,
+        )
+        show_info["season_poster_path"] = (
+            season_poster
+            if isinstance(season_poster, str) and season_poster.startswith("http")
+            else tmdb.poster_url(season_poster)
+        )
 
         # Watching dates + source
         first_watched, last_watched = watch_dates_by_show.get(show.id, (None, None))
