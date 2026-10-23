@@ -1,0 +1,218 @@
+---
+// Trakt-style action buttons for detail pages (movie, show, season, episode):
+// labelled buttons stacked on the right of the info area on wide screens, a
+// compact grid on phones. Same props and data-action attributes as
+// ActionBar.astro, so Base.astro's shared handlers (watch history, rating,
+// lists, collection, Radarr/Sonarr requests) work unchanged.
+//
+// Place it inside an element with class "action-stack-host" (global.css) to
+// get the right-hand column; colours follow data-state, since the shared
+// handlers toggle state attributes and their own utility classes.
+import watchdIconWhite from "../assets/watchd-icon-white.png";
+import watchdIconRed from "../assets/watchd-icon-red.png";
+
+interface Props {
+  tmdbId: number;
+  mediaType: string;
+  watched: boolean;
+  inLists: number[];
+  inWatchlist?: boolean;
+  inLibrary: boolean;
+  collectionPct: number;
+  watchPct?: number;
+  showTmdbId?: number;
+  seasonNumber?: number;
+  episodeNumber?: number;
+  displaySeasonNumber?: number;
+  episodeOrder?: "tmdb" | "tvdb";
+  tvdbId?: number;
+  hideRequest?: boolean;
+  hideLists?: boolean;
+  isMonitored?: boolean;
+  requestEnabled?: boolean;
+  requestStatus?: string | null;
+  mediaId?: number | null;
+  userRating?: number | null;
+  hideRate?: boolean;
+}
+
+const {
+  tmdbId,
+  mediaType,
+  watched,
+  inLists,
+  inLibrary,
+  collectionPct,
+  watchPct = 0,
+  showTmdbId,
+  seasonNumber,
+  episodeNumber,
+  displaySeasonNumber,
+  episodeOrder = "tmdb",
+  tvdbId,
+  hideRequest = false,
+  hideLists = false,
+  isMonitored = false,
+  requestEnabled = false,
+  requestStatus = null,
+  mediaId = null,
+  userRating = null,
+  hideRate = false,
+} = Astro.props;
+
+const isSeries = mediaType === "series";
+const showRequest = !hideRequest && requestEnabled && (mediaType === "movie" || mediaType === "series");
+const watchActive = isSeries ? watchPct === 100 : watched;
+const collectActive = isSeries ? collectionPct > 0 : inLibrary;
+const fmtRating = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
+
+const needsCheck = !requestStatus && !isMonitored;
+const requestBlocked = isMonitored || !!requestStatus;
+const requestDone = requestBlocked || collectionPct === 100 || (inLibrary && !isSeries);
+const requestTitle = isMonitored
+  ? (isSeries ? "Already in Sonarr" : "Already in Radarr")
+  : requestStatus === "pending"
+    ? "Awaiting admin approval"
+    : requestStatus === "rejected"
+      ? "Request rejected"
+      : (isSeries ? "Request on Sonarr" : "Request on Radarr");
+---
+
+<div
+  data-card
+  data-tmdb-id={String(tmdbId)}
+  data-media-type={mediaType}
+  data-show-tmdb-id={showTmdbId ? String(showTmdbId) : ""}
+  data-season={seasonNumber != null ? String(seasonNumber) : ""}
+  data-episode-number={episodeNumber != null ? String(episodeNumber) : ""}
+  data-episode-order={episodeOrder}
+  data-tvdb-id={tvdbId != null ? String(tvdbId) : ""}
+  data-display-season={displaySeasonNumber != null ? String(displaySeasonNumber) : ""}
+  data-media-id={mediaId != null ? String(mediaId) : ""}
+  class="action-stack"
+>
+  <!-- Labels use <strong>: the shared handlers rewrite the first <span>s
+       (watch % for shows, rating value) and must not touch the labels. -->
+  <button
+    data-action="watched"
+    data-watched={String(watched)}
+    data-watch-pct={String(watchPct)}
+    data-state={watchActive ? "active" : "inactive"}
+    data-tone="red"
+    title={isSeries ? `${watchPct}% watched` : (watched ? "Mark as unwatched" : "Mark as watched")}
+  >
+    <img
+      src={watchActive ? watchdIconRed.src : watchdIconWhite.src}
+      alt=""
+      class="as-icon as-logo"
+      data-watchd-logo
+      data-watchd-red={watchdIconRed.src}
+      data-watchd-white={watchdIconWhite.src}
+    />
+    <strong>Watched</strong>
+    {isSeries && <span class="as-value">{watchPct}%</span>}
+  </button>
+
+  {!hideRate && (
+    <button
+      data-action="rate"
+      data-user-rating={userRating != null ? String(userRating) : ""}
+      data-state={userRating != null ? "active" : "inactive"}
+      data-tone="amber"
+    >
+      <svg class="as-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill={userRating != null ? "currentColor" : "none"} stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+      <span class="as-value as-value--lead">{userRating != null ? fmtRating(userRating) : "Rate"}</span>
+    </button>
+  )}
+
+  {!hideLists && (
+  <button
+    data-action="list"
+    data-in-lists={JSON.stringify(inLists)}
+    data-state={inLists.length > 0 ? "active" : "inactive"}
+    data-tone="sky"
+  >
+    <svg class="as-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+    <strong>Lists</strong>
+  </button>
+  )}
+
+  <button
+    data-action="collected"
+    data-in-library={String(inLibrary)}
+    data-collection-pct={String(collectionPct)}
+    data-state={collectActive ? "active" : "inactive"}
+    data-tone="purple"
+    title={isSeries ? `${collectionPct}% in library` : (inLibrary ? "Remove from collection" : "Add to collection")}
+  >
+    <svg class="as-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7"/><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><path d="M15 22v-4a3 3 0 0 0-6 0v4"/><path d="M2 7h20"/></svg>
+    <strong>Collection</strong>
+    {isSeries && <span class="as-value">{collectionPct}%</span>}
+  </button>
+
+  {showRequest && (
+    <button
+      data-action="request"
+      data-state={requestDone ? "active" : "inactive"}
+      data-request-loading={needsCheck ? "true" : undefined}
+      data-tone="orange"
+      title={requestTitle}
+      disabled={requestDone || needsCheck}
+    >
+      <svg class="as-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      <strong>{isSeries ? "Sonarr" : "Radarr"}</strong>
+    </button>
+  )}
+</div>
+
+<style>
+  .action-stack {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin: 4px 0 16px;
+  }
+  @media (min-width: 640px) {
+    .action-stack { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  }
+  @media (min-width: 1024px) {
+    .action-stack { grid-template-columns: 1fr; margin: 0; }
+  }
+
+  /* The shared handlers add/remove their own bg/text utility classes on
+     these buttons; colours are pinned here and driven from data-state. */
+  .action-stack button {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    min-height: 44px;
+    padding: 0 14px;
+    border-radius: 12px;
+    border: 1px solid #27272a !important;
+    background: rgba(24, 24, 27, .85) !important;
+    color: #a1a1aa !important;
+    font-size: 14px;
+    text-align: left;
+    cursor: pointer;
+    transition: background-color .15s ease, border-color .15s ease, color .15s ease;
+  }
+  .action-stack button:hover:not(:disabled) {
+    background: #27272a !important;
+    color: #f4f4f5 !important;
+  }
+  .action-stack button:disabled { cursor: not-allowed; }
+  .action-stack button:focus-visible { outline: 2px solid #ef4444; outline-offset: 2px; }
+
+  .action-stack strong { font-weight: 700; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .as-icon { width: 18px; height: 18px; flex-shrink: 0; }
+  .as-logo { width: 22px; height: 22px; object-fit: contain; }
+  .as-value { font-size: 12px; font-weight: 800; opacity: .9; }
+  .as-value--lead { flex: 1; font-size: 14px; font-weight: 700; opacity: 1; }
+
+  .action-stack button[data-state="active"][data-tone="red"]    { background: rgba(239, 68, 68, .22) !important;  border-color: rgba(239, 68, 68, .45) !important;  color: #fca5a5 !important; }
+  .action-stack button[data-state="active"][data-tone="amber"]  { background: rgba(245, 158, 11, .2) !important;  border-color: rgba(245, 158, 11, .45) !important; color: #fcd34d !important; }
+  .action-stack button[data-state="active"][data-tone="sky"]    { background: rgba(14, 165, 233, .2) !important;  border-color: rgba(14, 165, 233, .45) !important; color: #7dd3fc !important; }
+  .action-stack button[data-state="active"][data-tone="purple"] { background: rgba(168, 85, 247, .2) !important;  border-color: rgba(168, 85, 247, .45) !important; color: #d8b4fe !important; }
+  .action-stack button[data-state="active"][data-tone="orange"] { background: rgba(249, 115, 22, .2) !important;  border-color: rgba(249, 115, 22, .45) !important; color: #fdba74 !important; }
+</style>

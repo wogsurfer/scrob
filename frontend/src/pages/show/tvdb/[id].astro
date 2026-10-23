@@ -1,4 +1,6 @@
 ---
+import ActionBar from "../../../components/ActionBar.astro";
+import ActionStack from "../../../components/ActionStack.astro";
 import { api, type TvdbShow } from "../../../lib/api";
 
 export const prerender = false;
@@ -90,7 +92,7 @@ return Astro.redirect(`/show/${tmdbShowId}`);
           </div>
 
           <!-- Info -->
-          <div class="flex-1 min-w-0 pt-4">
+          <div class="flex-1 min-w-0 action-stack-host pt-4">
             <h1 class="text-4xl md:text-6xl font-black text-zinc-100 mb-3 tracking-tight leading-none">{show.title}</h1>
 
             <div class="flex flex-wrap items-center gap-3 mb-10">
@@ -128,8 +130,8 @@ return Astro.redirect(`/show/${tmdbShowId}`);
               )}
             </div>
 
-            <div class="mb-6">
-              <ActionBar
+            <div class="action-stack-slot">
+              <ActionStack
                 tmdbId={show.tmdb_id_cross ?? show.tvdb_id}
                 mediaType="series"
                 watched={show.watched}

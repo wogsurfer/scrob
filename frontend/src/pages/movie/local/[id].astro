@@ -40,9 +40,6 @@ const crewGroups = [
   { title: "Producers", jobs: ["Producer", "Executive Producer"] },
 ];
 
-// Same button classes as components/ActionBar.astro
-const btn = "flex flex-col items-center justify-center gap-0.5 md:gap-1.5 px-2 py-3 md:py-3.5 transition-all cursor-pointer";
-const btnW = "w-[52px] min-w-[52px] md:flex-1";
 ---
 
 <Base title={item.title}>
@@ -89,7 +86,7 @@ const btnW = "w-[52px] min-w-[52px] md:flex-1";
         </div>
 
         <!-- Info -->
-        <div class="flex-1 min-w-0 pt-4">
+        <div class="flex-1 min-w-0 pt-4 action-stack-host">
           <h1 class="text-4xl md:text-6xl font-black text-zinc-100 mb-3 tracking-tight leading-none">{item.title}</h1>
 
           {item.tagline && (
@@ -157,53 +154,58 @@ const btnW = "w-[52px] min-w-[52px] md:flex-1";
             </div>
           )}
 
-          <!-- Action bar (same look as components/ActionBar.astro) -->
-          <div class="mb-2" id="local-actions" data-media-id={item.id}>
-            <div class="flex w-full">
-              <div class="flex flex-row rounded-2xl border border-zinc-800 shadow-lg min-h-[52px] md:min-h-[64px] w-full">
+          <!-- Action buttons: same Trakt-style stack as components/ActionStack.astro,
+               but driving the local (/media/local/{id}) endpoints -->
+          <div class="action-stack-slot" id="local-actions" data-media-id={item.id}>
+            <div class="la-stack">
+              <button
+                type="button"
+                id="la-watch"
+                data-state={item.watched ? "active" : "inactive"}
+                data-tone="red"
+                title={item.watched ? "Mark as unwatched" : "Mark as watched"}
+              >
+                <img src={item.watched ? watchdIconRed.src : watchdIconWhite.src} data-red={watchdIconRed.src} data-white={watchdIconWhite.src} alt="" class="la-icon la-logo" />
+                <strong>Watched</strong>
+              </button>
+
+              <div class="relative">
                 <button
                   type="button"
-                  id="la-watch"
-                  title={item.watched ? "Mark as unwatched" : "Mark as watched"}
-                  class={`${btn} ${btnW} rounded-l-2xl border-r border-zinc-800/60 ${item.watched ? "bg-red-500/50 text-red-300 hover:bg-red-400/50" : "bg-zinc-800 text-zinc-500 hover:bg-red-500/50 hover:text-red-300"}`}
+                  id="la-lists"
+                  data-state={inLists.length > 0 ? "active" : "inactive"}
+                  data-tone="sky"
+                  title="Add to list"
+                  aria-expanded="false"
                 >
-                  <img src={item.watched ? watchdIconRed.src : watchdIconWhite.src} data-red={watchdIconRed.src} data-white={watchdIconWhite.src} alt="Watchd" class="w-[22px] h-[22px] object-contain" />
+                  <svg class="la-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                  <strong>Lists</strong>
                 </button>
-
-                <div class="relative flex md:flex-1">
-                  <button
-                    type="button"
-                    id="la-lists"
-                    title="Add to list"
-                    aria-expanded="false"
-                    class={`${btn} ${btnW} w-full border-r border-zinc-800/60 ${inLists.length > 0 ? "bg-sky-500/50 text-sky-300 hover:bg-sky-400/50" : "bg-zinc-800 text-zinc-500 hover:bg-sky-400/50 hover:text-sky-300"}`}
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
-                  </button>
-                  <div id="la-lists-menu" class="hidden absolute left-0 top-full mt-2 z-40 min-w-[220px] max-h-72 overflow-y-auto rounded-xl bg-zinc-900 border border-zinc-700 shadow-2xl p-1.5">
-                    {(item.lists ?? []).length === 0 ? (
-                      <div class="px-3 py-2 text-sm text-zinc-500">No lists yet</div>
-                    ) : (
-                      (item.lists ?? []).map((l: any) => (
-                        <label class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800 cursor-pointer">
-                          <input type="checkbox" class="la-list accent-sky-500" data-list-id={l.id} checked={l.item_id != null} />
-                          <span class="truncate">{l.name}</span>
-                        </label>
-                      ))
-                    )}
-                  </div>
+                <div id="la-lists-menu" class="hidden absolute right-0 top-full mt-2 z-40 min-w-[220px] max-h-72 overflow-y-auto rounded-xl bg-zinc-900 border border-zinc-700 shadow-2xl p-1.5">
+                  {(item.lists ?? []).length === 0 ? (
+                    <div class="px-3 py-2 text-sm text-zinc-500">No lists yet</div>
+                  ) : (
+                    (item.lists ?? []).map((l: any) => (
+                      <label class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800 cursor-pointer">
+                        <input type="checkbox" class="la-list accent-sky-500" data-list-id={l.id} checked={l.item_id != null} />
+                        <span class="truncate">{l.name}</span>
+                      </label>
+                    ))
+                  )}
                 </div>
-
-                <button
-                  type="button"
-                  id="la-collect"
-                  data-collected={String(item.in_library)}
-                  title={item.in_library ? "Remove from collection" : "Add to collection"}
-                  class={`${btn} ${btnW} rounded-r-2xl ${item.in_library ? "bg-purple-500/50 text-purple-300 hover:bg-purple-400/50" : "bg-zinc-800 text-zinc-500 hover:bg-purple-500/50 hover:text-purple-400"}`}
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7"/><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><path d="M15 22v-4a3 3 0 0 0-6 0v4"/><path d="M2 7h20"/></svg>
-                </button>
               </div>
+
+              <button
+                type="button"
+                id="la-collect"
+                data-collected={String(item.in_library)}
+                data-state={item.in_library ? "active" : "inactive"}
+                data-tone="purple"
+                title={item.in_library ? "Remove from collection" : "Add to collection"}
+              >
+                <svg class="la-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7"/><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><path d="M15 22v-4a3 3 0 0 0-6 0v4"/><path d="M2 7h20"/></svg>
+                <strong>Collection</strong>
+              </button>
             </div>
           </div>
 
@@ -363,8 +365,6 @@ const btnW = "w-[52px] min-w-[52px] md:flex-1";
     // Watched: opens the shared watch-history box (Base.astro) in its local
     // mode. The box reports changes back so the button and list stay current.
     const watchBtn = document.getElementById("la-watch") as HTMLButtonElement | null;
-    const WATCH_ON = ["bg-red-500/50", "text-red-300", "hover:bg-red-400/50"];
-    const WATCH_OFF = ["bg-zinc-800", "text-zinc-500", "hover:bg-red-500/50", "hover:text-red-300"];
     let historyOpened = false;
     watchBtn?.addEventListener("click", () => {
       historyOpened = true;
@@ -372,8 +372,7 @@ const btnW = "w-[52px] min-w-[52px] md:flex-1";
     });
     window.addEventListener("watchd:local-watch-history", (e) => {
       const { isWatched } = (e as CustomEvent).detail;
-      watchBtn?.classList.remove(...WATCH_ON, ...WATCH_OFF);
-      watchBtn?.classList.add(...(isWatched ? WATCH_ON : WATCH_OFF));
+      if (watchBtn) watchBtn.dataset.state = isWatched ? "active" : "inactive";
       if (watchBtn) watchBtn.title = isWatched ? "Mark as unwatched" : "Mark as watched";
       const logo = watchBtn?.querySelector("img");
       if (logo) logo.src = (isWatched ? logo.dataset.red : logo.dataset.white) ?? logo.src;
@@ -385,12 +384,9 @@ const btnW = "w-[52px] min-w-[52px] md:flex-1";
 
     // Lists: a checkbox per list.
     const listsBtn = document.getElementById("la-lists");
-    const LIST_ON = ["bg-sky-500/50", "text-sky-300", "hover:bg-sky-400/50"];
-    const LIST_OFF = ["bg-zinc-800", "text-zinc-500", "hover:bg-sky-400/50", "hover:text-sky-300"];
     const refreshListsBtn = () => {
       const any = document.querySelectorAll<HTMLInputElement>(".la-list:checked").length > 0;
-      listsBtn?.classList.remove(...LIST_ON, ...LIST_OFF);
-      listsBtn?.classList.add(...(any ? LIST_ON : LIST_OFF));
+      if (listsBtn) listsBtn.dataset.state = any ? "active" : "inactive";
     };
     document.querySelectorAll<HTMLInputElement>(".la-list").forEach((box) => {
       box.addEventListener("change", () => {
@@ -409,17 +405,33 @@ const btnW = "w-[52px] min-w-[52px] md:flex-1";
 
     // Collection toggle.
     const collectBtn = document.getElementById("la-collect") as HTMLButtonElement | null;
-    const COLL_ON = ["bg-purple-500/50", "text-purple-300", "hover:bg-purple-400/50"];
-    const COLL_OFF = ["bg-zinc-800", "text-zinc-500", "hover:bg-purple-500/50", "hover:text-purple-400"];
     collectBtn?.addEventListener("click", () => {
       const collected = collectBtn.dataset.collected === "true";
       busy(collectBtn, async () => {
         await call(`/media/local/${mediaId}/collect`, collected ? "DELETE" : "POST");
         collectBtn.dataset.collected = String(!collected);
-        collectBtn.classList.remove(...COLL_ON, ...COLL_OFF);
-        collectBtn.classList.add(...(collected ? COLL_OFF : COLL_ON));
+        collectBtn.dataset.state = collected ? "inactive" : "active";
         collectBtn.title = collected ? "Add to collection" : "Remove from collection";
       });
     });
   </script>
+  <style>
+    /* Same look as components/ActionStack.astro */
+    .la-stack { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 4px 0 16px; }
+    @media (min-width: 1024px) { .la-stack { grid-template-columns: 1fr; margin: 0; } }
+    .la-stack button {
+      display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 0 14px;
+      border-radius: 12px; border: 1px solid #27272a; background: rgba(24, 24, 27, .85); color: #a1a1aa;
+      font-size: 14px; text-align: left; cursor: pointer;
+      transition: background-color .15s ease, border-color .15s ease, color .15s ease;
+    }
+    .la-stack button:hover { background: #27272a; color: #f4f4f5; }
+    .la-stack button:focus-visible { outline: 2px solid #ef4444; outline-offset: 2px; }
+    .la-stack strong { font-weight: 700; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .la-icon { width: 18px; height: 18px; flex-shrink: 0; }
+    .la-logo { width: 22px; height: 22px; object-fit: contain; }
+    .la-stack button[data-state="active"][data-tone="red"] { background: rgba(239, 68, 68, .22); border-color: rgba(239, 68, 68, .45); color: #fca5a5; }
+    .la-stack button[data-state="active"][data-tone="sky"] { background: rgba(14, 165, 233, .2); border-color: rgba(14, 165, 233, .45); color: #7dd3fc; }
+    .la-stack button[data-state="active"][data-tone="purple"] { background: rgba(168, 85, 247, .2); border-color: rgba(168, 85, 247, .45); color: #d8b4fe; }
+  </style>
 </Base>
