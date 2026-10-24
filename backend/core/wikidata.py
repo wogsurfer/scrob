@@ -111,13 +111,22 @@ async def _cached(kind: str, tmdb_id: int, *queries: str) -> list[dict]:
 async def film_award_people(movie_tmdb_id: int) -> list[dict]:
     """Awards for a film, by TMDB movie id: people's nominations "for" the film,
     and the film's own (person_name None unless a nominee is recorded on it)."""
+    return await _title_award_people("film", "P4947", movie_tmdb_id)
+
+
+async def tv_award_people(tv_tmdb_id: int) -> list[dict]:
+    """Awards for a TV show, by TMDB TV id; as film_award_people."""
+    return await _title_award_people("tv", "P4983", tv_tmdb_id)
+
+
+async def _title_award_people(kind: str, prop: str, tmdb_id: int) -> list[dict]:
     # Two simple queries, each starting from the film with the optimizer off:
     # left to reorder (or given a UNION) the service starts from every award
     # statement in Wikidata and times out.
     for_film = f"""
     SELECT ?kind ?awardLabel ?time ?personLabel ?personTmdb WHERE {{
       hint:Query hint:optimizer "None" .
-      ?film wdt:P4947 "{movie_tmdb_id}" .
+      ?film wdt:{prop} "{tmdb_id}" .
       ?st pq:P1686 ?film .
       ?person ?pp ?st .
       VALUES (?pp ?ps ?kind) {{ (p:P166 ps:P166 "won") (p:P1411 ps:P1411 "nom") }}
@@ -129,7 +138,7 @@ async def film_award_people(movie_tmdb_id: int) -> list[dict]:
     film_own = f"""
     SELECT ?kind ?awardLabel ?time ?personLabel ?personTmdb WHERE {{
       hint:Query hint:optimizer "None" .
-      ?film wdt:P4947 "{movie_tmdb_id}" .
+      ?film wdt:{prop} "{tmdb_id}" .
       VALUES (?pp ?ps ?pq ?kind) {{ (p:P166 ps:P166 pq:P1346 "won") (p:P1411 ps:P1411 pq:P2453 "nom") }}
       ?film ?pp ?st .
       ?st ?ps ?award .
@@ -137,7 +146,7 @@ async def film_award_people(movie_tmdb_id: int) -> list[dict]:
       OPTIONAL {{ ?st pq:P585 ?time }}
       SERVICE wikibase:label {{ bd:serviceParam wikibase:language "en". }}
     }}"""
-    return await _cached("film", movie_tmdb_id, for_film, film_own)
+    return await _cached(kind, tmdb_id, for_film, film_own)
 
 
 async def person_awards(person_tmdb_id: int) -> list[dict]:
