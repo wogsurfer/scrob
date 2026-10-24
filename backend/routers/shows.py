@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy import select, update, func, case, cast as sa_cast, Text, or_, and_
 from sqlalchemy.orm import aliased
 import os
+import re
 import time
 
 from models.events import WatchEvent
@@ -1819,7 +1820,14 @@ async def get_show(
                 "in_library": collected > 0,
                 "collection_pct": min(100, int((collected / total) * 100)) if total > 0 else 0,
                 "watched": watched >= total if total > 0 else False,
-                "watch_pct": min(100, int((watched / total) * 100)) if total > 0 else 0,
+                # Rounded down, and never 0% or 100% while partly watched.
+                "watch_pct": (
+                    max(1, min(99, watched * 100 // total)) if 0 < watched < total
+                    else min(100, watched * 100 // total) if total > 0
+                    else 0
+                ),
+                "watched_count": min(watched, total) if total > 0 else watched,
+                "episode_count": total,  # aired so far
                 "user_rating": season_ratings.get(sn),
             }
 
@@ -2834,9 +2842,121 @@ async def refresh_show_metadata(
 
 # ── TVDB Show Endpoints ─────────────────────────────────────────────────────
 
+_PLAYING_RE = re.compile(r'For playing:?\s*"([^"]+)"', re.I)
+
+
+def _norm_character(name: str) -> str:
+    return re.sub(r"[^a-z0-9 ]", "", name.lower()).strip()
+
+
+# (character, actor, episodes) per show for naming award nominees. Long-running
+# shows have thousands of credits, so build the list once a day, not per visit.
+_ROLES_TTL = 24 * 3600
+_roles_cache: dict[int, tuple[float, list[tuple[str, str, int]]]] = {}
+
+
+async def _show_roles(tmdb_id: int, tmdb_key: str | None) -> list[tuple[str, str, int]] | None:
+    hit = _roles_cache.get(tmdb_id)
+    if hit and time.time() - hit[0] < _ROLES_TTL:
+        return hit[1]
+    try:
+        data = await tmdb.get_show(tmdb_id, api_key=tmdb_key)
+    except Exception:
+        return None
+    roles: list[tuple[str, str, int]] = []
+    for person in (data.get("aggregate_credits") or {}).get("cast") or []:
+        for role in person.get("roles") or []:
+            character = _norm_character(role.get("character") or "")
+            if character:
+                roles.append((character, person.get("name"), role.get("episode_count") or 0))
+    _roles_cache[tmdb_id] = (time.time(), roles)
+    return roles
+
+
+async def _name_award_nominees(awards: list[dict], tmdb_id: int, tmdb_key: str | None) -> list[dict]:
+    """TVDB nominees carry no person, only "For playing "X"" in the details,
+    so match that character against the show's full TMDB cast (guest stars
+    included) to name the actor."""
+    wanted = [a for a in awards if not a.get("person_name") and _PLAYING_RE.search(a.get("details") or "")]
+    if not wanted:
+        return awards
+    roles = await _show_roles(tmdb_id, tmdb_key)
+    if roles is None:
+        return awards
+
+    def actor_for(character: str) -> str | None:
+        target = _norm_character(character)
+        if not target:
+            return None
+        # Exact match first, then one name containing the other: "Det. Olivia
+        # Benson" for "Olivia Benson", or "Dana Lewis" for "Agent Dana Lewis".
+        # A shorter credit must still be a full name: a lone "Bernadette" is
+        # someone else, not "Bernadette Stabler".
+        # When several actors played the part (a younger self in a flashback),
+        # take the one with the most episodes in it.
+        for matches in (
+            [r for r in roles if r[0] == target],
+            [r for r in roles if target in r[0] or (r[0] in target and " " in r[0])],
+        ):
+            if matches:
+                return max(matches, key=lambda r: r[2])[1]
+        # Nicknames: same surname and the first names share their first three
+        # letters ("Bernie Stabler" for "Bernadette Stabler").
+        words = target.split()
+        if len(words) >= 2 and len(words[0]) >= 3:
+            nick = [
+                r for r in roles
+                if len(r[0].split()) >= 2
+                and r[0].split()[-1] == words[-1]
+                and r[0].split()[0][:3] == words[0][:3]
+            ]
+            if nick:
+                return max(nick, key=lambda r: r[2])[1]
+        return None
+
+    named = []
+    for award in awards:
+        match = _PLAYING_RE.search(award.get("details") or "") if not award.get("person_name") else None
+        if match:
+            actors = [actor_for(c) for c in match.group(1).split("/")]
+            actors = list(dict.fromkeys(a for a in actors if a))
+            if actors:
+                award = {**award, "person_name": " & ".join(actors)}
+        named.append(award)
+
+    # Acting nominations with no details at all (e.g. a Golden Globe for Best
+    # Actress): credit whoever holds most of the show's other named
+    # nominations of that kind (lead actress, lead actor), if anyone clearly does.
+    def acting_kind(category: str) -> str | None:
+        c = category.lower()
+        if "guest" in c:
+            return None
+        if "actress" in c:
+            return "actress"
+        if "actor" in c:
+            return "actor"
+        return None
+
+    tally: dict[str, dict[str, int]] = {}
+    for award in named:
+        kind = acting_kind(award.get("category_name") or "")
+        if kind and award.get("person_name"):
+            people = tally.setdefault(kind, {})
+            people[award["person_name"]] = people.get(award["person_name"], 0) + 1
+    for i, award in enumerate(named):
+        kind = acting_kind(award.get("category_name") or "")
+        if award.get("person_name") or award.get("details") or not kind or not tally.get(kind):
+            continue
+        ranked = sorted(tally[kind].items(), key=lambda kv: -kv[1])
+        if len(ranked) == 1 or ranked[0][1] > ranked[1][1]:
+            named[i] = {**award, "person_name": ranked[0][0]}
+    return named
+
+
 @router.get("/tvdb/{tvdb_id}/awards")
 async def get_tvdb_awards(
     tvdb_id: int,
+    tmdb_id: int | None = Query(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -2853,6 +2973,10 @@ async def get_tvdb_awards(
             tvdb_id,
             api_key,
         )
+        if tmdb_id:
+            awards = await _name_award_nominees(
+                awards, tmdb_id, await get_user_tmdb_key(db, current_user.id)
+            )
 
         return {
             "tvdb_id": tvdb_id,

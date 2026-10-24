@@ -4,6 +4,7 @@ Token-based auth: POST /login returns a 30-day Bearer token.
 We cache the token in memory (module-level) and refresh it when it expires.
 """
 import asyncio
+import json
 import time
 import httpx
 
@@ -163,92 +164,108 @@ async def get_series(tvdb_id: int, api_key: str) -> dict:
     data = await _get(f"/series/{tvdb_id}/extended", api_key, params={"meta": "translations,episodes"})
     return data.get("data") or {}
 
-async def get_series_awards(tvdb_id: int, api_key: str) -> list[dict]:
-    """Fetch TVDB award nominations/wins for a series."""
+# Every TVDB series award category with its nominees. The lists are the same
+# for every show, so they are fetched once (about 3 minutes cold) and shared;
+# each show's awards are then a quick filter. Rebuilt daily in the background
+# while the previous index keeps serving.
+_award_index: tuple[float, list[tuple[dict, dict, list[dict]]]] | None = None
+_award_index_task: "asyncio.Task | None" = None
+# Saved to disk so a restart doesn't mean another 3-minute crawl.
+_AWARD_INDEX_FILE = "tvdb_award_index.json"
 
-    cached = _awards_cache.get(tvdb_id)
-    if cached:
-        cached_at, awards = cached
-        if time.time() - cached_at < _AWARDS_CACHE_TTL:
-            _awards_cache[tvdb_id] = (time.time(), awards)
-            return awards
 
-    awards = []
+def _load_award_index() -> None:
+    global _award_index
+    from core.config import settings
+    try:
+        with open(settings.data_dir / _AWARD_INDEX_FILE, encoding="utf-8") as f:
+            saved = json.load(f)
+        _award_index = (saved["built_at"], [tuple(entry) for entry in saved["index"]])
+    except (OSError, ValueError, KeyError):
+        pass
 
+
+def _save_award_index() -> None:
+    from core.config import settings
+    try:
+        settings.data_dir.mkdir(parents=True, exist_ok=True)
+        tmp = settings.data_dir / (_AWARD_INDEX_FILE + ".tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({"built_at": _award_index[0], "index": _award_index[1]}, f)
+        tmp.replace(settings.data_dir / _AWARD_INDEX_FILE)
+    except OSError as e:
+        print(f"Could not save TVDB award index: {e}")
+
+
+async def _build_award_index(api_key: str) -> list[tuple[dict, dict, list[dict]]]:
+    semaphore = asyncio.Semaphore(10)
     award_data = await _get("/awards", api_key)
 
-    # First fetch the extended data for all awards concurrently.
-    semaphore = asyncio.Semaphore(10)
-
     async def fetch_award(award):
-        award_id = award.get("id")
-        if not award_id:
+        if not award.get("id"):
             return None
-
         async with semaphore:
             try:
-                return award, await _get(
-                    f"/awards/{award_id}/extended",
-                    api_key,
-                )
+                return award, await _get(f"/awards/{award['id']}/extended", api_key)
             except Exception:
                 return None
 
-    award_results = await asyncio.gather(
-        *(fetch_award(award) for award in award_data.get("data") or [])
-    )
-
-    # Collect only categories that actually apply to TV series.
     categories = []
-
-    for result in award_results:
+    for result in await asyncio.gather(*(fetch_award(a) for a in award_data.get("data") or [])):
         if not result:
             continue
-
         award, extended = result
-
         for category in extended.get("data", {}).get("categories") or []:
-            if not category.get("id"):
-                continue
+            # Only categories that apply to TV series
+            if category.get("id") and category.get("forSeries", False):
+                categories.append((award, category))
 
-            if not category.get("forSeries", False):
-                continue
-
-            categories.append((award, category))
-
-    # Fetch category nominees concurrently.
     async def fetch_category(award, category):
-        category_id = category["id"]
-
         async with semaphore:
             try:
-                category_data = await _get(
-                    f"/awards/categories/{category_id}/extended",
-                    api_key,
-                )
-                return award, category, category_data
+                data = await _get(f"/awards/categories/{category['id']}/extended", api_key)
             except Exception:
                 return None
+        return award, category, data.get("data", {}).get("nominees") or []
 
-    category_results = await asyncio.gather(
-        *(fetch_category(award, category) for award, category in categories)
-    )
+    results = await asyncio.gather(*(fetch_category(a, c) for a, c in categories))
+    return [r for r in results if r]
 
-    # Keep only nominees belonging to this series.
-    for result in category_results:
-        if not result:
-            continue
 
-        award, category, category_data = result
+async def _get_award_index(api_key: str) -> list[tuple[dict, dict, list[dict]]]:
+    global _award_index, _award_index_task
 
-        for nominee in (
-            category_data.get("data", {}).get("nominees") or []
-        ):
+    async def build():
+        global _award_index
+        _award_index = (time.time(), await _build_award_index(api_key))
+        _awards_cache.clear()
+        _save_award_index()
+
+    if _award_index is None:
+        _load_award_index()
+
+    fresh = _award_index and time.time() - _award_index[0] < _AWARDS_CACHE_TTL
+    if not fresh and (_award_index_task is None or _award_index_task.done()):
+        _award_index_task = asyncio.create_task(build())
+    if _award_index:
+        return _award_index[1]  # serve the old index while a rebuild runs
+    # shield: a client giving up must not cancel the build for everyone else
+    await asyncio.shield(_award_index_task)
+    return _award_index[1] if _award_index else []
+
+
+async def get_series_awards(tvdb_id: int, api_key: str) -> list[dict]:
+    """Fetch TVDB award nominations/wins for a series."""
+    cached = _awards_cache.get(tvdb_id)
+    if cached and time.time() - cached[0] < _AWARDS_CACHE_TTL:
+        return cached[1]
+
+    awards = []
+    for award, category, nominees in await _get_award_index(api_key):
+        for nominee in nominees:
             series = nominee.get("series") or {}
-
             if str(series.get("id")) != str(tvdb_id):
                 continue
-
             awards.append({
                 "award_id": award.get("id"),
                 "award_name": award.get("name"),
