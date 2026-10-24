@@ -1,0 +1,40 @@
+---
+// The plays of a movie or episode, listed under the action boxes: one line per
+// play with its date, time, edition (movies) and source logo.
+import SourceBadge from "./SourceBadge.astro";
+import { formatWatchDate, formatWatchTime, utcIso } from "../lib/time";
+
+interface Props {
+  watches?: { watched_at?: string | null; watch_source?: string | null; edition?: string | null }[] | null;
+}
+
+const { watches = [] } = Astro.props;
+---
+
+{watches && watches.length > 0 && (
+  <div class="mt-4 px-1 text-center md:text-left">
+    <p class="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">
+      Watched{watches.length > 1 ? ` · ${watches.length} times` : ""}
+    </p>
+    <ul class="space-y-1">
+      {watches.map((watch) => (
+        <li class="flex items-center justify-center md:justify-start gap-2 text-[13px] font-bold text-zinc-200 whitespace-nowrap">
+          {watch.watched_at ? (
+            <>
+              <time data-local="date" datetime={utcIso(watch.watched_at)}>{formatWatchDate(watch.watched_at)}</time>
+              <time data-local="time" datetime={utcIso(watch.watched_at)} class="text-zinc-500">{formatWatchTime(watch.watched_at)}</time>
+            </>
+          ) : (
+            <span class="text-zinc-500">Date unknown</span>
+          )}
+          {watch.edition && (
+            <span title={`${watch.edition} Edition`} class="text-[10px] font-bold uppercase tracking-wider text-red-400 border border-red-500/40 rounded px-1 py-0.5 truncate max-w-[5rem]">
+              {watch.edition}
+            </span>
+          )}
+          {watch.watch_source && <SourceBadge source={watch.watch_source} />}
+        </li>
+      ))}
+    </ul>
+  </div>
+)}

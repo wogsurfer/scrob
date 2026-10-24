@@ -1,0 +1,68 @@
+---
+// A watch source ("Blu-ray", "Netflix", "Digital file", ...) as a small
+// coloured logo, about one line of text high, with the name as a tooltip.
+// Disc formats use the logos in /public/logos; services are drawn as their
+// wordmark colours; generic sources get a coloured icon. Anything else falls
+// back to the name as text.
+interface Props {
+  source: string;
+}
+
+const { source } = Astro.props;
+const key = source.trim().toLowerCase();
+---
+
+<span class="source-badge inline-flex items-center h-5 shrink-0 leading-none" title={source} aria-label={source}>
+  {key === "4k" ? (
+    <img src="/logos/4k.svg" alt="" class="h-6 w-auto -my-0.5" />
+  ) : key === "blu-ray" ? (
+    <img src="/logos/bluray.svg" alt="" class="h-7 w-auto -my-1" />
+  ) : key === "dvd" ? (
+    <img src="/logos/dvd.svg" alt="" class="source-badge-mono h-4 w-auto" />
+  ) : key === "vhs" ? (
+    <img src="/logos/vhs.svg" alt="" class="source-badge-mono h-4 w-auto" />
+  ) : key === "netflix" ? (
+    <span class="text-[13px] font-black tracking-tight text-[#E50914]">NETFLIX</span>
+  ) : key === "amazon" ? (
+    <span class="text-[13px] font-black tracking-tight text-[#00A8E1]">prime video</span>
+  ) : key === "disney+" ? (
+    <span class="text-[13px] font-black tracking-tight text-[#4F9DFF]">Disney+</span>
+  ) : key === "appletv" || key === "apple tv" ? (
+    <span class="text-[13px] font-black tracking-tight text-zinc-100">Apple TV</span>
+  ) : key === "plex" ? (
+    <span class="text-[13px] font-black tracking-tight text-zinc-100">PLE<span class="text-[#E5A00D]">X</span></span>
+  ) : key === "youtube" ? (
+    <svg viewBox="0 0 28 20" class="h-4 w-auto" aria-hidden="true">
+      <rect width="28" height="20" rx="5" fill="#FF0000" />
+      <path d="M11 6v8l7-4z" fill="#fff" />
+    </svg>
+  ) : key === "cinema" ? (
+    <!-- Clapperboard -->
+    <svg viewBox="0 0 24 24" class="h-5 w-5 text-[#F87171]" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M20.2 6 3 11l-.9-2.4c-.3-1.1.3-2.2 1.3-2.5l13.5-4c1.1-.3 2.2.3 2.5 1.3Z" />
+      <path d="m6.2 5.3 3.1 3.9" /><path d="m12.4 3.4 3.1 4" />
+      <path d="M3 11h18v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
+    </svg>
+  ) : key === "digital file" ? (
+    <!-- Video file -->
+    <svg viewBox="0 0 24 24" class="h-5 w-5 text-[#34D399]" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" />
+      <path d="M14 2v6h6" />
+      <path d="m10 11 5 3-5 3Z" fill="currentColor" />
+    </svg>
+  ) : key === "tv" || key === "cable" ? (
+    <!-- Television -->
+    <svg viewBox="0 0 24 24" class="h-5 w-5 text-[#A78BFA]" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <rect width="20" height="15" x="2" y="7" rx="2" />
+      <path d="m17 2-5 5-5-5" />
+    </svg>
+  ) : (
+    <span class="text-xs font-bold text-zinc-400">{source}</span>
+  )}
+</span>
+
+<style>
+  /* The DVD and VHS logos are black; show them white on the dark theme. */
+  .source-badge-mono { filter: invert(1); }
+  :global(html.light) .source-badge-mono { filter: none; }
+</style>
