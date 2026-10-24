@@ -120,7 +120,9 @@ def _norm(name: str) -> str:
     return re.sub(r"[^a-z]", "", name.lower())
 
 
-async def _wikipedia_source(kind: str, tmdb_id: int) -> tuple[list[str], list[str]]:
+async def wikipedia_article(kind: str, tmdb_id: int, lead_only: bool = True) -> str | None:
+    """The wikitext of a title's English Wikipedia article (just the lead
+    section and infobox when `lead_only`), found through Wikidata."""
     sparql = f"""
         SELECT ?title WHERE {{
           ?item wdt:{_TMDB_PROP[kind]} "{tmdb_id}" .
@@ -132,17 +134,26 @@ async def _wikipedia_source(kind: str, tmdb_id: int) -> tuple[list[str], list[st
         r.raise_for_status()
         rows = r.json()["results"]["bindings"]
         if not rows:
-            return [], []
-        r = await client.get(_WIKIPEDIA, params={
-            "action": "query", "prop": "revisions", "rvprop": "content", "rvsection": "0",
+            return None
+        params = {
+            "action": "query", "prop": "revisions", "rvprop": "content",
             "rvslots": "main", "format": "json", "formatversion": "2", "redirects": "1",
             "titles": rows[0]["title"]["value"],
-        })
+        }
+        if lead_only:
+            params["rvsection"] = "0"
+        r = await client.get(_WIKIPEDIA, params=params)
         r.raise_for_status()
         pages = r.json().get("query", {}).get("pages") or []
         if not pages or "revisions" not in pages[0]:
-            return [], []
-        wikitext = pages[0]["revisions"][0]["slots"]["main"]["content"]
+            return None
+        return pages[0]["revisions"][0]["slots"]["main"]["content"]
+
+
+async def _wikipedia_source(kind: str, tmdb_id: int) -> tuple[list[str], list[str]]:
+    wikitext = await wikipedia_article(kind, tmdb_id)
+    if not wikitext:
+        return [], []
     authors, linked = [], []
     for name in _FIELDS:
         value = _field(wikitext, name)

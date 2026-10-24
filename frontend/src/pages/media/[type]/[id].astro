@@ -6,6 +6,7 @@ import ActionStack from "../../../components/ActionStack.astro";
 import VideoPlayer from "../../../components/VideoPlayer.astro";
 import CrewSection from "../../../components/CrewSection.astro";
 import AwardsList from "../../../components/AwardsList.astro";
+import SoundtrackList from "../../../components/SoundtrackList.astro";
 import { api, type MediaItem } from "../../../lib/api";
 import { utcIso, formatWatchDate, formatWatchTime } from "../../../lib/time";
 export const prerender = false;
@@ -450,6 +451,8 @@ const refreshUrl = isEpisode
         )}
 
         <CrewSection crew={item.crew} />
+
+        {item.type === "movie" && item.tmdb_id && <SoundtrackList endpoint={`/api/proxy/soundtrack/movie/${item.tmdb_id}`} />}
 
         {collection && collection.parts?.length > 1 && (
           <div class="mt-32">

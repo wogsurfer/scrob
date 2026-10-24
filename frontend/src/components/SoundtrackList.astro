@@ -1,0 +1,96 @@
+---
+// The songs used in a film or show (score and dialogue left out), grouped
+// by soundtrack album. Filled after load from `endpoint` (an /api/proxy URL
+// returning { albums: [{ title, year, tracks: [...] }], source }); shows
+// "Loading…" until then and hides itself when there are no songs.
+interface Props {
+  endpoint: string;
+}
+
+const { endpoint } = Astro.props;
+---
+
+<section id="soundtrack" class="hidden mt-24 pt-16 mb-12">
+  <div class="flex items-baseline justify-between gap-4 mb-8">
+    <h2 class="text-3xl font-black text-zinc-100 tracking-tighter uppercase">Soundtrack</h2>
+    <span id="soundtrack-count" class="text-sm font-bold text-zinc-500"></span>
+  </div>
+  <div id="soundtrack-albums" class="space-y-8"></div>
+  <button id="soundtrack-more" type="button" class="hidden mt-4 text-sm font-bold text-zinc-400 hover:text-zinc-100 transition-colors"></button>
+  <p id="soundtrack-source" class="hidden mt-4 text-[11px] font-bold uppercase tracking-wider text-zinc-600"></p>
+</section>
+
+<script define:vars={{ endpoint }}>
+  const stSection = document.getElementById('soundtrack');
+  const stCount = document.getElementById('soundtrack-count');
+  const stAlbums = document.getElementById('soundtrack-albums');
+  const stMore = document.getElementById('soundtrack-more');
+  const stSource = document.getElementById('soundtrack-source');
+  // Show 12 songs, or all of them if only a few more would be hidden.
+  const SONGS_SHOWN = 12;
+  const SHOW_ALL_UNDER = 16;
+
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const duration = (secs) => secs ? `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}` : '';
+  const NOTE = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M9 17.5V6.2a1 1 0 0 1 .76-.97l9-2.25A1 1 0 0 1 20 3.95V15.5a3 3 0 1 1-2-2.83V7.3l-7 1.75v8.45a3 3 0 1 1-2-2.83z"/></svg>';
+
+  const row = (t) => `
+    <li class="flex items-center gap-4 py-3 min-w-0">
+      <span class="shrink-0 grid place-items-center w-9 h-9 rounded-full bg-zinc-900 border border-zinc-800 text-red-500">${NOTE}</span>
+      <div class="min-w-0 flex-1">
+        <div class="text-sm font-black text-zinc-100 truncate" title="${esc(t.title)}">${esc(t.title)}</div>
+        <div class="text-xs font-bold text-zinc-400 truncate" title="${esc(t.artist)}">${esc(t.artist)}</div>
+        ${t.writers?.length ? `<div class="text-[11px] text-zinc-500 truncate" title="Written by ${esc(t.writers.join(', '))}">Written by ${esc(t.writers.join(', '))}</div>` : ''}
+      </div>
+      <span class="shrink-0 text-xs font-bold tabular-nums text-zinc-600">${duration(t.length)}</span>
+    </li>`;
+
+  const render = (albums, all) => {
+    let left = all ? Infinity : SONGS_SHOWN;
+    const named = albums.length > 1;
+    stAlbums.innerHTML = albums.map((a) => {
+      if (left <= 0) return '';
+      const tracks = a.tracks.slice(0, left);
+      left -= tracks.length;
+      const head = named || a.title
+        ? `<h3 class="mb-2 text-xs font-black uppercase tracking-[0.16em] text-zinc-500">${esc(a.title || 'Soundtrack')}${a.year ? ` <span class="text-zinc-600">· ${esc(a.year)}</span>` : ''}</h3>`
+        : '';
+      return `<div>${head}<ul class="grid md:grid-cols-2 gap-x-10 divide-y divide-zinc-800/70 md:divide-y-0 border-y border-zinc-800/70 md:border-0">${tracks.map(row).join('')}</ul></div>`;
+    }).join('');
+  };
+
+  if (stSection && endpoint) {
+    stCount.textContent = 'Loading…';
+    stSection.classList.remove('hidden');
+    fetch(endpoint)
+      .then((res) => {
+        if (!res.ok) throw new Error(`Soundtrack request failed: ${res.status}`);
+        return res.json();
+      })
+      .then((data) => {
+        const albums = (data.albums ?? []).filter((a) => a.tracks?.length);
+        const total = albums.reduce((n, a) => n + a.tracks.length, 0);
+        if (!total) {
+          stSection.classList.add('hidden');
+          return;
+        }
+        stCount.textContent = `${total} ${total === 1 ? 'song' : 'songs'}`;
+        const show = (all) => {
+          render(albums, all || total <= SHOW_ALL_UNDER);
+          stMore.classList.toggle('hidden', total <= SHOW_ALL_UNDER);
+          stMore.textContent = all ? 'Show less' : `Show all ${total}`;
+          stMore.dataset.all = String(all);
+        };
+        stMore.addEventListener('click', () => show(stMore.dataset.all !== 'true'));
+        show(false);
+        if (data.source) {
+          stSource.textContent = `From ${data.source}`;
+          stSource.classList.remove('hidden');
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to load soundtrack:', err);
+        stSection.classList.add('hidden');
+      });
+  }
+</script>

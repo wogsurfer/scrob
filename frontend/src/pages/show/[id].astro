@@ -5,6 +5,7 @@ import MediaRow from "../../components/MediaRow.astro";
 import SeasonCard from "../../components/SeasonCard.astro";
 import NetworkLogo from "../../components/NetworkLogo.astro";
 import AwardsList from "../../components/AwardsList.astro";
+import SoundtrackList from "../../components/SoundtrackList.astro";
 import ActionStack from "../../components/ActionStack.astro";
 import EpisodeOrderSelector from "../../components/EpisodeOrderSelector.astro";
 import CrewSection from "../../components/CrewSection.astro";
@@ -500,6 +501,8 @@ const watchedRange = (() => {
         </div>
 
         <CrewSection crew={show.crew} showEpisodeCounts />
+
+        {show?.tmdb_id && <SoundtrackList endpoint={`/api/proxy/soundtrack/tv/${show.tmdb_id}`} />}
 
         <div id="recommendations-container" data-type="series" data-id={show.tmdb_id}></div>
       </div>
