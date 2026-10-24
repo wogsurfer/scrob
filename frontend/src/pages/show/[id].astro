@@ -374,8 +374,8 @@ const watchedRange = (() => {
 {show?.tvdb_id && <AwardsList endpoint={`/api/proxy/shows/tvdb/${show.tvdb_id}/awards?tmdb_id=${show.tmdb_id}`} />}
 
         <!-- Seasons -->
-        <div class="mt-12">
-          <div class="flex items-center justify-between mb-10 border-b border-zinc-900 pb-6">
+        <div class="page-section">
+          <div class="flex items-center justify-between page-section-head">
             <h2 class="text-3xl font-black text-zinc-100 tracking-tighter uppercase">Seasons</h2>
           </div>
           
@@ -398,8 +398,8 @@ const watchedRange = (() => {
         </div>
 
         <!-- Cast / Guest Stars -->
-        <div class="mt-2 border-zinc-900 pt-16">
-          <div class="flex items-center gap-8 mb-10">
+        <div class="page-section">
+          <div class="flex items-center gap-8 page-section-head">
             <h2
               id="cast-tab"
               class="text-3xl font-black tracking-tighter uppercase text-red-500 cursor-pointer"
@@ -504,7 +504,7 @@ const watchedRange = (() => {
 
         {show?.tmdb_id && <SoundtrackList endpoint={`/api/proxy/soundtrack/tv/${show.tmdb_id}`} />}
 
-        <div id="recommendations-container" data-type="series" data-id={show.tmdb_id}></div>
+        <div id="recommendations-container" class="page-section" data-type="series" data-id={show.tmdb_id}></div>
       </div>
     </div>
   )}

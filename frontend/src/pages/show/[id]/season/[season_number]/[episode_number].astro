@@ -324,14 +324,14 @@ const thumbnail = episode?.still_path || show?.poster_path || null;
           </div>
         </div>
 
-        <div class="flex items-center gap-8 mb10">
+        <div class="flex items-center gap-8 page-section page-section-head">
           <h2 id="cast-tab" class="text-3xl font-black tracking-tighter uppercase text-red-500 cursor-pointer">Cast</h2>
           <h2 id="guest-stars-tab" class="text-3xl font-black tracking-tighter uppercase text-zinc-500 cursor-pointer">Guest Stars</h2>
         </div>
 
         <!-- Cast -->
         {episode.cast?.length > 0 && (
-          <div id="cast-panel" class="border-t border-zinc-900 pt-8">
+          <div id="cast-panel">
             <div class="flex gap-6 overflow-x-auto pb-4">
               {episode.cast.map((person) => (
                 <a href={`/person/${person.tmdb_id}`} class="group/cast shrink-0 w-[240px] sm:w-[260px] bg-zinc-900/20 border border-zinc-800/40 p-4 rounded-3xl active:scale-95 active:opacity-70">
@@ -360,7 +360,7 @@ const thumbnail = episode?.still_path || show?.poster_path || null;
 
         <!-- Guest Stars -->
         {episode.guest_stars?.length > 0 && (
-          <div id="guest-stars-panel" class="border-t border-zinc-900 pt-8 hidden">
+          <div id="guest-stars-panel" class="hidden">
             <h2 class="hidden">Guest Stars</h2>
             <div class="flex gap-6 overflow-x-auto pb-4">
               {episode.guest_stars.map((person) => (

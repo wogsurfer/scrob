@@ -50,8 +50,8 @@ const roleOf = (person: CrewCredit) =>
 ---
 
 {crew && crew.length > 0 && (
-  <section class="mt-16 mb-16 border-t border-zinc-800/70 pt-10">
-    <h2 class="text-3xl font-black text-zinc-100 tracking-tighter uppercase mb-10">{title}</h2>
+  <section class="page-section">
+    <h2 class="text-3xl font-black text-zinc-100 tracking-tighter uppercase page-section-head">{title}</h2>
     <!-- Groups sit side by side; a group too wide for the row scrolls on its own. -->
     <div class="flex flex-wrap gap-x-12 gap-y-10">
       {groups.map(({ title: groupTitle, members }) => (

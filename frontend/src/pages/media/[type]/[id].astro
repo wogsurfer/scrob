@@ -415,8 +415,8 @@ const refreshUrl = isEpisode
   
         <!-- Cast -->
         {item.cast?.length > 0 && (
-          <div class="mt-24 border-zinc-900 pt-16">
-            <div class="flex items-center justify-between mb-10">
+          <div class="page-section">
+            <div class="flex items-center justify-between page-section-head">
               <h2 class="text-3xl font-black text-zinc-100 tracking-tighter uppercase">Top Cast</h2>
             </div>
             <div class="flex gap-6 overflow-x-auto pb-4 min-w-0 max-w-full">
@@ -455,7 +455,7 @@ const refreshUrl = isEpisode
         {item.type === "movie" && item.tmdb_id && <SoundtrackList endpoint={`/api/proxy/soundtrack/movie/${item.tmdb_id}`} />}
 
         {collection && collection.parts?.length > 1 && (
-          <div class="mt-32">
+          <div class="page-section">
             <MediaRow
               title={collection.name}
               items={collection.parts.filter((p) => p.tmdb_id !== item.tmdb_id)}
@@ -464,7 +464,7 @@ const refreshUrl = isEpisode
           </div>
         )}
 
-        <div id="recommendations-container" data-type={item.type} data-id={item.tmdb_id}></div>
+        <div id="recommendations-container" class="page-section" data-type={item.type} data-id={item.tmdb_id}></div>
       </div>
     </div>
   )}
