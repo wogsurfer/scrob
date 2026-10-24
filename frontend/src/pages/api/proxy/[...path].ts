@@ -14,17 +14,13 @@ async function handle({ params, request }: Parameters<APIRoute>[0]): Promise<Res
   if (auth) {
     forwardHeaders.set("Authorization", auth);
   } else {
-    // Video elements can't set custom headers — extract JWT from the query string or session cookie instead
-    const url = new URL(request.url);
-    const tokenQuery = url.searchParams.get("token");
-    if (tokenQuery) {
-      forwardHeaders.set("Authorization", `Bearer ${tokenQuery}`);
-    } else {
-      const cookieStr = request.headers.get("Cookie") ?? "";
-      const tokenMatch = /(?:^|;\s*)token=([^;]+)/.exec(cookieStr);
-      if (tokenMatch) {
-        forwardHeaders.set("Authorization", `Bearer ${decodeURIComponent(tokenMatch[1])}`);
-      }
+    // Browser requests authenticate with the httpOnly session cookie, so the
+    // JWT never has to be exposed to page scripts. (A `token` query param is
+    // not used: several endpoints take a media server's API key under that name.)
+    const cookieStr = request.headers.get("Cookie") ?? "";
+    const tokenMatch = /(?:^|;\s*)token=([^;]+)/.exec(cookieStr);
+    if (tokenMatch) {
+      forwardHeaders.set("Authorization", `Bearer ${decodeURIComponent(tokenMatch[1])}`);
     }
   }
 

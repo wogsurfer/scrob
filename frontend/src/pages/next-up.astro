@@ -44,7 +44,7 @@ Astro.response.headers.set("Cache-Control", "private, no-cache");
   </div>
 </Base>
 
-<script define:vars={{ token }}>
+<script is:inline>
   function esc(str) {
     if (str == null) return '';
     return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -135,9 +135,7 @@ Astro.response.headers.set("Cache-Control", "private, no-cache");
     const empty   = document.getElementById('empty-state');
 
     try {
-      const res = await fetch('/api/proxy/history/next-up?include_hidden=true', {
-        headers: { 'Authorization': `Bearer ${token}` },
-      });
+      const res = await fetch('/api/proxy/history/next-up?include_hidden=true');
       if (!res.ok) throw new Error('Failed');
       const data = await res.json();
       const items = data.next_up ?? [];
@@ -179,7 +177,6 @@ Astro.response.headers.set("Cache-Control", "private, no-cache");
           if (isHidden) {
             await fetch(`/api/proxy/history/next-up/hide?show_id=${showId}`, {
               method: 'DELETE',
-              headers: { 'Authorization': `Bearer ${token}` },
             });
             // Restore
             wrapper.dataset.nextUpHidden = 'false';
@@ -191,7 +188,7 @@ Astro.response.headers.set("Cache-Control", "private, no-cache");
           } else {
             await fetch('/api/proxy/history/next-up/hide', {
               method: 'POST',
-              headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+              headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ show_id: showId }),
             });
             // Hide

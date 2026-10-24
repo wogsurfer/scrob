@@ -60,7 +60,6 @@
   };
 
   const el = document.getElementById("now-watching")!;
-  const token = () => (window as any).__AUTH_TOKEN__ ?? "";
   let session: Session | null = null;
   let tick: number | undefined;
 
@@ -68,7 +67,6 @@
     const res = await fetch(`/api/proxy${path}`, {
       method,
       headers: {
-        Authorization: `Bearer ${token()}`,
         ...(body ? { "Content-Type": "application/json" } : {}),
       },
       body: body ? JSON.stringify(body) : undefined,
@@ -149,7 +147,6 @@
   }
 
   async function load() {
-    if (!token()) return;
     try {
       const sessions: Session[] = await call("/history/session/active");
       session = sessions[0] ?? null;

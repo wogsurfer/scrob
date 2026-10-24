@@ -250,7 +250,7 @@ if (token) {
 
   <GenreStrip genres={last30?.genres ?? []} />
 
-<script define:vars={{ token }}>
+<script is:inline>
 
   function esc(str) {
           if (str == null) return '';
@@ -388,9 +388,7 @@ if (token) {
           const grid = document.getElementById(gridId);
           if (!grid) return;
           try {
-            const res = await fetch(url, {
-              headers: { 'Authorization': `Bearer ${token}` },
-            });
+            const res = await fetch(url);
             if (!res.ok) {
               grid.closest('section').remove();
               return;
@@ -424,7 +422,6 @@ if (token) {
           try {
             await fetch(`/api/proxy/history/continue-watching?media_id=${mediaId}`, {
               method: 'DELETE',
-              headers: { 'Authorization': `Bearer ${token}` },
             });
             card?.remove();
             const section = document.getElementById('continue-watching-section');

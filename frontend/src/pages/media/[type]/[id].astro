@@ -612,7 +612,7 @@ const refreshUrl = isEpisode
   }
 </script>
 
-<script define:vars={{ refreshUrl, showRefreshBtn, token: Astro.locals.token }}>
+<script define:vars={{ refreshUrl, showRefreshBtn }}>
   if (showRefreshBtn) {
     const btn = document.getElementById('refresh-metadata-btn');
     if (btn) {
@@ -629,7 +629,6 @@ const refreshUrl = isEpisode
         try {
           const res = await fetch(refreshUrl, {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}` },
           });
           if (!res.ok) {
             const data = await res.json().catch(() => ({}));

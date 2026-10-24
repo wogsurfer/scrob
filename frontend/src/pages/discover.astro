@@ -402,7 +402,7 @@ function skeletonWide() {
   )}
 </Base>
 
-<script define:vars={{ token, watchRegion, hasProfileData, topMovieGenres, topShowGenres, userServices, canPick }}>
+<script define:vars={{ watchRegion, hasProfileData, topMovieGenres, topShowGenres, userServices, canPick }}>
   function esc(str) {
     if (str == null) return '';
     return String(str)
@@ -480,9 +480,7 @@ function skeletonWide() {
     const container = document.getElementById(containerId);
     if (!container) return;
     try {
-      const res = await fetch('/api/proxy/media/trending/trailers', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await fetch('/api/proxy/media/trending/trailers');
       if (!res.ok) throw new Error();
       const data = await res.json();
       const items = (data.results || []).slice(0, 16);
@@ -501,9 +499,7 @@ function skeletonWide() {
     const container = document.getElementById(containerId);
     if (!container) return;
     try {
-      const res = await fetch(`/api/proxy${url}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await fetch(`/api/proxy${url}`);
       if (!res.ok) throw new Error();
       const data = await res.json();
       const items = (data.results || []).slice(0, 16);
@@ -702,9 +698,7 @@ function skeletonWide() {
       openModal();
       showLoading();
       try {
-        const res = await fetch(`/api/proxy/media/pick?type=${type}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const res = await fetch(`/api/proxy/media/pick?type=${type}`);
         if (res.status === 404) {
           showError('No unwatched titles found. Watch something first, or adjust your profile.');
           return;

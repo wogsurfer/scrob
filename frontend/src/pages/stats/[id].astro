@@ -272,7 +272,7 @@ const heroSubtitle =
   )}
 </Base>
 
-<script define:vars={{ userId: statsUserId, token: Astro.locals.token, statsMode, statsYear }}>
+<script define:vars={{ userId: statsUserId, statsMode, statsYear }}>
 (() => {
   const root = document.getElementById('ws-root');
   const yearsNav = document.getElementById('ws-years');
@@ -785,14 +785,14 @@ const heroSubtitle =
     btn.disabled = true;
     btn.textContent = 'Starting…';
     try {
-      const res = await fetch(base, { method: 'POST', headers: token ? { Authorization: `Bearer ${token}` } : {} });
+      const res = await fetch(base, { method: 'POST' });
       if (!res.ok && res.status !== 409) {
         const d = await res.json().catch(() => ({}));
         throw new Error(d.detail || 'Could not start (are you signed in?)');
       }
       for (;;) {
         await new Promise(r => setTimeout(r, 2000));
-        const st = await (await fetch(base + '/status', { headers: token ? { Authorization: `Bearer ${token}` } : {} })).json();
+        const st = await (await fetch(base + '/status', { })).json();
         if (st.error) throw new Error(st.error);
         if (label) label.textContent = `Fetching episode credits… ${num(st.progress)} of ${num(st.total)} seasons`;
         btn.textContent = 'Running…';
@@ -829,7 +829,6 @@ const heroSubtitle =
     if (until) params.set('until', until);
     try {
       const res = await fetch(`/api/proxy/profile/${userId}/stats/overview?${params}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       if (!res.ok) throw new Error(`The stats request failed (${res.status}).`);
       const data = await res.json();

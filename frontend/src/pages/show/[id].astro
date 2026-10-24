@@ -362,7 +362,6 @@ const episodeCount =
                   tmdbId={show.tmdb_id}
                   tvdbId={show.tvdb_id}
                   selected="tmdb"
-                  token={token}
                 />
               </div>
             )}
@@ -638,7 +637,7 @@ const episodeCount =
   }
 </script>
 
-<script define:vars={{ showId: id, token: Astro.locals.token }}>
+<script define:vars={{ showId: id }}>
   const btn = document.getElementById('refresh-metadata-btn');
   if (btn) {
     btn.addEventListener('click', async () => {
@@ -654,7 +653,6 @@ const episodeCount =
       try {
         const res = await fetch(`/api/proxy/shows/${showId}/refresh`, {
           method: 'POST',
-          headers: { 'Authorization': `Bearer ${token}` },
         });
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
@@ -703,7 +701,7 @@ const episodeCount =
   });
 </script>
 
-<script define:vars={{ tvdbId: show?.tvdb_id, showTmdbId: show?.tmdb_id, token: Astro.locals.token }}>
+<script define:vars={{ tvdbId: show?.tvdb_id, showTmdbId: show?.tmdb_id }}>
   const awardsSection = document.getElementById('awards');
   const awardsCount = document.getElementById('awards-count');
   const awardsList = document.getElementById('awards-list');
@@ -751,11 +749,7 @@ const episodeCount =
     // as loading, and hide it again if the show has no awards.
     awardsCount.textContent = 'Loading…';
     awardsSection.classList.remove('hidden');
-    fetch(`/api/proxy/shows/tvdb/${tvdbId}/awards${showTmdbId ? `?tmdb_id=${showTmdbId}` : ''}`, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-      },
-    })
+    fetch(`/api/proxy/shows/tvdb/${tvdbId}/awards${showTmdbId ? `?tmdb_id=${showTmdbId}` : ''}`)
       .then(async (res) => {
         if (!res.ok) {
           throw new Error(`Awards request failed: ${res.status}`);

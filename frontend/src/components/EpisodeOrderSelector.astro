@@ -3,10 +3,9 @@ interface Props {
   tmdbId: number;
   tvdbId: number;
   selected: "tmdb" | "tvdb";
-  token: string;
 }
 
-const { tmdbId, tvdbId, selected, token } = Astro.props;
+const { tmdbId, tvdbId, selected } = Astro.props;
 ---
 
 <div
@@ -14,7 +13,6 @@ const { tmdbId, tvdbId, selected, token } = Astro.props;
   data-tmdb-id={String(tmdbId)}
   data-tvdb-id={String(tvdbId)}
   data-selected={selected}
-  data-token={token}
   class="flex flex-wrap items-center gap-3 rounded-2xl border border-zinc-800 bg-zinc-900/60 px-4 py-3"
 >
   <div>
@@ -107,9 +105,7 @@ const { tmdbId, tvdbId, selected, token } = Astro.props;
     // of blocking the request and risking a reverse-proxy gateway timeout.
     async function pollEpisodeOrderJob(jobId: number) {
       try {
-        const response = await fetch(`/api/proxy/shows/episode-order/jobs/${jobId}`, {
-          headers: { Authorization: `Bearer ${selector.dataset.token}` },
-        });
+        const response = await fetch(`/api/proxy/shows/episode-order/jobs/${jobId}`);
         if (!response.ok) throw new Error('Unable to check episode order progress');
         const job = await response.json();
         if (job.status === 'completed') {
@@ -139,7 +135,6 @@ const { tmdbId, tvdbId, selected, token } = Astro.props;
           const response = await fetch(`/api/proxy/shows/${selector.dataset.tmdbId}/episode-order`, {
             method: 'POST',
             headers: {
-              Authorization: `Bearer ${selector.dataset.token}`,
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({ episode_order: episodeOrder }),
@@ -161,9 +156,7 @@ const { tmdbId, tvdbId, selected, token } = Astro.props;
     // the page was refreshed mid-run — instead of silently losing track of it.
     (async () => {
       try {
-        const response = await fetch(`/api/proxy/shows/${selector.dataset.tmdbId}/episode-order/job`, {
-          headers: { Authorization: `Bearer ${selector.dataset.token}` },
-        });
+        const response = await fetch(`/api/proxy/shows/${selector.dataset.tmdbId}/episode-order/job`);
         if (!response.ok) return;
         const job = await response.json();
         if (job && (job.status === 'pending' || job.status === 'running')) {

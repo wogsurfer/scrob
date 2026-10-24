@@ -131,7 +131,6 @@ const COUNTRIES = [
 ---
 
 <Base title="Profile">
-  <div id="app-data" data-token={token} class="hidden" aria-hidden="true"></div>
   <div class="max-w-4xl mx-auto">
     <h1 class="page-title mb-8">Profile</h1>
 
@@ -443,8 +442,6 @@ const COUNTRIES = [
 
 <script>
   function setup() {
-    const appData = document.getElementById('app-data');
-    const token = appData?.dataset.token ?? '';
 
     function esc(s: unknown): string {
       if (s == null) return '';
@@ -494,7 +491,6 @@ const COUNTRIES = [
       try {
         const res = await fetch('/api/proxy/profile/me/avatar', {
           method: 'POST',
-          headers: { 'Authorization': `Bearer ${token}` },
           body: form,
         });
         if (!res.ok) {
@@ -518,7 +514,6 @@ const COUNTRIES = [
       try {
         const res = await fetch('/api/proxy/profile/me/avatar', {
           method: 'DELETE',
-          headers: { 'Authorization': `Bearer ${token}` },
         });
         if (!res.ok) throw new Error('Failed to remove avatar');
         setAvatarPreview(null);
@@ -615,7 +610,6 @@ const COUNTRIES = [
         const res = await fetch('/api/proxy/profile/me', {
           method: 'PATCH',
           headers: {
-            'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
@@ -693,9 +687,7 @@ const COUNTRIES = [
 
     async function poll() {
       try {
-        const res = await fetch('/api/proxy/profile/me/translations/backfill/status', {
-          headers: { 'Authorization': `Bearer ${token}` },
-        });
+        const res = await fetch('/api/proxy/profile/me/translations/backfill/status');
         if (!res.ok) return;
         applyStatus(await res.json() as BackfillStatus);
       } catch (_) {}
@@ -709,9 +701,7 @@ const COUNTRIES = [
     // Resume display if a job was already running
     async function initStatus() {
       try {
-        const res = await fetch('/api/proxy/profile/me/translations/backfill/status', {
-          headers: { 'Authorization': `Bearer ${token}` },
-        });
+        const res = await fetch('/api/proxy/profile/me/translations/backfill/status');
         if (!res.ok) return;
         const s = await res.json() as BackfillStatus;
         if (!s.running && !s.done) return;
@@ -731,7 +721,6 @@ const COUNTRIES = [
       try {
         const res = await fetch('/api/proxy/profile/me/translations/backfill', {
           method: 'POST',
-          headers: { 'Authorization': `Bearer ${token}` },
         });
         if (!res.ok) {
           const d = await res.json() as { detail?: string };
@@ -759,7 +748,6 @@ const COUNTRIES = [
       try {
         await fetch('/api/proxy/profile/me/translations/backfill', {
           method: 'DELETE',
-          headers: { 'Authorization': `Bearer ${token}` },
         });
         backfillCancelBtn.classList.add('hidden');
         if (backfillLabel) backfillLabel.textContent = 'Cancelling…';
@@ -778,7 +766,7 @@ const COUNTRIES = [
       }
     });
 
-    if (token) initStatus();
+    initStatus();
   }
 
   setup();

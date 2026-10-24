@@ -95,7 +95,6 @@ function starFill(rating: number, star: number): "full" | "half" | "empty" {
 ---
 
 <Base title={profile ? `${profile.display_name}'s Profile` : "Profile"}>
-  <div id="app-data" data-token={token} class="hidden" aria-hidden="true"></div>
   <div class="max-w-5xl mx-auto py-8 space-y-8">
 
     {error ? (
@@ -538,7 +537,6 @@ Lists
     const btn = document.getElementById('follow-btn') as HTMLButtonElement | null;
     if (!btn) return;
 
-    const token = (document.getElementById('app-data') as HTMLElement | null)?.dataset.token ?? '';
 
     btn.addEventListener('click', async () => {
       const userId = Number(btn.dataset.userId);
@@ -548,7 +546,6 @@ Lists
       try {
         const res = await fetch(`/api/proxy/profile/${userId}/follow`, {
           method: isFollowing ? 'DELETE' : 'POST',
-          headers: { 'Authorization': `Bearer ${token}` },
         });
         if (!res.ok) throw new Error('Request failed');
 

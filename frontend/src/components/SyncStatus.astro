@@ -1,8 +1,4 @@
----
-const { token } = Astro.locals;
----
-
-<div id="sync-status-container" class="space-y-4 mb-8 hidden" data-token={token}>
+<div id="sync-status-container" class="space-y-4 mb-8 hidden">
   <div class="flex items-center justify-between border-b border-zinc-800 pb-2">
     <h2 class="text-xl font-semibold text-zinc-100">Active Sync</h2>
     <button 
@@ -24,7 +20,6 @@ const { token } = Astro.locals;
 
     const activeJobsList = document.getElementById('active-jobs');
     const abortBtn = document.getElementById('abort-sync-btn') as HTMLButtonElement | null;
-    const token = container.dataset.token ?? '';
     const apiUrl = '/api/proxy';
 
     if (abortBtn) {
@@ -37,7 +32,6 @@ const { token } = Astro.locals;
         try {
           const res = await fetch(`${apiUrl}/sync/abort`, {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}` }
           });
           if (res.ok) {
             updateStatus();
@@ -58,9 +52,7 @@ const { token } = Astro.locals;
 
     async function updateStatus() {
       try {
-        const res = await fetch(`${apiUrl}/sync/status`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
+        const res = await fetch(`${apiUrl}/sync/status`);
         if (!res.ok) return;
         
         const jobs = await res.json();

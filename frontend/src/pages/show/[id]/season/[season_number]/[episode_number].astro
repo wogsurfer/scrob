@@ -527,7 +527,7 @@ const thumbnail = episode?.still_path || show?.poster_path || null;
   }
 </script>
 
-<script define:vars={{ showId: id, token: Astro.locals.token }}>
+<script define:vars={{ showId: id }}>
   const btn = document.getElementById('refresh-metadata-btn');
   if (btn) {
     btn.addEventListener('click', async () => {
@@ -543,7 +543,6 @@ const thumbnail = episode?.still_path || show?.poster_path || null;
       try {
         const res = await fetch(`/api/proxy/shows/${showId}/refresh`, {
           method: 'POST',
-          headers: { 'Authorization': `Bearer ${token}` },
         });
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
