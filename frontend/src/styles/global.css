@@ -362,3 +362,15 @@ video::-webkit-media-text-track-container {
     align-self: start;
   }
 }
+
+/* ── Scrollbars ─────────────────────────────────────────────────────────── */
+/* Thin, low-contrast scrollbars that suit the dark theme (browsers otherwise
+   draw a bright default bar under the horizontal card rows). */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #3f3f46 transparent; /* zinc-700 */
+}
+
+html.light * {
+  scrollbar-color: #d4d4d8 transparent; /* zinc-300 */
+}
