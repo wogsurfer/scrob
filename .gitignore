@@ -100,3 +100,4 @@ frontend/src/assets/Plex_logo_2022.svg
 # Personal watch-history audit (local only)
 history_issues.csv
 backups/
+backend/data/tvdb_award_index.json
