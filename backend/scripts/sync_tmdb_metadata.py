@@ -18,8 +18,8 @@ async def sync_movie(session, movie):
 
     movie.original_title = data.get("original_title")
     movie.overview = data.get("overview")
-    movie.poster_path = data.get("poster_path")
-    movie.backdrop_path = data.get("backdrop_path")
+    movie.poster_path = tmdb.poster_url(data.get("poster_path"))
+    movie.backdrop_path = tmdb.poster_url(data.get("backdrop_path"), size="w1280")
     movie.release_date = data.get("release_date")
     movie.runtime = data.get("runtime")
     movie.tmdb_rating = data.get("vote_average")
@@ -36,8 +36,8 @@ async def sync_show(session, show):
 
     show.original_title = data.get("original_name")
     show.overview = data.get("overview")
-    show.poster_path = data.get("poster_path")
-    show.backdrop_path = data.get("backdrop_path")
+    show.poster_path = tmdb.poster_url(data.get("poster_path"))
+    show.backdrop_path = tmdb.poster_url(data.get("backdrop_path"), size="w1280")
     show.first_air_date = data.get("first_air_date")
     show.last_air_date = data.get("last_air_date")
     show.tmdb_rating = data.get("vote_average")

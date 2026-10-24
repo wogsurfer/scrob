@@ -378,7 +378,10 @@ const code =
     font-size:12px;
     font-weight:700;
     line-height:1.2;
-    white-space:nowrap;
+    /* Wrap inside the card: an invisible tip still takes up room and would
+       push the page sideways on narrow screens. */
+    width:max-content;
+    max-width:calc(100% - 4px);
     pointer-events:none;
     opacity:0;
     transform:translateY(-2px);
