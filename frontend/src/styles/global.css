@@ -374,3 +374,8 @@ video::-webkit-media-text-track-container {
 html.light * {
   scrollbar-color: #d4d4d8 transparent; /* zinc-300 */
 }
+
+/* Page sections (Cast, Crew, Awards, Soundtrack, ...): the same space
+   between every section, and under every section heading. */
+.page-section { margin-top: 4rem; }
+.page-section-head { margin-bottom: 2rem; }
