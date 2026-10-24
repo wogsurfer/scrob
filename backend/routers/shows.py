@@ -2912,6 +2912,12 @@ async def _name_award_nominees(awards: list[dict], tmdb_id: int, tmdb_key: str |
             ]
             if nick:
                 return max(nick, key=lambda r: r[2])[1]
+        # A regular credited by first name only ("Hal" for "Hal Wilkerson").
+        # Ten-plus episodes keeps out one-off parts like a younger self.
+        if len(words) >= 2:
+            first = [r for r in roles if r[0] == words[0] and r[2] >= 10]
+            if first:
+                return max(first, key=lambda r: r[2])[1]
         return None
 
     named = []
