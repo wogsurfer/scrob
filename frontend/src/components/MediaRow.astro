@@ -6,14 +6,16 @@ interface Props {
   title: string;
   items: MediaItem[];
   href?: string;
+  /** Classes for the heading; detail pages pass their own uppercase style. */
+  headingClass?: string;
 }
 
-const { title, items, href } = Astro.props;
+const { title, items, href, headingClass = "section-headline" } = Astro.props;
 ---
 
 <section class="mb-16">
   <div class="flex items-center justify-between mb-8 group">
-    <h2 class="section-headline">{title}</h2>
+    <h2 class={headingClass}>{title}</h2>
     {href && (
       <a href={href} class="text-sm font-bold uppercase tracking-widest text-zinc-500 hover:text-blue-400 transition-all flex items-center gap-2 group/all">
         See All 

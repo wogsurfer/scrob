@@ -1,0 +1,28 @@
+---
+import type { CrewCredit } from "../lib/api";
+
+interface Props {
+  person: CrewCredit;
+  role: string;
+}
+
+const { person, role } = Astro.props;
+---
+
+<a
+  href={`/person/${person.tmdb_id}`}
+  title={`${person.name} · ${role}`}
+  class="group/crew block shrink-0 w-[150px] bg-zinc-900/20 border border-zinc-800/40 p-3 rounded-2xl active:scale-95 active:opacity-70"
+>
+  <div class="aspect-square w-full rounded-xl overflow-hidden mb-3 ring-2 ring-zinc-800/50 shadow-lg">
+    {person.profile_path ? (
+      <img src={person.profile_path} alt={person.name} class="w-full h-full object-cover" loading="lazy" decoding="async" />
+    ) : (
+      <div class="w-full h-full bg-zinc-800 flex items-center justify-center text-zinc-400 text-3xl">👤</div>
+    )}
+  </div>
+  <div class="space-y-1 text-center">
+    <p title={person.name} class="text-sm font-black text-zinc-100 line-clamp-2 leading-tight">{person.name}</p>
+    <p title={role} class="text-[11px] text-zinc-500 font-bold uppercase tracking-wider line-clamp-2 opacity-80">{role}</p>
+  </div>
+</a>
