@@ -16,6 +16,27 @@ def _extract_release_dates(results: list) -> dict:
     return {"digital": digital, "physical": physical}
 
 
+def movie_credits_fields(data: dict) -> dict:
+    """The parts of a TMDB movie the profile stats read: full crew (directors,
+    writers, composers...), cast with gender, and production companies."""
+    credits = data.get("credits") or {}
+    return {
+        "credits": {
+            "cast": [
+                {"id": c.get("id"), "name": c.get("name"), "character": c.get("character"), "gender": c.get("gender")}
+                for c in credits.get("cast", [])[:20] if c.get("name")
+            ],
+            "crew": [
+                {"id": c.get("id"), "name": c.get("name"), "job": c.get("job"), "department": c.get("department")}
+                for c in credits.get("crew", []) if c.get("name") and c.get("job")
+            ],
+        },
+        "production_companies": [
+            {"id": c.get("id"), "name": c.get("name")} for c in data.get("production_companies", []) if c.get("name")
+        ],
+    }
+
+
 async def enrich_media(media: Media, api_key: str = None, series_tmdb_id: int = None) -> None:
     """Fetch TMDB metadata and update the media record in place."""
     if media.media_type == MediaType.movie and not media.tmdb_id:
@@ -45,6 +66,7 @@ async def enrich_media(media: Media, api_key: str = None, series_tmdb_id: int = 
                 "status": data.get("status"),
                 "adult": data.get("adult", False),
                 "release_dates": _extract_release_dates(data.get("release_dates", {}).get("results", [])),
+                **movie_credits_fields(data),
             }
             media.adult = data.get("adult", False)
 
