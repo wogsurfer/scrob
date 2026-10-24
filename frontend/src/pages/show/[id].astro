@@ -2,6 +2,7 @@
 import Base from "../../layouts/Base.astro";
 import MediaRow from "../../components/MediaRow.astro";
 import SeasonCard from "../../components/SeasonCard.astro";
+import NetworkLogo from "../../components/NetworkLogo.astro";
 import ActionStack from "../../components/ActionStack.astro";
 import EpisodeOrderSelector from "../../components/EpisodeOrderSelector.astro";
 import CrewSection from "../../components/CrewSection.astro";
@@ -231,39 +232,7 @@ const episodeCount =
                   </span>
                 )}
               </div>
-              {(() => { const n = show.networks?.find(n => n.logo_path); return n ? <div class="bg-zinc-900/40 p-3 rounded-xl border border-zinc-800/50 backdrop-blur-sm flex items-center">
-              <img
-                src={n.logo_path!}
-                alt={n.name}
-                title={n.name}
-                class:list={[
-                  "h-5 max-w-[80px] object-contain",
-                  [
-                    "FOX",
-                    "Apple TV",
-                    "HBO",
-                    "FX",
-                    "CBS",
-                    "Nine Network",
-                    "The WB",
-                    "UPN",
-                    "FXX",
-                    "Citytv",
-                    "AMC",
-                    "Syfy",
-                    "CBS All Access",
-                    "TNT",
-                    "Spike",
-                    "Audience",
-                    "Cartoon Network",
-                    "TBS",
-                    "Adult Swim",
-                    "Amazon Freevee",
-                    "Rooster Teeth",
-                  ].includes(n.name) && "brightness-0 invert"
-                ]}
-                loading="lazy"
-/></div> : null; })()}
+              {(() => { const n = show.networks?.find(n => n.logo_path); return n ? <NetworkLogo src={n.logo_path!} name={n.name} /> : null; })()}
             </div>
 
             <!-- Show dates and countries -->

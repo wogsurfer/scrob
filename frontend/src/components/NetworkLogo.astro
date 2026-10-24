@@ -1,0 +1,69 @@
+---
+// A network's TMDB logo on the dark detail-page header. Many logos are black
+// or have black lettering (NBC, HBO, FOX…), so the script below repaints their
+// dark, colourless pixels white and leaves coloured parts (NBC's peacock) alone.
+interface Props {
+  src: string;
+  name: string;
+}
+
+const { src, name } = Astro.props;
+---
+
+<div class="bg-zinc-900/40 p-3 rounded-xl border border-zinc-800/50 backdrop-blur-sm flex items-center">
+  <img
+    src={src}
+    alt={name}
+    title={name}
+    class="h-5 max-w-[80px] object-contain"
+    data-network-logo
+  />
+</div>
+
+<script>
+  // Dark neutral pixels become white; light and coloured pixels are untouched.
+  // Grey anti-aliasing is lifted to its mirror (v → 255 - v), so edges stay smooth.
+  function lighten(img: HTMLImageElement, source: HTMLImageElement) {
+    const w = source.naturalWidth, h = source.naturalHeight;
+    if (!w || !h) return;
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.drawImage(source, 0, 0);
+    let data: ImageData;
+    try {
+      data = ctx.getImageData(0, 0, w, h);
+    } catch {
+      return; // canvas tainted; leave the logo as is
+    }
+    const px = data.data;
+    let changed = false;
+    for (let i = 0; i < px.length; i += 4) {
+      if (px[i + 3] < 16) continue;
+      const r = px[i], g = px[i + 1], b = px[i + 2];
+      const max = Math.max(r, g, b), min = Math.min(r, g, b);
+      const luma = 0.299 * r + 0.587 * g + 0.114 * b;
+      // Near-black of any hue (navy, very dark red) also disappears on the header.
+      if ((max - min < 40 && luma < 128) || luma < 40) {
+        const v = 255 - Math.round(luma);
+        px[i] = px[i + 1] = px[i + 2] = v;
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    ctx.putImageData(data, 0, 0);
+    img.src = canvas.toDataURL("image/png");
+  }
+
+  // The pixels are read from a separate CORS copy. TMDB only sends CORS headers
+  // when asked, so a copy the browser cached from a plain <img> can't be read;
+  // the "?cors" suffix gives the CORS copy its own cache entry.
+  for (const img of document.querySelectorAll<HTMLImageElement>("img[data-network-logo]")) {
+    const source = new Image();
+    source.crossOrigin = "anonymous";
+    source.onload = () => lighten(img, source);
+    source.src = `${img.src}${img.src.includes("?") ? "&" : "?"}cors`;
+  }
+</script>
