@@ -1296,10 +1296,12 @@ export const api = {
     upcoming: (
       token?: string,
       days = 7,
+      fromWeekStart = false,
     ) =>
       get<{
         days: number;
         start_date?: string;
+        today?: string;
         end_date?: string;
         episodes: Array<{
           id: number;
@@ -1316,8 +1318,13 @@ export const api = {
           runtime: number | null;
           rating: number | null;
           tmdb_id: number | null;
+          network?: string | null;
+          season_poster_path?: string | null;
+          show_tmdb_id?: number | null;
+          badge?: string | null;
+          watched?: boolean;
         }>;
-      }>(`/calendar/upcoming?days=${days}`, undefined, token),
+      }>(`/calendar/upcoming?days=${days}${fromWeekStart ? "&from_week_start=true" : ""}`, undefined, token),
   },
 
   lists: {

@@ -1,4 +1,6 @@
 ---
+import EpisodeBadge from "./EpisodeBadge.astro";
+
 const { episodes } = Astro.props;
 
 const upcomingEpisodes = Array.isArray(episodes) ? episodes : [];
@@ -112,6 +114,7 @@ const days = [...byDate.entries()]
 
             {show.eps.map((ep, i) => (
               <div class={i < show.eps.length - 1 ? "mb-3" : ""}>
+                {ep.badge && <EpisodeBadge label={ep.badge} class="mb-1" />}
                 <div class="leading-tight">
                   <span class="text-red-500 font-semibold">
                     {code(ep.season, ep.episode)}

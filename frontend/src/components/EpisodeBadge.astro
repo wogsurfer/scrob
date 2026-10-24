@@ -1,0 +1,56 @@
+---
+// A premiere or finale label for an episode, coloured by kind: green for a
+// series premiere, blue for a season premiere, pink for a mid-season
+// premiere, amber for a mid-season finale, red for a season finale and
+// violet for a series finale. Used on the dashboard's Upcoming Schedule and
+// the calendar.
+interface Props {
+  label: string | null | undefined;
+  class?: string;
+}
+
+const { label, class: className } = Astro.props;
+const KINDS: Record<string, string> = {
+  "series premiere": "series-premiere",
+  "season premiere": "season-premiere",
+  "mid-season premiere": "midseason-premiere",
+  "mid-season finale": "midseason-finale",
+  "season finale": "season-finale",
+  "series finale": "series-finale",
+};
+const kind = label ? KINDS[label.toLowerCase()] : undefined;
+---
+
+{label && <span class:list={["ep-badge", kind && `ep-badge-${kind}`, className]}>{label}</span>}
+
+<style>
+  .ep-badge {
+    display: inline-block;
+    max-width: 100%;
+    padding: 1px 7px;
+    border-radius: 999px;
+    border: 1px solid rgba(161, 161, 170, .45);
+    background: rgba(161, 161, 170, .14);
+    color: #d4d4d8;
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: .08em;
+    line-height: 1.6;
+    text-transform: uppercase;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .ep-badge-series-premiere { color: #34d399; background: rgba(16, 185, 129, .15); border-color: rgba(16, 185, 129, .5); }
+  .ep-badge-season-premiere { color: #38bdf8; background: rgba(14, 165, 233, .15); border-color: rgba(14, 165, 233, .5); }
+  .ep-badge-midseason-premiere { color: #f472b6; background: rgba(236, 72, 153, .15); border-color: rgba(236, 72, 153, .5); }
+  .ep-badge-midseason-finale { color: #fbbf24; background: rgba(245, 158, 11, .15); border-color: rgba(245, 158, 11, .5); }
+  .ep-badge-season-finale { color: #ff4d55; background: rgba(229, 9, 20, .16); border-color: rgba(229, 9, 20, .5); }
+  .ep-badge-series-finale { color: #c4b5fd; background: rgba(139, 92, 246, .18); border-color: rgba(139, 92, 246, .55); }
+  :global(html.light) .ep-badge-series-premiere { color: #047857; }
+  :global(html.light) .ep-badge-season-premiere { color: #0369a1; }
+  :global(html.light) .ep-badge-midseason-premiere { color: #be185d; }
+  :global(html.light) .ep-badge-midseason-finale { color: #b45309; }
+  :global(html.light) .ep-badge-season-finale { color: #b91c1c; }
+  :global(html.light) .ep-badge-series-finale { color: #6d28d9; }
+</style>
