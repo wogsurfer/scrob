@@ -17,6 +17,8 @@ from models.media import Media
 from models.events import WatchEvent
 from models.base import MediaType
 from models.show import Show
+from core import tmdb
+from routers.media import get_user_tmdb_key
 
 router = APIRouter()
 
@@ -309,6 +311,59 @@ async def get_tvmaze_episodes(
     return results
 
 
+def _tmdb_season(show, season_number: int) -> dict:
+    for season in (show.tmdb_data or {}).get("seasons") or []:
+        if season.get("season_number") == season_number:
+            return season
+    return {}
+
+
+def _season_poster(show, season_number: int) -> str | None:
+    """The season's own poster, else the show's."""
+    return _tmdb_season(show, season_number).get("poster_path") or show.poster_path
+
+
+def _episode_badge(
+    show, season_number: int, episode_number: int, episode_type: str | None, previous_type: str | None = None,
+) -> str | None:
+    """ "Series premiere", "Season premiere", "Mid-season premiere",
+    "Mid-season finale", "Season finale" or "Series finale" for an episode,
+    or None. Finales come from TMDB's episode type, which it sets once a
+    finale is announced; the episode after a mid-season finale is the
+    mid-season premiere."""
+    if episode_number == 1:
+        return "Series premiere" if season_number == 1 else "Season premiere"
+    if previous_type == "mid_season":
+        return "Mid-season premiere"
+    if episode_type == "mid_season":
+        return "Mid-season finale"
+    if episode_type == "finale":
+        ended = (show.status or "").lower() in {"ended", "canceled", "cancelled"}
+        return "Series finale" if ended else "Season finale"
+    return None
+
+
+async def _episode_types(pairs: set[tuple[int, int]], api_key: str | None) -> dict[tuple[int, int, int], str]:
+    """TMDB episode types ("standard", "mid_season", "finale") keyed by
+    (show tmdb id, season, episode), for the given (show tmdb id, season) pairs."""
+    if not api_key:
+        return {}
+    gate = asyncio.Semaphore(6)
+
+    async def one(tmdb_id: int, season: int):
+        async with gate:
+            try:
+                data = await tmdb.get_season(tmdb_id, season, api_key=api_key)
+            except Exception:
+                return []
+            return [((tmdb_id, season, e.get("episode_number")), e.get("episode_type")) for e in data.get("episodes") or []]
+
+    types: dict[tuple[int, int, int], str] = {}
+    for rows in await asyncio.gather(*(one(t, s) for t, s in pairs)):
+        types.update(rows)
+    return types
+
+
 # =========================================================
 # Calendar endpoint
 # =========================================================
@@ -319,6 +374,10 @@ async def calendar_upcoming(
         7,
         ge=1,
         le=90,
+    ),
+    from_week_start: bool = Query(
+        False,
+        description="Start on Monday of the current week, so episodes already out this week are included",
     ),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -344,8 +403,14 @@ async def calendar_upcoming(
         MALTA_TZ
     ).date()
 
+    start_date = (
+        today - timedelta(days=today.weekday())
+        if from_week_start
+        else today
+    )
+
     end_date = (
-        today
+        start_date
         + timedelta(days=days - 1)
     )
 
@@ -387,7 +452,8 @@ async def calendar_upcoming(
     if not watched_show_ids:
         return {
             "days": days,
-            "start_date": today.isoformat(),
+            "start_date": start_date.isoformat(),
+            "today": today.isoformat(),
             "end_date": end_date.isoformat(),
             "episodes": [],
         }
@@ -434,7 +500,8 @@ async def calendar_upcoming(
     if not shows:
         return {
             "days": days,
-            "start_date": today.isoformat(),
+            "start_date": start_date.isoformat(),
+            "today": today.isoformat(),
             "end_date": end_date.isoformat(),
             "episodes": [],
         }
@@ -470,6 +537,17 @@ async def calendar_upcoming(
 
         local_media_by_episode[key] = media
 
+    watched_media_ids = set()
+    if local_media_by_episode:
+        watched_q = await db.execute(
+            select(WatchEvent.media_id).where(
+                WatchEvent.user_id == current_user.id,
+                WatchEvent.completed.is_(True),
+                WatchEvent.media_id.in_([m.id for m in local_media_by_episode.values()]),
+            ).distinct()
+        )
+        watched_media_ids = {row[0] for row in watched_q.all()}
+
     # -----------------------------------------------------
     # 4. Ask TVMaze for the schedule of every watched show.
     #
@@ -492,7 +570,7 @@ async def calendar_upcoming(
 
             episodes = await get_tvmaze_episodes(
                 show.title,
-                today,
+                start_date,
                 end_date,
             )
 
@@ -503,6 +581,15 @@ async def calendar_upcoming(
             fetch_show_schedule(show)
             for show in shows
         )
+    )
+
+    episode_types = await _episode_types(
+        {
+            (show.tmdb_id, ep["season"])
+            for show, scheduled in schedule_results if show.tmdb_id
+            for ep in scheduled if ep.get("season") is not None
+        },
+        await get_user_tmdb_key(db, current_user.id),
     )
 
     # -----------------------------------------------------
@@ -609,6 +696,12 @@ async def calendar_upcoming(
                     "rating"
                 )
 
+            badge = _episode_badge(
+                show, season_number, episode_number,
+                episode_types.get((show.tmdb_id, season_number, episode_number)),
+                episode_types.get((show.tmdb_id, season_number, episode_number - 1)),
+            )
+
             # ---------------------------------------------
             # Build calendar item.
             # ---------------------------------------------
@@ -650,6 +743,14 @@ async def calendar_upcoming(
                 "show_poster_path": (
                     show.poster_path
                 ),
+
+                "season_poster_path": _season_poster(show, season_number),
+
+                "show_tmdb_id": show.tmdb_id,
+
+                "badge": badge,
+
+                "watched": bool(local_media and local_media.id in watched_media_ids),
 
                 "runtime": runtime,
                 
@@ -708,7 +809,8 @@ async def calendar_upcoming(
 
     return {
         "days": days,
-        "start_date": today.isoformat(),
+        "start_date": start_date.isoformat(),
+        "today": today.isoformat(),
         "end_date": end_date.isoformat(),
         "episodes": unique_episodes,
     }

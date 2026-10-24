@@ -1,437 +1,235 @@
 ---
 import Base from "../layouts/Base.astro";
 import { api } from "../lib/api";
+import EpisodeBadge from "../components/EpisodeBadge.astro";
+import watchdIconWhite from "../assets/watchd-icon-white.png";
+import watchdIconRed from "../assets/watchd-icon-red.png";
 
 const { token } = Astro.locals;
 
 Astro.response.headers.set("Cache-Control", "private, no-cache");
 
-let data: {
-  days: number;
-  start_date?: string;
-  end_date?: string;
-  episodes: Array<{
-    id: number;
-    show_id: number;
-    show_title: string | null;
-    title: string | null;
-    season: number | null;
-    episode: number | null;
-    air_date: string;
-    air_time: string | null;
-    poster_path: string | null;
-    backdrop_path: string | null;
-    show_poster_path: string | null;
-    runtime: number | null;
-    rating: number | null;
-    tmdb_id: number | null;
-  }>;
-} = {
-  days: 7,
-  episodes: [],
-};
+const WEEKS = 5;
+const DAY_MS = 86400000;
 
+let data: Awaited<ReturnType<typeof api.calendar.upcoming>> = { days: 0, episodes: [] };
 let error = "";
 
 try {
-  data = await api.calendar.upcoming(token, 30);
+  data = await api.calendar.upcoming(token, WEEKS * 7, true);
 } catch (e: unknown) {
   error = e instanceof Error ? e.message : "Failed to load calendar";
 }
 
-const grouped = new Map<string, typeof data.episodes>();
+// Dates are handled as UTC midnights of the calendar day the backend uses,
+// so "today" matches the schedule's own day boundaries.
+const iso = (d: Date) => d.toISOString().slice(0, 10);
+const parse = (s: string) => new Date(`${s}T00:00:00Z`);
+const today = parse(data.today ?? data.start_date ?? iso(new Date()));
+const todayIso = iso(today);
+const weekStart = new Date(today.getTime() - ((today.getUTCDay() + 6) % 7) * DAY_MS);
 
-for (const episode of data?.episodes ?? []) {
-  if (!grouped.has(episode.air_date)) {
-    grouped.set(episode.air_date, []);
-  }
-
-  grouped.get(episode.air_date)!.push(episode);
+// One card per show per day: back-to-back episodes of the same season are
+// grouped ("S01E05–06").
+interface Card {
+  showTitle: string;
+  season: number;
+  first: number;
+  last: number;
+  titles: string[];
+  time: string | null;
+  runtime: number | null;
+  poster: string | null;
+  badge: string | null;
+  watched: boolean;
+  href: string | null;
 }
 
-function formatDate(dateString: string) {
-  const date = new Date(`${dateString}T00:00:00`);
+// Small TMDB posters for the thumbnails.
+const thumb = (url: string | null | undefined) => (url ? url.replace("/t/p/w500/", "/t/p/w185/").replace("/t/p/original/", "/t/p/w185/") : null);
 
-  return date.toLocaleDateString("en-GB", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
+const byDay = new Map<string, Card[]>();
+for (const ep of data.episodes ?? []) {
+  if (ep.season == null || ep.episode == null) continue;
+  const cards = byDay.get(ep.air_date) ?? [];
+  const prev = cards.find((c) => c.showTitle === ep.show_title && c.season === ep.season && c.last === ep.episode! - 1);
+  if (prev) {
+    prev.last = ep.episode;
+    prev.titles.push(ep.title ?? "");
+    prev.watched = prev.watched && !!ep.watched;
+    prev.badge = prev.badge ?? ep.badge ?? null;
+    prev.href = ep.show_tmdb_id ? `/show/${ep.show_tmdb_id}/season/${ep.season}` : null;
+  } else {
+    cards.push({
+      showTitle: ep.show_title ?? "Unknown show",
+      season: ep.season,
+      first: ep.episode,
+      last: ep.episode,
+      titles: [ep.title ?? ""],
+      time: ep.air_time ?? null,
+      runtime: ep.runtime,
+      poster: thumb(ep.season_poster_path || ep.show_poster_path || ep.poster_path),
+      badge: ep.badge ?? null,
+      watched: !!ep.watched,
+      href: ep.show_tmdb_id ? `/show/${ep.show_tmdb_id}/season/${ep.season}/${ep.episode}` : null,
+    });
+  }
+  byDay.set(ep.air_date, cards);
+}
+
+const pad = (n: number) => String(n).padStart(2, "0");
+const code = (c: Card) => `S${pad(c.season)}E${pad(c.first)}${c.last > c.first ? `–${pad(c.last)}` : ""}`;
+const isTba = (t: string) => !t || /^(tba|tbd|episode \d+)$/i.test(t.trim());
+const subtitle = (c: Card) => (c.last > c.first ? `${c.last - c.first + 1} episodes` : isTba(c.titles[0]) ? "Title TBA" : c.titles[0]);
+const episodeCount = (c: Card) => c.last - c.first + 1;
+
+const fmt = (d: Date, opts: Intl.DateTimeFormatOptions) => d.toLocaleDateString("en-GB", { timeZone: "UTC", ...opts });
+
+const weeks = Array.from({ length: WEEKS }, (_, w) => {
+  const start = new Date(weekStart.getTime() + w * 7 * DAY_MS);
+  const days = Array.from({ length: 7 }, (_, d) => {
+    const date = new Date(start.getTime() + d * DAY_MS);
+    const key = iso(date);
+    return { key, date, cards: byDay.get(key) ?? [], past: key < todayIso, today: key === todayIso };
   });
-}
+  const end = days[6].date;
+  const range = start.getUTCMonth() === end.getUTCMonth()
+    ? `${start.getUTCDate()}–${fmt(end, { day: "numeric", month: "long" })}`
+    : `${fmt(start, { day: "numeric", month: "short" })} – ${fmt(end, { day: "numeric", month: "short" })}`;
+  const label = w === 0 ? "This week" : w === 1 ? "Next week" : `Week of ${fmt(start, { day: "numeric", month: "long" })}`;
+  const count = days.reduce((n, d) => n + d.cards.reduce((m, c) => m + episodeCount(c), 0), 0);
+  return { label, range, days, count };
+});
 
-function isToday(dateString: string) {
-  const today = new Date();
-
-  const local = new Date(
-    today.getFullYear(),
-    today.getMonth(),
-    today.getDate(),
-  );
-
-  const date = new Date(`${dateString}T00:00:00`);
-
-  return local.getTime() === date.getTime();
-}
-
-function imageUrl(path: string | null) {
-  if (!path) return null;
-
-  if (path.startsWith("http")) {
-    return path;
-  }
-
-  return `https://image.tmdb.org/t/p/w500${path}`;
-}
+const total = weeks.reduce((n, w) => n + w.count, 0);
 ---
 
 <Base title="Calendar">
-  <div class="calendar-page">
-
-    <div class="page-header">
+  <div class="cal">
+    <header class="cal-head">
       <div>
-        <h1 class="page-title">Calendar</h1>
-        <p>Upcoming episodes from shows you're watching</p>
+        <h1 class="text-3xl font-black text-zinc-100 tracking-tighter uppercase">Calendar</h1>
+        <p class="cal-sub">This week's and upcoming episodes from shows you're watching</p>
       </div>
+      {total > 0 && <p class="cal-total">{total} {total === 1 ? "episode" : "episodes"} over {WEEKS} weeks</p>}
+    </header>
 
-      <div class="calendar-range">
-        <span class="active">30 Days</span>
-      </div>
-    </div>
+    {error && <div class="cal-error">{error}</div>}
 
-    {error && (
-      <div class="error">
-        {error}
-      </div>
-    )}
-
-    {grouped.size === 0 && !error && (
-      <div class="empty">
-        <div class="empty-title">Nothing upcoming</div>
-        <div class="empty-text">
-          There are no upcoming episodes in the next 30 days.
-        </div>
+    {!error && total === 0 && (
+      <div class="cal-empty">
+        <p class="cal-empty-title">Nothing upcoming</p>
+        <p>There are no episodes this week or in the next {WEEKS - 1} weeks.</p>
       </div>
     )}
 
-    {Array.from(grouped.entries()).map(([date, episodes]) => (
-      <section class="day-section">
-
-        <div class="day-header">
-          <div class="day-marker"></div>
-
-          <div>
-            <h2>
-              {isToday(date) ? "Today" : formatDate(date)}
-            </h2>
-
-            {!isToday(date) && (
-              <span>{date}</span>
-            )}
-          </div>
+    {total > 0 && weeks.map((week) => (
+      <section class="cal-week">
+        <div class="cal-week-head">
+          <h2>{week.label}</h2>
+          <span>{week.range}</span>
+          <span class="cal-week-count">{week.count > 0 ? `${week.count} ${week.count === 1 ? "episode" : "episodes"}` : "Nothing scheduled"}</span>
         </div>
 
-        <div class="episode-grid">
-          {episodes.map((episode) => (
-            <article class="episode-card">
-
-              <div class="poster-wrap">
-                {
-                imageUrl(
-                    episode.backdrop_path ||
-                    episode.poster_path ||
-                    episode.show_poster_path
-                    ) ? (
-                    <img
-                        src={
-                        imageUrl(
-                            episode.backdrop_path ||
-                            episode.poster_path ||
-                            episode.show_poster_path
-                        )!
-                        }
-                        alt={episode.show_title || "Episode"}
-                        loading="lazy"
-                    />
-                    ) : (
-                    <div class="poster-placeholder">
-                        No artwork
-                    </div>
-                    )}
+        <div class="cal-grid">
+          {week.days.map((day) => (
+            <div class:list={["cal-day", { past: day.past, today: day.today, empty: day.cards.length === 0 }]}>
+              <div class="cal-day-head">
+                <span class="cal-dow">{day.today ? "Today" : fmt(day.date, { weekday: "short" })}</span>
+                <span class="cal-dom">{day.date.getUTCDate()}</span>
               </div>
 
-                <div class="episode-info">
-
-                    {episode.air_time && (
-                        <div class="air-time">
-                        {episode.air_time}
-                        </div>
-                    )}
-
-                    <div class="show-title">
-                        {episode.show_title || "Unknown Show"}
-                    </div>
-
-                    <div class="episode-title">
-                      {episode.season != null && episode.episode != null && (
-                        <span class="episode-number">
-                        {`${String(episode.season).padStart(2, "0")}x${String(episode.episode).padStart(2, "0")}`}
-                    </span>
-                    )}
-
-                    <span class="episode-name">
-                        {episode.title || "Untitled Episode"}
-                    </span>
-                    </div>
-
-                <div class="episode-meta">
-                  {episode.runtime ? `${episode.runtime} min` : ""}
-                  {episode.rating ? ` • ${episode.rating.toFixed(1)}` : ""}
-                </div>
-
+              <div class="cal-day-cards">
+                {day.cards.map((card) => {
+                  const Tag = card.href ? "a" : "div";
+                  return (
+                    <Tag href={card.href ?? undefined} class:list={["cal-card", { watched: card.watched }]}>
+                      <div class="cal-poster">
+                        {card.poster ? <img src={card.poster} alt="" loading="lazy" decoding="async" /> : <span>{card.showTitle.slice(0, 1)}</span>}
+                        <img
+                          class="cal-w"
+                          src={card.watched ? watchdIconRed.src : watchdIconWhite.src}
+                          alt={card.watched ? "Watched" : "Not watched"}
+                          title={card.watched ? "Watched" : "Not watched yet"}
+                        />
+                      </div>
+                      <div class="cal-info">
+                        <EpisodeBadge label={card.badge} class="cal-badge" />
+                        <p class="cal-show" title={card.showTitle}>{card.showTitle}</p>
+                        <p class="cal-ep" title={card.titles.filter((t) => !isTba(t)).join(" · ")}>
+                          <span class="cal-code">{code(card)}</span>
+                          <span class:list={["cal-title", { tba: episodeCount(card) === 1 && isTba(card.titles[0]) }]}>{subtitle(card)}</span>
+                        </p>
+                        <p class="cal-meta">
+                          {[card.time, card.runtime ? `${card.runtime * episodeCount(card)} min` : null].filter(Boolean).join(" · ")}
+                        </p>
+                      </div>
+                    </Tag>
+                  );
+                })}
               </div>
-
-            </article>
+            </div>
           ))}
         </div>
-
       </section>
     ))}
   </div>
 </Base>
 
 <style>
-  .calendar-page {
-    width: 100%;
-    max-width: 1400px;
-    margin: 0 auto;
-    padding-bottom: 80px;
+  .cal-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 8px 24px; margin-bottom: 2rem; }
+  .cal-sub { margin-top: 4px; color: #a1a1aa; font-size: 14px; }
+  .cal-total { color: #71717a; font-size: 13px; font-weight: 700; }
+  .cal-error { padding: 16px; border: 1px solid rgba(239, 68, 68, .4); border-radius: 12px; color: #fca5a5; }
+  .cal-empty { padding: 48px 16px; text-align: center; color: #71717a; border: 1px dashed #27272a; border-radius: 16px; }
+  .cal-empty-title { color: #e4e4e7; font-weight: 800; font-size: 18px; margin-bottom: 4px; }
+
+  .cal-week + .cal-week { margin-top: 3rem; }
+  .cal-week-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; margin-bottom: 14px; }
+  .cal-week-head h2 { font-size: 20px; font-weight: 900; letter-spacing: -.02em; color: #f4f4f5; text-transform: uppercase; }
+  .cal-week-head span { color: #71717a; font-size: 13px; font-weight: 700; }
+  .cal-week-count { margin-left: auto; }
+
+  /* Monday to Sunday across the page. */
+  .cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; }
+  .cal-day { min-height: 150px; padding: 8px; border-radius: 14px; background: #0a0a0a; border: 1px solid #1c1c1f; display: flex; flex-direction: column; gap: 6px; }
+  /* Days already gone this week: the date fades, the episodes stay readable. */
+  .cal-day.past .cal-day-head { opacity: .45; }
+  .cal-day.past .cal-card { opacity: .75; }
+  .cal-day.past.empty { opacity: .45; }
+  .cal-day.today { border-color: rgba(229, 9, 20, .55); background: linear-gradient(180deg, rgba(229, 9, 20, .08), #0a0a0a 120px); }
+  .cal-day-head { display: flex; align-items: baseline; justify-content: space-between; padding: 2px 4px 4px; }
+  .cal-dow { font-size: 11px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; color: #71717a; }
+  .cal-dom { font-size: 18px; font-weight: 900; color: #d4d4d8; }
+  .cal-day.today .cal-dow, .cal-day.today .cal-dom { color: #f87171; }
+  .cal-day-cards { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+
+  .cal-card { position: relative; display: flex; gap: 8px; padding: 6px; border-radius: 10px; background: #141416; border: 1px solid #222225; color: inherit; text-decoration: none; transition: border-color .15s, background .15s; }
+  a.cal-card:hover { border-color: #3f3f46; background: #18181b; }
+  .cal-card.watched .cal-poster > img:first-child { filter: grayscale(.6) brightness(.7); }
+  .cal-poster { position: relative; flex: none; width: 40px; aspect-ratio: 2 / 3; border-radius: 6px; overflow: hidden; background: #27272a; display: grid; place-items: center; color: #71717a; font-weight: 900; }
+  .cal-poster > img:first-child { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .cal-info { min-width: 0; flex: 1; }
+  .cal-info :global(.cal-badge) { margin-bottom: 3px; }
+  .cal-show { font-size: 13px; font-weight: 800; color: #f4f4f5; line-height: 1.2; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .cal-ep { margin-top: 2px; font-size: 11.5px; line-height: 1.3; color: #a1a1aa; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .cal-code { font-weight: 800; color: #ef4444; margin-right: 4px; }
+  .cal-title.tba { color: #52525b; font-style: italic; }
+  .cal-meta { margin-top: 3px; font-size: 10.5px; font-weight: 700; color: #71717a; }
+  .cal-w { position: absolute; right: 2px; bottom: 2px; width: 15px; height: 15px; object-fit: contain; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .9)); }
+
+  /* Narrower screens: one row per day, with past and empty days hidden. */
+  @media (max-width: 1023px) {
+    .cal-grid { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+    .cal-day { min-height: 0; flex-direction: row; align-items: flex-start; gap: 10px; }
+    .cal-day.empty { display: none; }
+    .cal-day-head { flex: none; width: 40px; flex-direction: column; align-items: center; gap: 2px; padding: 4px 0; }
+    .cal-day-cards { flex: 1; }
   }
 
-  .page-header {
-    display: flex;
-    align-items: flex-end;
-    justify-content: space-between;
-    margin-bottom: 48px;
-  }
-
-  .page-header p {
-    margin: 8px 0 0;
-    color: #9ca3af;
-    font-size: 16px;
-  }
-
-  .calendar-range {
-    display: flex;
-    gap: 8px;
-  }
-
-  .calendar-range span {
-    padding: 9px 18px;
-    border: 1px solid #2a2f36;
-    border-radius: 8px;
-    color: #9ca3af;
-    font-size: 14px;
-  }
-
-  .calendar-range .active {
-    background: #e50914;
-    border-color: #e50914;
-    color: white;
-  }
-
-  .error {
-    padding: 16px 20px;
-    margin-bottom: 30px;
-    border: 1px solid #e50914;
-    border-radius: 10px;
-    background: rgba(229, 9, 20, 0.1);
-    color: #e50914;
-  }
-
-  .day-section {
-    margin-bottom: 50px;
-  }
-
-  .day-header {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    margin-bottom: 20px;
-  }
-
-  .day-marker {
-    width: 4px;
-    height: 38px;
-    background: #e50914;
-    border-radius: 4px;
-  }
-
-  .day-header h2 {
-    margin: 0;
-    color: #f5f5f5;
-    font-size: 25px;
-    font-weight: 700;
-  }
-
-  .day-header span {
-    display: block;
-    margin-top: 3px;
-    color: #6b7280;
-    font-size: 14px;
-  }
-
-  .episode-grid {
-     display: grid;
-     grid-template-columns: repeat(4, 220px);
-     gap: 18px;
-     justify-content: start;
-   }
-
-  .episode-card {
-    overflow: hidden;
-    background: #20242b;
-    border: 1px solid #2a2f36;
-    border-radius: 12px;
-    transition:
-      transform 0.2s ease,
-      border-color 0.2s ease;
-  }
-
-  .episode-card:hover {
-    transform: translateY(-3px);
-    border-color: #444b55;
-  }
-
-  .poster-wrap {
-    aspect-ratio: 16 / 9;
-    overflow: hidden;
-    background: #111318;
-  }
-
-  .poster-wrap img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    display: block;
-  }
-
-  .poster-placeholder {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: #6b7280;
-    font-size: 14px;
-  }
-
-  .episode-info {
-    padding: 16px;
-  }
-
-  .episode-number {
-    margin-bottom: 6px;
-    color: #e50914;
-    font-size: 13px;
-    font-weight: 700;
-  }
-
-  .episode-info h3 {
-    margin: 0;
-    color: #f5f5f5;
-    font-size: 17px;
-    line-height: 1.3;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .show-title {
-    margin-top: 0px;
-    color: #9ca3af;
-    font-size: 14px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .episode-title {
-    margin-top: 0px;
-    font-size: 17px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .air-time {
-    margin-bottom: 0px;
-    color: #f5f5f5;
-    font-size: 15px;
-    font-weight: 600;
-  }
-
-  .episode-meta {
-    margin-top: 10px;
-    color: #6b7280;
-    font-size: 13px;
-  }
-
-  .empty {
-    padding: 80px 20px;
-    text-align: center;
-    border: 1px solid #22262d;
-    border-radius: 12px;
-    background: #111318;
-  }
-
-  .empty-title {
-    color: #f5f5f5;
-    font-size: 22px;
-    font-weight: 700;
-  }
-
-  .empty-text {
-    margin-top: 8px;
-    color: #6b7280;
-  }
-
-  @media (max-width: 1000px) {
-    .episode-grid {
-      grid-template-columns: repeat(3, 220px);
-  }
-}
-
-  @media (max-width: 760px) {
-    .episode-grid {
-      grid-template-columns: repeat(2, 220px);
-  }
-}
-
-  @media (max-width: 500px) {
-    .episode-grid {
-      grid-template-columns: 1fr;
-  }
-}
-
-/* Tight episode information */
-.episode-info .air-time,
-.episode-info .show-title,
-.episode-info .episode-title {
-  margin-top: 0 !important;
-  margin-bottom: 0 !important;
-  line-height: 1.15 !important;
-}
-
-.episode-info .air-time {
-  display: block;
-}
-
-.episode-info .show-title {
-  display: block;
-}
-
-.episode-info .episode-title {
-  display: block;
-}
-
+  :global(html.light) .cal-day { background: #fafafa; border-color: #e4e4e7; }
+  :global(html.light) .cal-day.today { background: linear-gradient(180deg, rgba(229, 9, 20, .06), #fafafa 120px); }
+  :global(html.light) .cal-card { background: #fff; border-color: #e4e4e7; }
+  :global(html.light) .cal-show, :global(html.light) .cal-week-head h2 { color: #18181b; }
+  :global(html.light) .cal-dom { color: #3f3f46; }
 </style>
