@@ -29,7 +29,7 @@ from routers.media import format_media, get_user_tmdb_key, check_tmdb_key, enric
 
 from dependencies import get_current_user
 from core.awards import TV_FAMILIES, credited, family as award_family, join_names, name_tv_awards, topic, topic_jobs
-from core import wikidata
+from core import source_work, wikidata
 from core import tmdb
 from core.config import settings
 from core import tvdb as tvdb_client
@@ -1975,7 +1975,10 @@ async def get_show(
                 {"tmdb_id": c["id"], "name": c["name"], "profile_path": tmdb.poster_url(c.get("profile_path"), size="w185")}
                 for c in (tmdb_extra or show.tmdb_data or {}).get("created_by", [])
             ],
-            "crew": _format_show_crew(tmdb_extra or show.tmdb_data or {}),
+            "crew": await source_work.with_source_credits(
+                _format_show_crew(tmdb_extra or show.tmdb_data or {}), "tv", series_tmdb_id,
+                await get_user_tmdb_key(db, current_user.id), cast,
+            ),
             "cast": cast,
             "guest_stars": guest_stars,
             "awards": awards,
@@ -2050,7 +2053,7 @@ async def get_show(
                 {"tmdb_id": c["id"], "name": c["name"], "profile_path": tmdb.poster_url(c.get("profile_path"), size="w185")}
                 for c in data.get("created_by", [])
             ],
-            "crew": _format_show_crew(data),
+            "crew": await source_work.with_source_credits(_format_show_crew(data), "tv", series_tmdb_id, api_key, cast),
             "cast": cast,
             "guest_stars": guest_stars,
             "networks": networks,
