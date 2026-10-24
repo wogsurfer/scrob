@@ -1,0 +1,16 @@
+# Store text with LF line endings in the repo; Git checks files out with the
+# platform's line endings (CRLF on Windows with core.autocrlf).
+* text=auto
+
+# Run inside Linux containers, so they must stay LF on every checkout.
+*.sh text eol=lf
+Dockerfile* text eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.ico binary
+*.gif binary
+*.woff binary
+*.woff2 binary
