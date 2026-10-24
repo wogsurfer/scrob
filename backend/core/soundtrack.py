@@ -53,7 +53,7 @@ def _names(names, whole: bool = True) -> set[str]:
         if name:
             if whole:
                 out.add(_norm(name))
-            out |= {_norm(p) for p in re.split(r"\s*(?:&|,|and|feat\.?|with)\s*", name) if p.strip()}
+            out |= {_norm(p) for p in re.split(r"\s*(?:&|,|\band\b|\bfeat\.?|\bwith\b)\s*", name) if p.strip()}
     return out - {""}
 
 
