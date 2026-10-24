@@ -27,7 +27,7 @@ from models.lists import List as UserList, ListItem
 from models.media_request import MediaRequest, RequestStatus
 from models.episode_order import EpisodeOrderMapping
 from models.profile import UserProfileData
-from core import tmdb
+from core import source_work, tmdb
 from core.translations import (
     get_user_metadata_language,
     get_media_translations,
@@ -5422,16 +5422,24 @@ async def get_media_details(
             "collection": collection,
             "production_companies": production_companies,
             "production_countries": production_countries,
-            "crew": [
-                {
-                    "tmdb_id": c["id"],
-                    "name": c["name"],
-                    "job": c.get("job", ""),
-                    "profile_path": tmdb.poster_url(c.get("profile_path"), size="w185"),
-                }
-                for c in data.get("credits", {}).get("crew", [])
-                if c.get("id") and c.get("name") and c.get("job")
-            ],
+            "crew": await source_work.with_source_credits(
+                [
+                    {
+                        "tmdb_id": c["id"],
+                        "name": c["name"],
+                        "job": c.get("job", ""),
+                        "profile_path": tmdb.poster_url(c.get("profile_path"), size="w185"),
+                    }
+                    for c in data.get("credits", {}).get("crew", [])
+                    if c.get("id") and c.get("name") and c.get("job")
+                ],
+                "movie", tmdb_id, tmdb_key,
+                [
+                    {"tmdb_id": c["id"], "name": c["name"], "profile_path": tmdb.poster_url(c.get("profile_path"), size="w185")}
+                    for c in data.get("credits", {}).get("cast", [])
+                    if c.get("id") and c.get("name")
+                ],
+            ),
             "cast": [
                 {
                     "tmdb_id": c["id"],
