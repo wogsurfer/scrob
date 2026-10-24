@@ -15,7 +15,7 @@ _token_cache: dict[str, tuple[str, float]] = {}  # api_key -> (token, expires_at
 _token_lock = asyncio.Lock()
 
 # In-memory awards cache keyed by tvdb_id
-_awards_cache: dict[tuple[int, str], tuple[float, list[dict]]] = {}
+_awards_cache: dict[tuple[str, int], tuple[float, list[dict]]] = {}
 _AWARDS_CACHE_TTL = 86400  # 24 hours
 
 TVDB_IMAGE_BASE = "https://artworks.thetvdb.com"
@@ -164,14 +164,19 @@ async def get_series(tvdb_id: int, api_key: str) -> dict:
     data = await _get(f"/series/{tvdb_id}/extended", api_key, params={"meta": "translations,episodes"})
     return data.get("data") or {}
 
-# Every TVDB series award category with its nominees. The lists are the same
-# for every show, so they are fetched once (about 3 minutes cold) and shared;
-# each show's awards are then a quick filter. Rebuilt daily in the background
-# while the previous index keeps serving.
+# Every TVDB series award category, plus the film categories of the awards in
+# _FILM_AWARDS, with their nominees. The lists are the same for every title, so
+# they are fetched once (about 3 minutes cold) and shared; each title's awards
+# are then a quick filter. Rebuilt daily in the background while the previous
+# index keeps serving.
 _award_index: tuple[float, list[tuple[dict, dict, list[dict]]]] | None = None
 _award_index_task: "asyncio.Task | None" = None
 # Saved to disk so a restart doesn't mean another 3-minute crawl.
 _AWARD_INDEX_FILE = "tvdb_award_index.json"
+# Bumped when the index's contents change; an older saved index still serves
+# until the rebuild finishes.
+_AWARD_INDEX_VERSION = 2
+FILM_AWARDS = ("Academy Awards", "Golden Globe Awards", "BAFTA Awards")
 
 
 def _load_award_index() -> None:
@@ -180,7 +185,8 @@ def _load_award_index() -> None:
     try:
         with open(settings.data_dir / _AWARD_INDEX_FILE, encoding="utf-8") as f:
             saved = json.load(f)
-        _award_index = (saved["built_at"], [tuple(entry) for entry in saved["index"]])
+        built_at = saved["built_at"] if saved.get("version") == _AWARD_INDEX_VERSION else 0
+        _award_index = (built_at, [tuple(entry) for entry in saved["index"]])
     except (OSError, ValueError, KeyError):
         pass
 
@@ -191,10 +197,37 @@ def _save_award_index() -> None:
         settings.data_dir.mkdir(parents=True, exist_ok=True)
         tmp = settings.data_dir / (_AWARD_INDEX_FILE + ".tmp")
         with open(tmp, "w", encoding="utf-8") as f:
-            json.dump({"built_at": _award_index[0], "index": _award_index[1]}, f)
+            json.dump({"version": _AWARD_INDEX_VERSION, "built_at": _award_index[0], "index": _award_index[1]}, f)
         tmp.replace(settings.data_dir / _AWARD_INDEX_FILE)
     except OSError as e:
         print(f"Could not save TVDB award index: {e}")
+
+
+def _slim_title(title: dict | None) -> dict | None:
+    if not title:
+        return None
+    return {
+        "id": title.get("id"),
+        "name": title.get("name"),
+        "year": title.get("year"),
+        "aliases": [a.get("name") for a in title.get("aliases") or [] if isinstance(a, dict) and a.get("name")],
+    }
+
+
+def _slim_nominee(nominee: dict) -> dict:
+    """Keep only what award lookups use; full TVDB records make the index huge."""
+    episode = nominee.get("episode")
+    return {
+        "id": nominee.get("id"),
+        "year": nominee.get("year"),
+        "details": nominee.get("details"),
+        "isWinner": nominee.get("isWinner", False),
+        "name": nominee.get("name"),
+        "character": nominee.get("character"),
+        "episode": {"name": episode.get("name")} if isinstance(episode, dict) else None,
+        "series": _slim_title(nominee.get("series")),
+        "movie": _slim_title(nominee.get("movie")),
+    }
 
 
 async def _build_award_index(api_key: str) -> list[tuple[dict, dict, list[dict]]]:
@@ -216,8 +249,11 @@ async def _build_award_index(api_key: str) -> list[tuple[dict, dict, list[dict]]
             continue
         award, extended = result
         for category in extended.get("data", {}).get("categories") or []:
-            # Only categories that apply to TV series
-            if category.get("id") and category.get("forSeries", False):
+            # TV series categories, and film categories for the major film awards
+            if category.get("id") and (
+                category.get("forSeries", False)
+                or (category.get("forMovies", False) and award.get("name") in FILM_AWARDS)
+            ):
                 categories.append((award, category))
 
     async def fetch_category(award, category):
@@ -226,7 +262,7 @@ async def _build_award_index(api_key: str) -> list[tuple[dict, dict, list[dict]]
                 data = await _get(f"/awards/categories/{category['id']}/extended", api_key)
             except Exception:
                 return None
-        return award, category, data.get("data", {}).get("nominees") or []
+        return award, category, [_slim_nominee(n) for n in data.get("data", {}).get("nominees") or []]
 
     results = await asyncio.gather(*(fetch_category(a, c) for a, c in categories))
     return [r for r in results if r]
@@ -254,35 +290,65 @@ async def _get_award_index(api_key: str) -> list[tuple[dict, dict, list[dict]]]:
     return _award_index[1] if _award_index else []
 
 
-async def get_series_awards(tvdb_id: int, api_key: str) -> list[dict]:
-    """Fetch TVDB award nominations/wins for a series."""
-    cached = _awards_cache.get(tvdb_id)
+async def get_award_index(api_key: str) -> list[tuple[dict, dict, list[dict]]]:
+    """The shared (award, category, nominees) index; see _get_award_index."""
+    return await _get_award_index(api_key)
+
+
+def award_entry(award: dict, category: dict, nominee: dict) -> dict:
+    return {
+        "award_id": award.get("id"),
+        "award_name": award.get("name"),
+        "category_id": category.get("id"),
+        "category_name": category.get("name"),
+        "year": nominee.get("year"),
+        "is_winner": nominee.get("isWinner", False),
+        "details": nominee.get("details"),
+        "person_name": nominee.get("name"),
+        "character": nominee.get("character"),
+        "episode": nominee.get("episode"),
+        "movie": nominee.get("movie"),
+        "series": nominee.get("series"),
+    }
+
+
+async def _title_awards(kind: str, tvdb_id: int, api_key: str) -> list[dict]:
+    cache_key = (kind, tvdb_id)
+    cached = _awards_cache.get(cache_key)
     if cached and time.time() - cached[0] < _AWARDS_CACHE_TTL:
         return cached[1]
 
-    awards = []
-    for award, category, nominees in await _get_award_index(api_key):
-        for nominee in nominees:
-            series = nominee.get("series") or {}
-            if str(series.get("id")) != str(tvdb_id):
-                continue
-            awards.append({
-                "award_id": award.get("id"),
-                "award_name": award.get("name"),
-                "category_id": category.get("id"),
-                "category_name": category.get("name"),
-                "year": nominee.get("year"),
-                "is_winner": nominee.get("isWinner", False),
-                "details": nominee.get("details"),
-                "person_name": nominee.get("name"),
-                "character": nominee.get("character"),
-                "episode": nominee.get("episode"),
-                "movie": nominee.get("movie"),
-                "series": nominee.get("series"),
-            })
-
-    _awards_cache[tvdb_id] = (time.time(), awards)
+    awards = [
+        award_entry(award, category, nominee)
+        for award, category, nominees in await _get_award_index(api_key)
+        for nominee in nominees
+        if str((nominee.get(kind) or {}).get("id")) == str(tvdb_id)
+    ]
+    _awards_cache[cache_key] = (time.time(), awards)
     return awards
+
+
+async def get_series_awards(tvdb_id: int, api_key: str) -> list[dict]:
+    """Fetch TVDB award nominations/wins for a series."""
+    return await _title_awards("series", tvdb_id, api_key)
+
+
+async def get_movie_awards(tvdb_id: int, api_key: str) -> list[dict]:
+    """Fetch TVDB award nominations/wins for a film (major film awards only)."""
+    return await _title_awards("movie", tvdb_id, api_key)
+
+
+_remote_id_cache: dict[str, int | None] = {}
+
+
+async def find_movie_by_imdb(imdb_id: str, api_key: str) -> int | None:
+    """TVDB movie id for an IMDb id, or None."""
+    if imdb_id in _remote_id_cache:
+        return _remote_id_cache[imdb_id]
+    data = await _get(f"/search/remoteid/{imdb_id}", api_key)
+    movie_id = next((r["movie"]["id"] for r in data.get("data") or [] if (r.get("movie") or {}).get("id")), None)
+    _remote_id_cache[imdb_id] = movie_id
+    return movie_id
 
 async def get_season(season_id: int, api_key: str) -> dict:
     """Fetch extended season metadata, including translated names and overviews."""

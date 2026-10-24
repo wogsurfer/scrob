@@ -4,6 +4,7 @@ import MediaRow from "../../../components/MediaRow.astro";
 import ActionStack from "../../../components/ActionStack.astro";
 import VideoPlayer from "../../../components/VideoPlayer.astro";
 import CrewSection from "../../../components/CrewSection.astro";
+import AwardsList from "../../../components/AwardsList.astro";
 import { api, type MediaItem } from "../../../lib/api";
 import { utcIso, formatWatchDate, formatWatchTime } from "../../../lib/time";
 export const prerender = false;
@@ -460,6 +461,9 @@ const refreshUrl = isEpisode
       </div>
     </div>
   </div>
+
+        <!-- Awards: Oscars, Golden Globes and BAFTAs, filled after load -->
+        {item.type === "movie" && item.tmdb_id && <AwardsList endpoint={`/api/proxy/awards/movie/${item.tmdb_id}`} />}
   
         <!-- Cast -->
         {item.cast?.length > 0 && (
