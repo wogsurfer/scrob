@@ -4,6 +4,8 @@
 // (an /api/proxy URL returning { awards: [...] }); shows "Loading…" until then
 // and hides itself when there are none. Rows end with the nominee's name
 // (person_name) or, on a person's page, the film or show (work_title).
+// Names worked out from the credits rather than on record (name_inferred)
+// are shown fainter, with a tooltip saying so.
 interface Props {
   endpoint: string;
 }
@@ -54,12 +56,19 @@ const { endpoint } = Astro.props;
 
   // Who or what the nomination was for: the nominee, or on a person's page
   // the film or show, linked when it is known.
+  const INFERRED_TITLE = 'Worked out from the credits, not from the award record';
   const subject = (a) => {
-    if (a.person_name) return esc(a.person_name);
+    if (a.person_name) {
+      return a.name_inferred
+        ? `<span class="text-zinc-500 italic" title="${INFERRED_TITLE}">${esc(a.person_name)}</span>`
+        : esc(a.person_name);
+    }
     if (!a.work_title) return '';
-    if (!a.work_tmdb_id || !a.work_type) return esc(a.work_title);
+    const cls = a.name_inferred ? 'text-zinc-500 italic ' : '';
+    const tip = a.name_inferred ? ` title="${INFERRED_TITLE}"` : '';
+    if (!a.work_tmdb_id || !a.work_type) return `<span class="${cls}"${tip}>${esc(a.work_title)}</span>`;
     const href = a.work_type === 'series' ? `/show/${a.work_tmdb_id}` : `/media/movie/${a.work_tmdb_id}`;
-    return `<a href="${href}" class="hover:text-zinc-100 hover:underline">${esc(a.work_title)}</a>`;
+    return `<a href="${href}" class="${cls}hover:text-zinc-100 hover:underline"${tip}>${esc(a.work_title)}</a>`;
   };
 
   const row = (a) => {
@@ -76,12 +85,11 @@ const { endpoint } = Astro.props;
     </li>`;
   };
 
-  if (awardsSection && endpoint) {
-    // Award lists can take a while on a cold cache: show the section as
-    // loading, and hide it again if there are no awards.
-    awardsCount.textContent = 'Loading…';
-    awardsSection.classList.remove('hidden');
-    fetch(endpoint)
+  // While the award index is first being built the API answers
+  // { pending: true }; ask again every 20s for up to 15 minutes.
+  const RETRY_MS = 20000;
+  const MAX_TRIES = 45;
+  const load = (attempt = 1) => fetch(endpoint)
       .then(async (res) => {
         if (!res.ok) {
           throw new Error(`Awards request failed: ${res.status}`);
@@ -89,6 +97,11 @@ const { endpoint } = Astro.props;
         return res.json();
       })
       .then((data) => {
+        if (data.pending && attempt < MAX_TRIES) {
+          awardsCount.textContent = 'Building the award list…';
+          setTimeout(() => load(attempt + 1), RETRY_MS);
+          return;
+        }
         // Newest first; wins before nominations within a year.
         const awards = (data.awards ?? []).slice().sort((a, b) =>
           (Number(b.year) || 0) - (Number(a.year) || 0) || Number(!!b.is_winner) - Number(!!a.is_winner));
@@ -115,5 +128,12 @@ const { endpoint } = Astro.props;
         console.error('Failed to load awards:', err);
         awardsSection.classList.add('hidden');
       });
+
+  if (awardsSection && endpoint) {
+    // Award lists can take a while on a cold cache: show the section as
+    // loading, and hide it again if there are no awards.
+    awardsCount.textContent = 'Loading…';
+    awardsSection.classList.remove('hidden');
+    load();
   }
 </script>

@@ -101,3 +101,4 @@ frontend/src/assets/Plex_logo_2022.svg
 history_issues.csv
 backups/
 backend/data/tvdb_award_index.json
+backend/data/cache/

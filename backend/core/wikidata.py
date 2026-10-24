@@ -11,6 +11,8 @@ import time
 
 import httpx
 
+from core import disk_cache
+
 _ENDPOINT = "https://query.wikidata.org/sparql"
 # Wikimedia's robot policy wants the client, a contact URL and the library;
 # requests without them get blocked.
@@ -96,15 +98,17 @@ def _rows(bindings: list[dict]) -> list[dict]:
 
 
 async def _cached(kind: str, tmdb_id: int, *queries: str) -> list[dict]:
-    hit = _cache.get((kind, tmdb_id))
+    hit = _cache.get((kind, tmdb_id)) or disk_cache.load("wikidata", f"{kind}_{tmdb_id}", 7 * _TTL)
     if hit and time.time() - hit[0] < _TTL:
+        _cache[(kind, tmdb_id)] = hit
         return hit[1]
     try:
         rows = _rows([b for q in queries for b in await _query(q)])
     except Exception as e:
         print(f"Wikidata award lookup failed for {kind} {tmdb_id}: {e!r}")
-        return hit[1] if hit else []
+        return hit[1] if hit else []  # a stale answer beats none
     _cache[(kind, tmdb_id)] = (time.time(), rows)
+    disk_cache.save("wikidata", f"{kind}_{tmdb_id}", rows)
     return rows
 
 

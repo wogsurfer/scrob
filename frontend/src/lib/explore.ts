@@ -25,8 +25,8 @@ export async function fetchExplorePage(
   const fetchTmdbPage = (tmdbPage: number) =>
     api.media.tmdbList({ ...params, page: tmdbPage } as any, token);
 
-  // The watched filter drops items from each TMDB page after fetching, so the
-  // page sizes are unknown; keep one TMDB page per page there.
+  // With a watch status filter the backend pages the filtered list itself,
+  // EXPLORE_PER_PAGE at a time.
   if (params.watched) {
     const data = await fetchTmdbPage(page);
     return { results: data.results, page, total_pages: data.total_pages };

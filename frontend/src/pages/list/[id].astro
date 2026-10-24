@@ -839,6 +839,23 @@ const sonarrUrl = `${origin}/api/proxy/sonarr-compat/${list?.id}/api/v3/series`;
       </div>`;
   }
 
+  // The card built in the browser is a stand-in: once the list page has
+  // re-rendered with the new item, use its card (the same as every other).
+  async function swapInRenderedCard(itemId, wrapper) {
+    try {
+      const res = await fetch(location.href, { headers: { Accept: 'text/html' } });
+      if (!res.ok) return;
+      const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
+      const rendered = doc.querySelector(`#items-grid > [data-item-id="${itemId}"]`);
+      if (!rendered || !wrapper.isConnected) return;
+      wrapper.replaceWith(document.importNode(rendered, true));
+      applyListSort();
+      bindRemoveButtons();
+    } catch (err) {
+      console.error('Failed to load the rendered card', err);
+    }
+  }
+
   async function addItem(tmdbId, mediaType, btn, searchItem) {
     btn.disabled = true;
     // Show spinner immediately
@@ -911,6 +928,7 @@ const sonarrUrl = `${origin}/api/proxy/sonarr-compat/${list?.id}/api/v3/series`;
       grid.appendChild(wrapper);
       applyListSort();
       bindRemoveButtons();
+      swapInRenderedCard(entry.id, wrapper);
     } catch (err) {
       console.error('Failed to add item', err);
       // Restore overlay to "Add" state so the user can retry

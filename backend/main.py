@@ -322,6 +322,27 @@ async def _watchlist_poller():
             log.error(f"Watchlist poller error: {e}", exc_info=True)
 
 
+async def _warm_award_index(async_session):
+    """Start the TVDB award index loading (or building) in the background, with
+    the global TVDB key, or failing that the first user's."""
+    import os
+    from core import tvdb
+    from models.global_settings import GlobalSettings
+    from models.users import UserSettings
+    try:
+        async with async_session() as db:
+            gs = (await db.execute(select(GlobalSettings).where(GlobalSettings.id == 1))).scalar_one_or_none()
+            key = (gs and gs.tvdb_api_key) or os.getenv("TVDB_API_KEY")
+            if not key:
+                key = (await db.execute(
+                    select(UserSettings.tvdb_api_key).where(UserSettings.tvdb_api_key.is_not(None), UserSettings.tvdb_api_key != "").limit(1)
+                )).scalar_one_or_none()
+        if key:
+            tvdb.warm_award_index(key)
+    except Exception as e:
+        print(f"Award index warm-up skipped: {e!r}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from core.tmdb import start_http_client, close_http_client
@@ -344,6 +365,7 @@ async def lifespan(app: FastAPI):
         await db.commit()
 
     await start_http_client()
+    await _warm_award_index(async_session)
     scheduler_task = asyncio.create_task(_auto_sync_scheduler())
     watchlist_task = asyncio.create_task(_watchlist_poller())
     manual_session_task = asyncio.create_task(_manual_session_completer())

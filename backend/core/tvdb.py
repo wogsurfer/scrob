@@ -177,6 +177,15 @@ _AWARD_INDEX_FILE = "tvdb_award_index.json"
 # until the rebuild finishes.
 _AWARD_INDEX_VERSION = 2
 FILM_AWARDS = ("Academy Awards", "Golden Globe Awards", "BAFTA Awards")
+# A request with no index yet waits this long for the build, then gives up
+# with AwardIndexBuilding; the build carries on and the page asks again.
+_AWARD_INDEX_WAIT = 15
+# A build that hangs (a stuck TVDB request) is abandoned after this long.
+_AWARD_INDEX_BUILD_LIMIT = 30 * 60
+
+
+class AwardIndexBuilding(Exception):
+    """The award index is still being built for the first time."""
 
 
 def _load_award_index() -> None:
@@ -273,7 +282,12 @@ async def _get_award_index(api_key: str) -> list[tuple[dict, dict, list[dict]]]:
 
     async def build():
         global _award_index
-        _award_index = (time.time(), await _build_award_index(api_key))
+        try:
+            index = await asyncio.wait_for(_build_award_index(api_key), _AWARD_INDEX_BUILD_LIMIT)
+        except Exception as e:
+            print(f"TVDB award index build failed: {e!r}")
+            return
+        _award_index = (time.time(), index)
         _awards_cache.clear()
         _save_award_index()
 
@@ -286,13 +300,28 @@ async def _get_award_index(api_key: str) -> list[tuple[dict, dict, list[dict]]]:
     if _award_index:
         return _award_index[1]  # serve the old index while a rebuild runs
     # shield: a client giving up must not cancel the build for everyone else
-    await asyncio.shield(_award_index_task)
+    try:
+        await asyncio.wait_for(asyncio.shield(_award_index_task), _AWARD_INDEX_WAIT)
+    except asyncio.TimeoutError:
+        raise AwardIndexBuilding()
     return _award_index[1] if _award_index else []
 
 
 async def get_award_index(api_key: str) -> list[tuple[dict, dict, list[dict]]]:
-    """The shared (award, category, nominees) index; see _get_award_index."""
+    """The shared (award, category, nominees) index; see _get_award_index.
+    Raises AwardIndexBuilding while the first build is still running."""
     return await _get_award_index(api_key)
+
+
+def warm_award_index(api_key: str) -> None:
+    """Load the saved index and start a rebuild if it is stale or missing, so
+    the first show page after startup doesn't wait for it."""
+    async def warm():
+        try:
+            await _get_award_index(api_key)
+        except AwardIndexBuilding:
+            pass
+    asyncio.create_task(warm())
 
 
 def award_entry(award: dict, category: dict, nominee: dict) -> dict:
