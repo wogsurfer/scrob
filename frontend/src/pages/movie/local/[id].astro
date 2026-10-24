@@ -317,13 +317,11 @@ const crewGroups = [
   <script>
     const root = document.getElementById("local-actions");
     const mediaId = root?.dataset.mediaId;
-    const token = () => (window as any).__AUTH_TOKEN__ ?? "";
 
     async function call(path: string, method: string, body?: unknown) {
       const res = await fetch(`/api/proxy${path}`, {
         method,
         headers: {
-          Authorization: `Bearer ${token()}`,
           ...(body ? { "Content-Type": "application/json" } : {}),
         },
         body: body ? JSON.stringify(body) : undefined,

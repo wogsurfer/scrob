@@ -54,16 +54,12 @@ if (!show && !error) {
       )}
     </Base>
 
-<script define:vars={{ tvdbId: show?.tvdb_id, token }}>
+<script define:vars={{ tvdbId: show?.tvdb_id }}>
   const count = document.getElementById('awards-count');
   const list = document.getElementById('awards-list');
 
   if (count && list && tvdbId) {
-    fetch(`/api/proxy/shows/tvdb/${tvdbId}/awards`, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-      },
-    })
+    fetch(`/api/proxy/shows/tvdb/${tvdbId}/awards`)
       .then(async (res) => {
         if (!res.ok) {
           throw new Error(`Awards request failed: ${res.status}`);
@@ -95,7 +91,7 @@ if (!show && !error) {
 
                 groups[name].push(award);
                 return groups;
-                }, {});
+                });
 
                 list.innerHTML = Object.entries(grouped).map(([awardName, items]) => `
                 <section class="mb-12">

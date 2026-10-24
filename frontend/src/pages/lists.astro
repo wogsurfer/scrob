@@ -196,7 +196,7 @@ try {
   </div>
 </Base>
 
-<script define:vars={{ token }}>
+<script is:inline>
   const modal = document.getElementById('create-modal');
   const createForm = document.getElementById('create-form');
   const cancelBtn = document.getElementById('cancel-btn');
@@ -235,7 +235,7 @@ try {
     try {
       const res = await fetch(`/api/proxy/lists`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, description, privacy_level: privacyLevel }),
       });
 
@@ -268,7 +268,6 @@ try {
       try {
         const res = await fetch(`/api/proxy/lists/${listId}`, {
           method: 'DELETE',
-          headers: { 'Authorization': `Bearer ${token}` },
         });
         if (res.ok) {
           const card = document.querySelector(`[data-list-id="${listId}"]`);

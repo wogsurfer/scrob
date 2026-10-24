@@ -475,15 +475,10 @@ const bottomNavItem = (active: boolean) =>
     });
   </script>
 
-  <script define:vars={{ __layoutAuthToken: token ?? '' }}>
-    // Expose the server-side token for the card action script (httpOnly cookie is not JS-readable)
-    window.__AUTH_TOKEN__ = __layoutAuthToken;
-
+  <script is:inline>
     // Load the admin badge after first paint so it doesn't hold up every page render.
-    if (__layoutAuthToken && document.getElementById('pending-request-count')) {
-      fetch('/api/proxy/admin/requests/pending-count', {
-        headers: { Authorization: `Bearer ${__layoutAuthToken}` },
-      })
+    if (document.getElementById('pending-request-count')) {
+      fetch('/api/proxy/admin/requests/pending-count')
         .then((response) => response.ok ? response.json() : null)
         .then((data) => {
           if (!data) return;
@@ -504,7 +499,6 @@ const bottomNavItem = (active: boolean) =>
   <script>
     // ── Card action bar ────────────────────────────────────────────────────────
     const API = '/api/proxy';
-    const TOKEN = () => (window as any).__AUTH_TOKEN__ ?? '';
 
     function esc(s: unknown): string {
       if (s == null) return '';
@@ -514,7 +508,7 @@ const bottomNavItem = (active: boolean) =>
     async function apiFetch(path: string, method = 'GET', body?: unknown) {
       const res = await fetch(`${API}${path}`, {
         method,
-        headers: { Authorization: `Bearer ${TOKEN()}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+        headers: { ...(body ? { 'Content-Type': 'application/json' } : {}) },
         body: body ? JSON.stringify(body) : undefined,
       });
       if (!res.ok) throw new Error(await res.text());
@@ -1592,12 +1586,9 @@ const bottomNavItem = (active: boolean) =>
       if (!tmdbId || !mediaType) return;
 
       const API = '/api/proxy';
-      const TOKEN = () => (window as any).__AUTH_TOKEN__ ?? '';
 
       try {
-        const res = await fetch(`${API}/media/request-status?tmdb_id=${tmdbId}&media_type=${mediaType}`, {
-          headers: { Authorization: `Bearer ${TOKEN()}` },
-        });
+        const res = await fetch(`${API}/media/request-status?tmdb_id=${tmdbId}&media_type=${mediaType}`);
         if (!res.ok) return; // service down — keep disabled
         const { monitored } = await res.json();
         btn.removeAttribute('data-request-loading');

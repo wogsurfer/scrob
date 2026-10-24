@@ -27,7 +27,6 @@ if (me.totp_enabled) {
 ---
 
 <Base title="Settings">
-  <div id="app-data" data-token={token} class="hidden" aria-hidden="true"></div>
   <div class="max-w-4xl mx-auto">
     <h1 class="page-title mb-8">Settings</h1>
 
@@ -1795,8 +1794,6 @@ if (me.totp_enabled) {
 </section>
 
 <script>
-  const appData = document.getElementById('app-data');
-  const token = appData?.dataset.token ?? '';
 
   function esc(s) {
     if (s == null) return '';
@@ -1833,7 +1830,6 @@ if (me.totp_enabled) {
     try {
       await fetch(`/api/proxy/sync/${jobId}/cancel`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` },
       });
     } catch {
       // best-effort — the next poll reflects the real state either way
@@ -1915,9 +1911,7 @@ if (me.totp_enabled) {
 
   async function pollConnJob(connId: string) {
     try {
-      const res = await fetch('/api/proxy/sync/status', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const res = await fetch('/api/proxy/sync/status');
       if (!res.ok) return;
       const jobs: any[] = await res.json();
 
@@ -2012,7 +2006,7 @@ if (me.totp_enabled) {
 
   async function pollSimklJob() {
     try {
-      const res = await fetch('/api/proxy/sync/status', { headers: { 'Authorization': `Bearer ${token}` } });
+      const res = await fetch('/api/proxy/sync/status');
       if (!res.ok) return;
       const jobs: any[] = await res.json();
       const job = jobs.find(j => j.source === 'simkl');
@@ -2093,7 +2087,7 @@ if (me.totp_enabled) {
 
   async function pollTraktJob() {
     try {
-      const res = await fetch('/api/proxy/sync/status', { headers: { 'Authorization': `Bearer ${token}` } });
+      const res = await fetch('/api/proxy/sync/status');
       if (!res.ok) return;
       const jobs: any[] = await res.json();
       const job = jobs.find(j => j.source === 'trakt');
@@ -2177,7 +2171,7 @@ if (me.totp_enabled) {
 
   async function pollMdblistJob() {
     try {
-      const res = await fetch('/api/proxy/sync/status', { headers: { 'Authorization': `Bearer ${token}` } });
+      const res = await fetch('/api/proxy/sync/status');
       if (!res.ok) return;
       const jobs: any[] = await res.json();
       const job = jobs.find(j => j.source === 'mdblist');
@@ -2275,7 +2269,7 @@ if (me.totp_enabled) {
 
   async function pollHealJob() {
     try {
-      const res = await fetch('/api/proxy/sync/status', { headers: { 'Authorization': `Bearer ${token}` } });
+      const res = await fetch('/api/proxy/sync/status');
       if (!res.ok) return;
       const jobs: any[] = await res.json();
       const job = jobs.find((j: any) => j.source === 'tmdb' && j.job_type === 'heal');
@@ -2303,9 +2297,7 @@ if (me.totp_enabled) {
   // On page load, resume any in-progress jobs
   (async () => {
     try {
-      const res = await fetch('/api/proxy/sync/status', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const res = await fetch('/api/proxy/sync/status');
       if (!res.ok) return;
       const jobs: any[] = await res.json();
       for (const job of jobs) {
@@ -2393,7 +2385,6 @@ if (me.totp_enabled) {
   }
 
   async function checkConnections() {
-    if (!token) return;
     const traktConnected = !!document.getElementById('trakt-disconnect-btn');
     const simklConnected = !!document.getElementById('simkl-disconnect-btn');
     const mdblistConfigured = !!document.getElementById('mdblist_api_key')?.value;
@@ -2412,9 +2403,7 @@ if (me.totp_enabled) {
     for (const id of mediaServerIds) setConnStatus(`conn-status-${id}`, 'checking');
 
     try {
-      const res = await fetch('/api/proxy/auth/connection-status', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const res = await fetch('/api/proxy/auth/connection-status');
       if (!res.ok) return;
       const data = await res.json();
 
@@ -2493,9 +2482,7 @@ if (me.totp_enabled) {
     listEl.textContent = 'Loading…';
     listEl.classList.add('italic', 'text-zinc-500');
     try {
-      const res = await fetch(`/api/proxy/sync/connection/${connId}/libraries`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const res = await fetch(`/api/proxy/sync/connection/${connId}/libraries`);
       if (res.ok) {
         const data = await res.json();
         const idKey = connType === 'plex' ? 'key' : 'id';
@@ -2574,7 +2561,6 @@ if (me.totp_enabled) {
     const res = await fetch('/api/proxy/auth/settings', {
       method: 'PATCH',
       headers: {
-        'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(preferences),
@@ -2623,7 +2609,7 @@ if (me.totp_enabled) {
             if (connType === 'nuvio') {
               testRes = await fetch('/api/proxy/auth/test-nuvio', {
                 method: 'POST',
-                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ url: u, token: t, profile_id: parseInt(ui) }),
               });
             } else {
@@ -2635,7 +2621,7 @@ if (me.totp_enabled) {
               } else {
                 testEndpoint = `/api/proxy/auth/test-jellyfin?url=${encodeURIComponent(u)}&token=${encodeURIComponent(t)}&user_id=${encodeURIComponent(ui)}`;
               }
-              testRes = await fetch(testEndpoint, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
+              testRes = await fetch(testEndpoint, { method: 'POST' });
             }
             const testData = await testRes.json();
             if (testRes.ok) {
@@ -2644,7 +2630,7 @@ if (me.totp_enabled) {
               if (connType === 'nuvio' && connId) {
                 const saveTokenRes = await fetch(`/api/proxy/auth/connections/${connId}`, {
                   method: 'PATCH',
-                  headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                  headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ token: testData.refresh_token }),
                 });
                 if (!saveTokenRes.ok) throw new Error('Nuvio session was validated but could not be saved');
@@ -2685,7 +2671,7 @@ if (me.totp_enabled) {
             }
             const saveRes = await fetch(`/api/proxy/auth/connections/${connId}`, {
               method: 'PATCH',
-              headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+              headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(body),
             });
             if (!saveRes.ok) {
@@ -2704,7 +2690,7 @@ if (me.totp_enabled) {
               const libPayload = pickerType === 'plex' ? { library_keys: ids } : { library_ids: ids };
               await fetch(`/api/proxy/sync/connection/${connId}/libraries`, {
                 method: 'PUT',
-                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(libPayload),
               });
             }
@@ -2721,7 +2707,7 @@ if (me.totp_enabled) {
             });
             const res = await fetch(`/api/proxy/auth/scrobble-connections/${connId}`, {
               method: 'PATCH',
-              headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+              headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(body),
             });
             if (!res.ok) {
@@ -2736,7 +2722,6 @@ if (me.totp_enabled) {
             if (!confirm(`Delete scrobble connection "${connName}"? This cannot be undone.`)) return;
             const delRes = await fetch(`/api/proxy/auth/scrobble-connections/${connId}`, {
               method: 'DELETE',
-              headers: { 'Authorization': `Bearer ${token}` },
             });
             if (!delRes.ok) {
               const err = await delRes.json();
@@ -2751,7 +2736,6 @@ if (me.totp_enabled) {
             if (!confirm(`Delete connection "${connName}"? This cannot be undone.`)) return;
             const delRes = await fetch(`/api/proxy/auth/connections/${connId}`, {
               method: 'DELETE',
-              headers: { 'Authorization': `Bearer ${token}` },
             });
             if (!delRes.ok) {
               const err = await delRes.json();
@@ -2827,7 +2811,6 @@ if (me.totp_enabled) {
             // First test connection
             const testRes = await fetch(`/api/proxy/auth/test-radarr?url=${encodeURIComponent(u)}&token=${encodeURIComponent(t)}`, {
               method: 'POST',
-              headers: { 'Authorization': `Bearer ${token}` }
             });
             if (!testRes.ok) {
               setConnStatus('radarr-conn-status', 'disconnected');
@@ -2835,9 +2818,7 @@ if (me.totp_enabled) {
             }
             
             // Then fetch profiles
-            const profRes = await fetch(`/api/proxy/auth/radarr/profiles?url=${encodeURIComponent(u)}&token=${encodeURIComponent(t)}`, {
-              headers: { 'Authorization': `Bearer ${token}` }
-            });
+            const profRes = await fetch(`/api/proxy/auth/radarr/profiles?url=${encodeURIComponent(u)}&token=${encodeURIComponent(t)}`);
             const profData = await profRes.json();
             
             // Populate selects
@@ -2869,7 +2850,6 @@ if (me.totp_enabled) {
             // First test connection
             const testRes = await fetch(`/api/proxy/auth/test-sonarr?url=${encodeURIComponent(u)}&token=${encodeURIComponent(t)}`, {
               method: 'POST',
-              headers: { 'Authorization': `Bearer ${token}` }
             });
             if (!testRes.ok) {
               setConnStatus('sonarr-conn-status', 'disconnected');
@@ -2877,9 +2857,7 @@ if (me.totp_enabled) {
             }
             
             // Then fetch profiles
-            const profRes = await fetch(`/api/proxy/auth/sonarr/profiles?url=${encodeURIComponent(u)}&token=${encodeURIComponent(t)}`, {
-              headers: { 'Authorization': `Bearer ${token}` }
-            });
+            const profRes = await fetch(`/api/proxy/auth/sonarr/profiles?url=${encodeURIComponent(u)}&token=${encodeURIComponent(t)}`);
             const profData = await profRes.json();
             
             // Populate selects
@@ -3042,7 +3020,6 @@ if (me.totp_enabled) {
 
           const res = await fetch(url, {
             method,
-            headers: { 'Authorization': `Bearer ${token}` }
           });
           const data = await res.json();
 
@@ -3086,7 +3063,7 @@ if (me.totp_enabled) {
             if (clientId && clientSecret) {
               const saveRes = await fetch('/api/proxy/auth/settings', {
                 method: 'PATCH',
-                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ trakt_client_id: clientId, trakt_client_secret: clientSecret }),
               });
               if (!saveRes.ok) {
@@ -3097,7 +3074,6 @@ if (me.totp_enabled) {
 
             const res = await fetch('/api/proxy/trakt/auth/device/start', {
               method: 'POST',
-              headers: { 'Authorization': `Bearer ${token}` },
             });
             if (!res.ok) {
               const err = await res.json();
@@ -3127,7 +3103,6 @@ if (me.totp_enabled) {
               try {
                 const pollRes = await fetch('/api/proxy/trakt/auth/device/poll', {
                   method: 'POST',
-                  headers: { 'Authorization': `Bearer ${token}` },
                 });
                 if (pollRes.ok) {
                   const pollData = await pollRes.json();
@@ -3163,7 +3138,6 @@ if (me.totp_enabled) {
           try {
             await fetch('/api/proxy/trakt/auth/disconnect', {
               method: 'DELETE',
-              headers: { 'Authorization': `Bearer ${token}` },
             });
             window.location.reload();
           } catch (e) {
@@ -3192,7 +3166,7 @@ if (me.totp_enabled) {
             if (clientId) {
               const saveRes = await fetch('/api/proxy/auth/settings', {
                 method: 'PATCH',
-                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ simkl_client_id: clientId }),
               });
               if (!saveRes.ok) {
@@ -3203,7 +3177,6 @@ if (me.totp_enabled) {
 
             const res = await fetch('/api/proxy/simkl/auth/pin/start', {
               method: 'POST',
-              headers: { 'Authorization': `Bearer ${token}` },
             });
             if (!res.ok) {
               const err = await res.json();
@@ -3232,7 +3205,6 @@ if (me.totp_enabled) {
               try {
                 const pollRes = await fetch('/api/proxy/simkl/auth/pin/poll', {
                   method: 'POST',
-                  headers: { 'Authorization': `Bearer ${token}` },
                 });
                 if (pollRes.ok) {
                   const pollData = await pollRes.json();
@@ -3268,7 +3240,6 @@ if (me.totp_enabled) {
           try {
             await fetch('/api/proxy/simkl/auth/disconnect', {
               method: 'DELETE',
-              headers: { 'Authorization': `Bearer ${token}` },
             });
             window.location.reload();
           } catch (e) {
@@ -3292,7 +3263,6 @@ if (me.totp_enabled) {
           try {
             await fetch('/api/proxy/mdblist/auth/disconnect', {
               method: 'DELETE',
-              headers: { 'Authorization': `Bearer ${token}` },
             });
             window.location.reload();
           } catch (e) {
@@ -3322,7 +3292,6 @@ if (me.totp_enabled) {
         try {
           const res = await fetch(`/api/proxy/history`, {
             method: 'DELETE',
-            headers: { 'Authorization': `Bearer ${token}` }
           });
           if (res.ok) {
             showMessage('Watch history cleared successfully!');
@@ -3348,7 +3317,6 @@ if (me.totp_enabled) {
         try {
           const res = await fetch(`/api/proxy/ratings/all`, {
             method: 'DELETE',
-            headers: { 'Authorization': `Bearer ${token}` }
           });
           if (res.ok) {
             showMessage('Ratings cleared successfully!');
@@ -3374,7 +3342,6 @@ if (me.totp_enabled) {
         try {
           const res = await fetch(`/api/proxy/media/collect/all`, {
             method: 'DELETE',
-            headers: { 'Authorization': `Bearer ${token}` }
           });
           if (res.ok) {
             showMessage('Collection cleared successfully!');
@@ -3408,7 +3375,6 @@ if (me.totp_enabled) {
         try {
           const res = await fetch(`/api/proxy/auth/me`, {
             method: 'DELETE',
-            headers: { 'Authorization': `Bearer ${token}` }
           });
           if (res.ok) {
             window.location.href = '/logout';
@@ -3626,7 +3592,7 @@ if (me.totp_enabled) {
       const selectedProfile = nuvioProfileSelect?.value || '';
       const response = await fetch('/api/proxy/auth/nuvio-login', {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password, url }),
       });
       const data = await response.json();
@@ -3668,7 +3634,7 @@ if (me.totp_enabled) {
             } else {
               ep = `/api/proxy/auth/test-jellyfin?url=${encodeURIComponent(u)}&token=${encodeURIComponent(t)}&user_id=${encodeURIComponent(ui)}`;
             }
-            const res = await fetch(ep, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
+            const res = await fetch(ep, { method: 'POST' });
             const data = await res.json();
             if (res.ok) showMessage(data.message || 'Connection successful!');
             else throw new Error(data.detail || 'Connection test failed');
@@ -3731,7 +3697,7 @@ if (me.totp_enabled) {
 
           const res = await fetch('/api/proxy/auth/connections', {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
           });
           if (!res.ok) {
@@ -3806,7 +3772,7 @@ if (me.totp_enabled) {
         try {
           const res = await fetch('/api/proxy/auth/scrobble-connections', {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
           });
           if (!res.ok) {
@@ -3830,16 +3796,14 @@ if (me.totp_enabled) {
     if (!form || !saveBtn) return;
 
     // Plex "Also monitor users" — toggle picker visibility and lazy-load friends
-    async function loadPlexFriends(picker: HTMLElement, token: string) {
+    async function loadPlexFriends(picker: HTMLElement) {
       const connId = picker.getAttribute('data-conn-id');
       const monitored: string[] = JSON.parse(picker.getAttribute('data-monitored') || '[]');
       const list = picker.querySelector('.plex-user-list') as HTMLElement;
       if (!list || list.querySelector('.plex-user-checkbox')) return; // already loaded
       list.innerHTML = '<p class="text-xs text-zinc-500 italic">Loading users…</p>';
       try {
-        const res = await fetch(`/api/proxy/sync/connection/${connId}/plex-friends`, {
-          headers: { 'Authorization': `Bearer ${token}` },
-        });
+        const res = await fetch(`/api/proxy/sync/connection/${connId}/plex-friends`);
         if (!res.ok) throw new Error('Failed to load users');
         const data = await res.json();
         if (!data.friends?.length) {
@@ -3872,7 +3836,7 @@ if (me.totp_enabled) {
         const open = !picker.classList.contains('hidden');
         picker.classList.toggle('hidden', open);
         if (chevron) chevron.style.transform = open ? '' : 'rotate(180deg)';
-        if (!open) loadPlexFriends(picker, token);
+        if (!open) loadPlexFriends(picker);
       });
     });
 
@@ -3948,7 +3912,7 @@ if (me.totp_enabled) {
 
         saves.push(fetch(`/api/proxy/auth/settings`, {
           method: 'PATCH',
-          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ...settings, ...syncPrefs }),
         }));
 
@@ -3995,7 +3959,7 @@ if (me.totp_enabled) {
       try {
         const res = await fetch(`/api/proxy/auth/change-password`, {
           method: 'POST',
-          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ current_password, new_password }),
         });
 
@@ -4073,7 +4037,6 @@ if (me.totp_enabled) {
         try {
           const res = await fetch(`/api/proxy/auth/api-key/regenerate`, {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}` },
           });
           if (!res.ok) {
             const data = await res.json();
@@ -4118,7 +4081,6 @@ if (me.totp_enabled) {
       try {
         const res = await fetch('/api/proxy/sync/heal', {
           method: 'POST',
-          headers: { 'Authorization': `Bearer ${token}` },
         });
         if (res.ok) {
           startHealPoller();
@@ -4139,14 +4101,12 @@ if (me.totp_enabled) {
     const healStubBtn = document.getElementById('heal-stub-titles-btn');
     if (healStubBtn) {
       healStubBtn.addEventListener('click', async () => {
-        const tok = (document.getElementById('app-data') as HTMLElement | null)?.dataset.token ?? '';
         const original = healStubBtn.textContent;
         healStubBtn.textContent = 'Healing…';
         (healStubBtn as HTMLButtonElement).disabled = true;
         try {
           const res = await fetch('/api/proxy/sync/heal-stub-show-titles', {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${tok}` },
           });
           if (!res.ok) throw new Error('Failed');
           const data = await res.json();
@@ -4198,10 +4158,9 @@ if (me.totp_enabled) {
       const v = blurToggle.checked ? 'true' : 'false';
       document.cookie = `blur_explicit=${v}; path=/; SameSite=Lax; Max-Age=31536000`;
       document.documentElement.classList.toggle('blur-explicit', blurToggle.checked);
-      const tok = (document.getElementById('app-data') as HTMLElement | null)?.dataset.token ?? '';
       await fetch('/api/proxy/auth/settings', {
         method: 'PATCH',
-        headers: { 'Authorization': `Bearer ${tok}`, 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ blur_explicit: blurToggle.checked }),
       });
     });
@@ -4214,10 +4173,9 @@ if (me.totp_enabled) {
 
     hlsPlayerToggle.addEventListener('change', async () => {
       document.cookie = `use_hls_player=${hlsPlayerToggle.checked ? 'true' : 'false'}; path=/; SameSite=Lax; Max-Age=31536000`;
-      const tok = (document.getElementById('app-data') as HTMLElement | null)?.dataset.token ?? '';
       await fetch('/api/proxy/auth/settings', {
         method: 'PATCH',
-        headers: { 'Authorization': `Bearer ${tok}`, 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ use_hls_player: hlsPlayerToggle.checked }),
       });
     });
@@ -4249,14 +4207,9 @@ if (me.totp_enabled) {
   });
 
   async function loadLastSynced() {
-    const appData = document.getElementById('app-data') as HTMLElement | null;
-    const token = appData?.dataset.token ?? '';
-    if (!token) return;
 
     try {
-      const res = await fetch('/api/proxy/sync/status', {
-        headers: { 'Authorization': `Bearer ${token}` },
-      });
+      const res = await fetch('/api/proxy/sync/status');
       if (!res.ok) return;
       const jobs: any[] = await res.json();
 
@@ -4290,9 +4243,6 @@ if (me.totp_enabled) {
   }
 
   async function loadSyncWarnings() {
-    const appData = document.getElementById('app-data') as HTMLElement | null;
-    const token = appData?.dataset.token ?? '';
-    if (!token) return;
 
     try {
       // Remember which warning detail panes are currently open so we can restore them after rebuild
@@ -4302,9 +4252,9 @@ if (me.totp_enabled) {
       });
 
       const [statusRes, overridesRes, matchedRes] = await Promise.all([
-        fetch('/api/proxy/sync/status', { headers: { 'Authorization': `Bearer ${token}` } }),
-        fetch('/api/proxy/sync/season-overrides', { headers: { 'Authorization': `Bearer ${token}` } }),
-        fetch('/api/proxy/sync/matched-shows', { headers: { 'Authorization': `Bearer ${token}` } }),
+        fetch('/api/proxy/sync/status'),
+        fetch('/api/proxy/sync/season-overrides'),
+        fetch('/api/proxy/sync/matched-shows'),
       ]);
       if (!statusRes.ok) return;
       const jobs: any[] = await statusRes.json();
@@ -4550,7 +4500,7 @@ if (me.totp_enabled) {
               const isMovie = mediaType === 'movie';
               const res = await fetch(`/api/proxy/sync/${isMovie ? 'unmatch-movie' : 'unmatch-show'}`, {
                 method: 'POST',
-                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(isMovie ? { movie_title: seriesName } : { show_title: seriesName }),
               });
               if (!res.ok) throw new Error(await res.text());
@@ -4583,7 +4533,6 @@ if (me.totp_enabled) {
           try {
             const res = await fetch(`/api/proxy/sync/season-overrides/${overrideId}`, {
               method: 'DELETE',
-              headers: { 'Authorization': `Bearer ${token}` },
             });
             if (res.ok) {
               btn.closest('[data-override-id]')?.remove();
@@ -4607,8 +4556,6 @@ if (me.totp_enabled) {
   // ── Season remap modal ────────────────────────────────────────────────────
 
   function setupSeasonRemap() {
-    const appData = document.getElementById('app-data') as HTMLElement | null;
-    const token = appData?.dataset.token ?? '';
     const modal = document.getElementById('season-remap-modal') as HTMLElement;
     if (!modal) return;
 
@@ -4746,9 +4693,7 @@ if (me.totp_enabled) {
         seasonsList.innerHTML = '';
         seasonsLoading.classList.remove('hidden');
         try {
-          const showRes = await fetch(`/api/proxy/shows/${tmdbId}`, {
-            headers: { 'Authorization': `Bearer ${token}` },
-          });
+          const showRes = await fetch(`/api/proxy/shows/${tmdbId}`);
           const showData = showRes.ok ? await showRes.json() : null;
           const seasons: any[] = (showData?.seasons_meta ?? []).filter((s: any) => s.season_number > 0);
           seasonsLoading.classList.add('hidden');
@@ -4793,9 +4738,7 @@ if (me.totp_enabled) {
       resultsEl.innerHTML = '<p class="text-xs text-zinc-500 py-2">Searching…</p>';
       try {
         const searchType = modalMode === 'match-movie' ? 'movie' : 'series';
-        const res = await fetch(`/api/proxy/media/search?q=${encodeURIComponent(q)}&type=${searchType}`, {
-          headers: { 'Authorization': `Bearer ${token}` },
-        });
+        const res = await fetch(`/api/proxy/media/search?q=${encodeURIComponent(q)}&type=${searchType}`);
         if (!res.ok) throw new Error('Search failed');
         const data = await res.json();
         const results: any[] = data.results?.slice(0, 8) ?? [];
@@ -4827,9 +4770,7 @@ if (me.totp_enabled) {
       const resultsEl = document.getElementById('remap-tvdb-results') as HTMLElement;
       resultsEl.innerHTML = '<p class="text-xs text-zinc-500 py-2">Searching…</p>';
       try {
-        const res = await fetch(`/api/proxy/media/search-tvdb?q=${encodeURIComponent(q)}`, {
-          headers: { 'Authorization': `Bearer ${token}` },
-        });
+        const res = await fetch(`/api/proxy/media/search-tvdb?q=${encodeURIComponent(q)}`);
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
           const detail: string = err.detail ?? 'Search failed';
@@ -4882,7 +4823,7 @@ if (me.totp_enabled) {
           else body.tmdb_id = targetTmdbId;
           const res = await fetch('/api/proxy/sync/match-unmatched-show', {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
           });
           if (!res.ok) throw new Error(await res.text());
@@ -4903,7 +4844,7 @@ if (me.totp_enabled) {
         try {
           const res = await fetch('/api/proxy/sync/match-unmatched-movie', {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ movie_title: matchMovieTitle, tmdb_id: targetTmdbId }),
           });
           if (!res.ok) throw new Error(await res.text());
@@ -4924,7 +4865,7 @@ if (me.totp_enabled) {
       try {
         const createRes = await fetch('/api/proxy/sync/season-overrides', {
           method: 'POST',
-          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             source_show_tmdb_id: srcTmdbId,
             source_season_number: srcSeason,
@@ -4938,7 +4879,6 @@ if (me.totp_enabled) {
         saveBtn.textContent = 'Applying…';
         const applyRes = await fetch(`/api/proxy/sync/season-overrides/${override.id}/apply`, {
           method: 'POST',
-          headers: { 'Authorization': `Bearer ${token}` },
         });
         if (!applyRes.ok) throw new Error(await applyRes.text());
 
@@ -5010,8 +4950,6 @@ if (me.totp_enabled) {
 <script>
   import QRCode from 'qrcode';
 
-  const appData = document.getElementById('app-data') as HTMLElement | null;
-  const token: string = appData?.dataset.token ?? '';
 
   let pendingTotpSecret = '';
 
@@ -5054,7 +4992,6 @@ if (me.totp_enabled) {
       try {
         const res = await fetch(`/api/proxy/auth/2fa/setup`, {
           method: 'POST',
-          headers: { 'Authorization': `Bearer ${token}` },
         });
         if (!res.ok) {
           const data = await res.json();
@@ -5101,7 +5038,7 @@ if (me.totp_enabled) {
       try {
         const res = await fetch(`/api/proxy/auth/2fa/enable`, {
           method: 'POST',
-          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ secret: pendingTotpSecret, code }),
         });
         if (!res.ok) {
@@ -5161,7 +5098,7 @@ if (me.totp_enabled) {
       try {
         const res = await fetch(`/api/proxy/auth/2fa/disable`, {
           method: 'POST',
-          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ code }),
         });
         if (!res.ok) {

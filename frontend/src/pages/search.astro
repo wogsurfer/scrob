@@ -57,7 +57,6 @@ const tabs: [string | undefined, string][] = [
 ---
 
 <Base title={q ? `Search: ${q}` : "Search"}>
-  <div id="app-data" data-token={token} class="hidden" aria-hidden="true"></div>
 
   <div class="mb-8">
     <h1 class="page-title mb-2">
@@ -211,7 +210,6 @@ const tabs: [string | undefined, string][] = [
 
 <script>
   function setup() {
-    const token = (document.getElementById('app-data') as HTMLElement | null)?.dataset.token ?? '';
 
     const yearSel = document.getElementById('filter-year') as HTMLSelectElement | null;
     if (yearSel) {
@@ -235,7 +233,6 @@ const tabs: [string | undefined, string][] = [
         try {
           const res = await fetch(`/api/proxy/profile/${userId}/follow`, {
             method: isFollowing ? 'DELETE' : 'POST',
-            headers: { 'Authorization': `Bearer ${token}` },
           });
           if (!res.ok) throw new Error();
 

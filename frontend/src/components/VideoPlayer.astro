@@ -36,7 +36,6 @@ const useHls = settings.use_hls_player === true;
       data-media-id={mediaId ?? 0}
       data-media-type={mediaType}
       data-title={title}
-      data-token={token}
       data-use-hls={useHls ? "true" : "false"}
       class="fixed inset-0 z-50 w-full max-w-5xl mx-auto my-auto bg-zinc-950 border border-zinc-800 rounded-2xl shadow-2xl p-0 backdrop:bg-black/70"
     >
@@ -112,7 +111,6 @@ const useHls = settings.use_hls_player === true;
     const mediaId   = parseInt(dialog.dataset.mediaId ?? '0', 10) || null;
     const mediaType = dialog.dataset.mediaType!;
     const title     = dialog.dataset.title!;
-    const token     = dialog.dataset.token!;
     const useHls    = dialog.dataset.useHls === "true";
     const mediaIdParam = mediaId ? `&media_id=${mediaId}` : '';
 
@@ -228,7 +226,6 @@ const useHls = settings.use_hls_player === true;
         await fetch(`/api/proxy/media/session/report/${mediaType}/${tmdbId}${mediaIdParam}`, {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
@@ -261,7 +258,7 @@ const useHls = settings.use_hls_player === true;
         return;
       }
       if (Hls.isSupported()) {
-        hlsInstance = new Hls({ xhrSetup: (xhr) => { xhr.setRequestHeader('Authorization', `Bearer ${token}`); } });
+        hlsInstance = new Hls();
         hlsInstance.on(Hls.Events.ERROR, (_ev, data) => {
           if (data.fatal) {
             const detail = data.type === Hls.ErrorTypes.MEDIA_ERROR
@@ -325,7 +322,7 @@ const useHls = settings.use_hls_player === true;
         loadHlsUrl(`/api/proxy/media/${hlsPath}/${mediaType}/${tmdbId}?connection_id=${connectionId}${mediaIdParam}${fileParam}${codecParams}${sessionParam}`);
       } else {
         destroyHls();
-        video.src = `/api/proxy/media/stream/${mediaType}/${tmdbId}?connection_id=${connectionId}${mediaIdParam}${fileParam}&token=${encodeURIComponent(token)}`;
+        video.src = `/api/proxy/media/stream/${mediaType}/${tmdbId}?connection_id=${connectionId}${mediaIdParam}${fileParam}`;
         video.play().catch(() => {});
       }
 
@@ -342,7 +339,7 @@ const useHls = settings.use_hls_player === true;
         await fetch('/api/proxy/history', {
           method: 'POST',
           keepalive: true,
-          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ tmdb_id: parseInt(tmdbId), media_type: mediaType, completed: true }),
         });
       } catch {}
@@ -422,9 +419,7 @@ const useHls = settings.use_hls_player === true;
       dialog.showModal();
 
       try {
-        const res = await fetch(`/api/proxy/media/playback/${mediaType}/${tmdbId}${mediaId ? `?media_id=${mediaId}` : ''}`, {
-          headers: { 'Authorization': `Bearer ${token}` },
-        });
+        const res = await fetch(`/api/proxy/media/playback/${mediaType}/${tmdbId}${mediaId ? `?media_id=${mediaId}` : ''}`);
         const sources = res.ok ? await res.json() : [];
         renderSources(sources);
         if (sources.length > 0) {

@@ -152,7 +152,6 @@ return Astro.redirect(`/show/${tmdbShowId}`);
                   tmdbId={show.tmdb_id_cross}
                   tvdbId={show.tvdb_id}
                   selected="tvdb"
-                  token={token}
                 />
               </div>
             )}
@@ -379,7 +378,7 @@ return Astro.redirect(`/show/${tmdbShowId}`);
   }
 </script>
 
-<script define:vars={{ tvdbId: id, token: Astro.locals.token, hasLocalShow: !!show?.id }}>
+<script define:vars={{ tvdbId: id, hasLocalShow: !!show?.id }}>
   const btn = document.getElementById('refresh-metadata-btn');
   if (btn && hasLocalShow) {
     btn.addEventListener('click', async () => {
@@ -395,7 +394,6 @@ return Astro.redirect(`/show/${tmdbShowId}`);
       try {
         const res = await fetch(`/api/proxy/shows/tvdb/${tvdbId}/refresh`, {
           method: 'POST',
-          headers: { 'Authorization': `Bearer ${token}` },
         });
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));

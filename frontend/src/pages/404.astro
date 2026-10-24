@@ -106,7 +106,7 @@ if (token) {
   </div>
 </Base>
 
-<script define:vars={{ token, canPick }}>
+<script define:vars={{ canPick }}>
   if (canPick) {
     const PHRASES = [
       { emoji: '🔮', text: 'Consulting the crystal ball…' },
@@ -237,9 +237,7 @@ if (token) {
       openModal();
       showLoading();
       try {
-        const res = await fetch(`/api/proxy/media/pick?type=${type}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const res = await fetch(`/api/proxy/media/pick?type=${type}`);
         if (res.status === 404) {
           showError('No unwatched titles found. Watch something first, or adjust your profile.');
           return;

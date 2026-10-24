@@ -310,7 +310,7 @@ return Astro.redirect(
   }
 </script>
 
-<script define:vars={{ tvdbId: id, token: Astro.locals.token }}>
+<script define:vars={{ tvdbId: id }}>
   const btn = document.getElementById('refresh-metadata-btn');
   if (btn) {
     btn.addEventListener('click', async () => {
@@ -326,7 +326,6 @@ return Astro.redirect(
       try {
         const res = await fetch(`/api/proxy/shows/tvdb/${tvdbId}/refresh`, {
           method: 'POST',
-          headers: { 'Authorization': `Bearer ${token}` },
         });
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
