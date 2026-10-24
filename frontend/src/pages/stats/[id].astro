@@ -210,14 +210,23 @@ const heroSubtitle =
   .ws-btn:disabled { opacity: .3; cursor: not-allowed; }
 
   /* First / last play */
-  .ws-play { display: flex; gap: 28px; align-items: center; background: #000000; border: 1px solid #242424; border-radius: 14px; padding: 22px; }
-  .ws-play-img { flex: none; border-radius: 10px; overflow: hidden; background: #0c0c0c; border: 1px solid #242424; }
+  /* First / last play: the title's backdrop fills the card, fading to black
+     behind the poster and text. */
+  .ws-play { position: relative; display: flex; gap: 32px; align-items: center; min-height: 280px; padding: 28px; border: 1px solid #242424; border-radius: 16px; overflow: hidden; background: #000000; color: inherit; text-decoration: none; isolation: isolate; transition: border-color .2s; }
+  .ws-play:hover { border-color: #3f3f46; }
+  .ws-play-bg { position: absolute; inset: 0; z-index: -2; background-size: cover; background-position: center 25%; transform: scale(1.02); transition: transform .6s ease; }
+  .ws-play:hover .ws-play-bg { transform: scale(1.06); }
+  .ws-play::before { content: ""; position: absolute; inset: 0; z-index: -1; background: linear-gradient(90deg, #000 0%, rgba(0,0,0,.92) 32%, rgba(0,0,0,.55) 65%, rgba(0,0,0,.25) 100%), linear-gradient(0deg, rgba(0,0,0,.6) 0%, transparent 45%); }
+  .ws-play-img { flex: none; width: 150px; aspect-ratio: 2 / 3; border-radius: 10px; overflow: hidden; background: #0c0c0c; border: 1px solid rgba(255,255,255,.12); box-shadow: 0 18px 40px rgba(0,0,0,.7); }
   .ws-play-img img { display: block; width: 100%; height: 100%; object-fit: cover; }
-  .ws-play-img.wide { width: 340px; aspect-ratio: 16 / 9; }
-  .ws-play-img.tall { width: 150px; aspect-ratio: 2 / 3; }
-  .ws-play-t { margin: 0; font-size: clamp(22px, 2.6vw, 34px); font-weight: 800; letter-spacing: -.02em; color: #ffffff; }
-  .ws-play-s { margin: 6px 0 0; font-size: 16px; font-weight: 700; color: #e50914; }
-  .ws-play-d { margin: 14px 0 0; font-size: 12px; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; color: #858585; }
+  .ws-play-tag { display: inline-flex; align-items: center; gap: 8px; margin: 0 0 14px; padding: 5px 11px; border-radius: 999px; background: rgba(229,9,20,.16); border: 1px solid rgba(229,9,20,.45); color: #ff4d55; font-size: 11px; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; }
+  .ws-play-tag svg { width: 12px; height: 12px; }
+  .ws-play-t { margin: 0; font-size: clamp(26px, 3.2vw, 44px); line-height: 1.05; font-weight: 900; letter-spacing: -.03em; color: #ffffff; text-shadow: 0 2px 18px rgba(0,0,0,.6); }
+  .ws-play-s { margin: 8px 0 0; font-size: 17px; font-weight: 700; color: #e50914; }
+  .ws-play-when { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; margin: 18px 0 0; }
+  .ws-play-d { margin: 0; font-size: 15px; font-weight: 700; color: #e4e4e7; }
+  .ws-play-d span { color: #858585; font-weight: 600; }
+  .ws-play-note { margin: 0; padding-left: 18px; border-left: 2px solid #3f3f46; font-size: 12px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: #a1a1aa; }
 
   .ws-loading, .ws-error { margin-top: 64px; font-size: 15px; color: #858585; }
   .ws-error { color: #e50914; }
@@ -231,8 +240,9 @@ const heroSubtitle =
     .ws-grid2 { grid-template-columns: 1fr; }
     .ws-span2 { grid-column: auto; }
     .ws-posters, .ws-wall, .ws-people { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .ws-play { flex-direction: column; align-items: flex-start; }
-    .ws-play-img.wide { width: 100%; }
+    .ws-play { gap: 18px; min-height: 0; padding: 18px; }
+    .ws-play-img { width: 96px; }
+    .ws-play-note { padding-left: 0; border-left: 0; }
     .ws-treemap { height: 420px; }
   }
 </style>
@@ -602,21 +612,53 @@ const heroSubtitle =
     });
   }
 
-  // First / last play
+  // First / last play: a card with the title's backdrop behind its poster,
+  // the play's date and a note placing it in the year ("Day 1 of 2026") or
+  // relative to now for the latest play ("2 days ago").
   function playCard(title, play) {
     if (!play) return '';
+    const isFirst = title === 'First Play';
     const isEp = play.media_type === 'episode';
     const name = isEp ? (play.show_title || play.title) : play.title;
     const code = isEp && play.season_number != null && play.episode_number != null
       ? `S${pad(play.season_number)}E${pad(play.episode_number)}` : '';
     const sub = isEp ? [code, play.title].filter(Boolean).join(' · ') : '';
-    const src = isEp ? img(play.show_backdrop_path || play.backdrop_path || play.show_poster_path, 'w780') : img(play.poster_path || play.backdrop_path, 'w342');
+    const poster = img(isEp ? (play.show_poster_path || play.poster_path) : play.poster_path, 'w342');
+    const backdrop = img(isEp ? (play.show_backdrop_path || play.backdrop_path) : (play.backdrop_path || play.poster_path), 'w1280');
+    const href = isEp
+      ? (play.show_tmdb_id && code ? `/show/${play.show_tmdb_id}/season/${play.season_number}/${play.episode_number}` : '')
+      : (play.tmdb_id ? `/media/movie/${play.tmdb_id}` : '');
+
     const when = new Date(play.watched_at);
-    const date = when.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    const date = when.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
     const time = when.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-    return H3(title) + `<div class="ws-play">
-      <div class="ws-play-img ${isEp ? 'wide' : 'tall'}">${src ? `<img src="${esc(src)}" alt="" loading="lazy">` : ''}</div>
-      <div><p class="ws-play-t">${esc(name)}</p>${sub ? `<p class="ws-play-s">${esc(sub)}</p>` : ''}<p class="ws-play-d">${esc(date)} · ${esc(time)}</p></div></div>`;
+    const dayOfYear = Math.floor((Date.UTC(when.getFullYear(), when.getMonth(), when.getDate()) - Date.UTC(when.getFullYear(), 0, 1)) / 86400000) + 1;
+    const daysAgo = Math.floor((Date.UTC(NOW.getFullYear(), NOW.getMonth(), NOW.getDate()) - Date.UTC(when.getFullYear(), when.getMonth(), when.getDate())) / 86400000);
+    let note = '';
+    if (statsMode === 'all-time' && isFirst) note = 'Where it all began';
+    else if (!isFirst && statsMode !== 'year') note = daysAgo <= 0 ? 'Today' : daysAgo === 1 ? 'Yesterday' : `${num(daysAgo)} days ago`;
+    else note = `Day ${dayOfYear} of ${when.getFullYear()}`;
+
+    const icon = isFirst
+      ? '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>'
+      : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 22V4a1 1 0 0 1 1-1h11l-2 4 2 4H5"/></svg>';
+    const tag = isFirst
+      ? (statsMode === 'all-time' ? 'First play ever' : `First play of ${when.getFullYear()}`)
+      : (statsMode === 'year' ? `Last play of ${when.getFullYear()}` : 'Latest play');
+    const tagName = href ? 'a' : 'div';
+    return H3(title) + `<${tagName} class="ws-play"${href ? ` href="${esc(href)}"` : ''}>
+      ${backdrop ? `<div class="ws-play-bg" style="background-image:url('${esc(backdrop)}')"></div>` : ''}
+      <div class="ws-play-img">${poster ? `<img src="${esc(poster)}" alt="" loading="lazy">` : ''}</div>
+      <div class="ws-play-body">
+        <p class="ws-play-tag">${icon}${esc(tag)}</p>
+        <p class="ws-play-t">${esc(name)}</p>
+        ${sub ? `<p class="ws-play-s">${esc(sub)}</p>` : ''}
+        <div class="ws-play-when">
+          <p class="ws-play-d">${esc(date)} <span>· ${esc(time)}</span></p>
+          ${note ? `<p class="ws-play-note">${esc(note)}</p>` : ''}
+        </div>
+      </div>
+    </${tagName}>`;
   }
 
   // ── cast & crew ────────────────────────────────────────────────────────────
