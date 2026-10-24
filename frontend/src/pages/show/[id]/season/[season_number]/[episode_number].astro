@@ -1,4 +1,5 @@
 ---
+import WatchHistory from "../../../../../components/WatchHistory.astro";
 import Base from "../../../../../layouts/Base.astro";
 import ActionBar from "../../../../../components/ActionBar.astro";
 import NetworkLogo from "../../../../../components/NetworkLogo.astro";
@@ -180,6 +181,7 @@ const thumbnail = episode?.still_path || show?.poster_path || null;
               mediaId={episode.id ?? null}
               userRating={episode.user_rating ?? null}
               />
+              <WatchHistory watches={episode.watch_history} />
             </div>
 
           <div class="flex items-start gap-4 mb10">
@@ -319,70 +321,6 @@ const thumbnail = episode?.still_path || show?.poster_path || null;
               </div>
             )}
 
-            {episode.watch_history?.length > 0 && (
-              <div class="mt-4">
-                <div class="flex flex-col gap-2">
-                  {episode.watch_history.map((watch) => (
-                    <div class="flex items-center gap-3 text-sm text-zinc-400 whitespace-nowrap">
-                      <span class="font-bold text-zinc-300">Watched</span>
-
-                      {watch.watched_at && (
-                        <>
-                          <span class="flex items-center gap-1.5">
-                            <svg
-                              xmlns="http://www.w3.org/2000/svg"
-                              fill="none"
-                              viewBox="0 0 24 24"
-                              stroke-width="2"
-                              stroke="currentColor"
-                              class="w-4 h-4 text-zinc-500"
-                            >
-                              <path
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                                d="M6.75 3v2.25M17.25 3v2.25M3.75 9.75h16.5M5.25 4.5h13.5a1.5 1.5 0 0 1 1.5 1.5V19.5A1.5 1.5 0 0 1 18.75 21H5.25a1.5 1.5 0 0 1-1.5-1.5V6a1.5 1.5 0 0 1 1.5-1.5Z"
-                              />
-                            </svg>
-
-                            <time data-local="date" datetime={utcIso(watch.watched_at)}>
-                              {formatWatchDate(watch.watched_at)}
-                            </time>
-                          </span>
-
-                          <span class="flex items-center gap-1.5">
-                            <svg
-                              xmlns="http://www.w3.org/2000/svg"
-                              fill="none"
-                              viewBox="0 0 24 24"
-                              stroke-width="2"
-                              stroke="currentColor"
-                              class="w-4 h-4 text-zinc-500"
-                            >
-                              <path
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                                d="M12 6v6l4 2"
-                              />
-                              <circle cx="12" cy="12" r="9" />
-                            </svg>
-
-                            <time data-local="time" datetime={utcIso(watch.watched_at)}>
-                              {formatWatchTime(watch.watched_at)}
-                            </time>
-                          </span>
-                        </>
-                      )}
-
-                      {watch.watch_source && (
-                        <span class="text-zinc-400">
-                          {watch.watch_source}
-                        </span>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
         </div>
 
