@@ -28,6 +28,8 @@ from models.episode_order import EpisodeOrderMapping, UserShowEpisodeOrder
 from routers.media import format_media, get_user_tmdb_key, check_tmdb_key, enrich_with_state, refresh_technical_data, _extract_show_content_rating, get_where_to_watch, _effective_sonarr, _get_global_settings
 
 from dependencies import get_current_user
+from core.awards import TV_FAMILIES, credited, family as award_family, name_tv_awards, topic, topic_jobs
+from core import wikidata
 from core import tmdb
 from core.config import settings
 from core import tvdb as tvdb_client
@@ -2873,7 +2875,89 @@ async def _show_roles(tmdb_id: int, tmdb_key: str | None) -> list[tuple[str, str
     return roles
 
 
+_EPISODES_TTL = 24 * 3600
+_episodes_cache: dict[int, tuple[float, dict[str, dict]]] = {}
+_EPISODE_RE = re.compile(r'For episodes?:?\s*(.+)', re.I)
+
+
+def _norm_episode(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", (name or "").lower()).strip()
+
+
+async def _show_episodes(tmdb_id: int, tmdb_key: str | None) -> dict[str, dict]:
+    """Every episode of a show (with its crew) by normalised title, cached for a day."""
+    cached = _episodes_cache.get(tmdb_id)
+    if cached and time.time() - cached[0] < _EPISODES_TTL:
+        return cached[1]
+    show = await tmdb.get_show(tmdb_id, api_key=tmdb_key)
+    semaphore = asyncio.Semaphore(5)
+
+    async def season(number: int) -> list[dict]:
+        async with semaphore:
+            try:
+                return (await tmdb.get_season(tmdb_id, number, api_key=tmdb_key)).get("episodes") or []
+            except Exception:
+                return []
+
+    seasons = await asyncio.gather(*(season(s["season_number"]) for s in show.get("seasons") or [] if s.get("season_number") is not None))
+    episodes = {_norm_episode(e.get("name")): e for eps in seasons for e in eps if e.get("name")}
+    _episodes_cache[tmdb_id] = (time.time(), episodes)
+    return episodes
+
+
 async def _name_award_nominees(awards: list[dict], tmdb_id: int, tmdb_key: str | None) -> list[dict]:
+    """Name TVDB's nominees: actors from the character they played, then
+    whoever Wikidata names (which also adds Golden Globe and Emmy nominations
+    TVDB lacks), then directors, writers and other crew from the credits of
+    the episode named in the details ("For episode "Swing"")."""
+    named = await _name_actors(awards, tmdb_id, tmdb_key)
+    named = name_tv_awards(named, await wikidata.tv_award_people(tmdb_id))
+    return await _name_crew(named, tmdb_id, tmdb_key)
+
+
+async def _name_crew(named: list[dict], tmdb_id: int, tmdb_key: str | None) -> list[dict]:
+    # Casting isn't per episode: one team usually casts the whole show, so it
+    # comes from the show's crew (those credited on most episodes).
+    if any(not a.get("person_name") and topic(a.get("category_name")) == "casting" for a in named):
+        try:
+            show = await tmdb.get_show(tmdb_id, api_key=tmdb_key)
+            casting = [
+                (c["name"], j.get("episode_count") or 0)
+                for c in (show.get("aggregate_credits") or {}).get("crew") or []
+                for j in c.get("jobs") or [] if j.get("job") == "Casting"
+            ]
+            most = max((n for _, n in casting), default=0)
+            team = list(dict.fromkeys(name for name, n in casting if most and n >= most * 0.8))
+            if 0 < len(team) <= 3:
+                named = [
+                    {**a, "person_name": " & ".join(team)}
+                    if not a.get("person_name") and topic(a.get("category_name")) == "casting" else a
+                    for a in named
+                ]
+        except Exception:
+            pass
+    wanted = [
+        i for i, a in enumerate(named)
+        if not a.get("person_name") and topic_jobs(a.get("category_name"))
+        and _EPISODE_RE.search(a.get("details") or "")
+    ]
+    if not wanted:
+        return named
+    try:
+        episodes = await _show_episodes(tmdb_id, tmdb_key)
+    except Exception:
+        return named
+    for i in wanted:
+        award = named[i]
+        titles = re.findall(r'"([^"]+)"', _EPISODE_RE.search(award["details"]).group(1))
+        crew = [c for t in titles for c in (episodes.get(_norm_episode(t)) or {}).get("crew") or []]
+        people = credited(crew, award["category_name"])
+        if people:
+            named[i] = {**award, "person_name": " & ".join(p["name"] for p in people)}
+    return named
+
+
+async def _name_actors(awards: list[dict], tmdb_id: int, tmdb_key: str | None) -> list[dict]:
     """TVDB nominees carry no person, only "For playing "X"" in the details,
     so match that character against the show's full TMDB cast (guest stars
     included) to name the actor."""
@@ -2979,6 +3063,8 @@ async def get_tvdb_awards(
             tvdb_id,
             api_key,
         )
+        # TV awards are only the Golden Globes and Emmys.
+        awards = [a for a in awards if award_family(a.get("award_name")) in TV_FAMILIES]
         if tmdb_id:
             awards = await _name_award_nominees(
                 awards, tmdb_id, await get_user_tmdb_key(db, current_user.id)
