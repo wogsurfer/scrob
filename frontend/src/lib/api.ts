@@ -132,6 +132,7 @@ export interface SeasonState {
 }
 
 export interface EpisodeItem {
+  badge?: string | null;
   id: number | null;
   tmdb_id: number;
   episode_number: number;
@@ -182,6 +183,7 @@ export interface Season {
 
 export interface EpisodeDetail {
   show: ShowSummary;
+  badge?: string | null;
   title: string;
   overview: string | null;
   still_path: string | null;

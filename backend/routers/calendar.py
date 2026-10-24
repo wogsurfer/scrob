@@ -18,6 +18,7 @@ from models.events import WatchEvent
 from models.base import MediaType
 from models.show import Show
 from core import tmdb
+from core.episode_badges import episode_badge
 from routers.media import get_user_tmdb_key
 
 router = APIRouter()
@@ -323,26 +324,6 @@ def _season_poster(show, season_number: int) -> str | None:
     return _tmdb_season(show, season_number).get("poster_path") or show.poster_path
 
 
-def _episode_badge(
-    show, season_number: int, episode_number: int, episode_type: str | None, previous_type: str | None = None,
-) -> str | None:
-    """ "Series premiere", "Season premiere", "Mid-season premiere",
-    "Mid-season finale", "Season finale" or "Series finale" for an episode,
-    or None. Finales come from TMDB's episode type, which it sets once a
-    finale is announced; the episode after a mid-season finale is the
-    mid-season premiere."""
-    if episode_number == 1:
-        return "Series premiere" if season_number == 1 else "Season premiere"
-    if previous_type == "mid_season":
-        return "Mid-season premiere"
-    if episode_type == "mid_season":
-        return "Mid-season finale"
-    if episode_type == "finale":
-        ended = (show.status or "").lower() in {"ended", "canceled", "cancelled"}
-        return "Series finale" if ended else "Season finale"
-    return None
-
-
 async def _episode_types(pairs: set[tuple[int, int]], api_key: str | None) -> dict[tuple[int, int, int], str]:
     """TMDB episode types ("standard", "mid_season", "finale") keyed by
     (show tmdb id, season, episode), for the given (show tmdb id, season) pairs."""
@@ -525,7 +506,9 @@ async def calendar_upcoming(
         )
     )
 
-    local_media_by_episode = {}
+    # An episode can have more than one local row (they're created from
+    # several places), so keep them all: any of them may hold the play.
+    local_media_by_episode: dict[tuple, list[Media]] = {}
 
     for media in local_result.scalars().all():
 
@@ -535,7 +518,7 @@ async def calendar_upcoming(
             media.episode_number,
         )
 
-        local_media_by_episode[key] = media
+        local_media_by_episode.setdefault(key, []).append(media)
 
     watched_media_ids = set()
     if local_media_by_episode:
@@ -543,7 +526,7 @@ async def calendar_upcoming(
             select(WatchEvent.media_id).where(
                 WatchEvent.user_id == current_user.id,
                 WatchEvent.completed.is_(True),
-                WatchEvent.media_id.in_([m.id for m in local_media_by_episode.values()]),
+                WatchEvent.media_id.in_([m.id for rows in local_media_by_episode.values() for m in rows]),
             ).distinct()
         )
         watched_media_ids = {row[0] for row in watched_q.all()}
@@ -622,14 +605,19 @@ async def calendar_upcoming(
             # Again: this is enrichment only.
             # ---------------------------------------------
 
-            local_media = (
-                local_media_by_episode.get(
-                    (
-                        show.id,
-                        season_number,
-                        episode_number,
-                    )
-                )
+            local_rows = local_media_by_episode.get(
+                (
+                    show.id,
+                    season_number,
+                    episode_number,
+                ),
+                [],
+            )
+            watched = any(m.id in watched_media_ids for m in local_rows)
+            # Prefer the row that holds the play.
+            local_media = next(
+                (m for m in local_rows if m.id in watched_media_ids),
+                local_rows[0] if local_rows else None,
             )
 
             # ---------------------------------------------
@@ -696,10 +684,11 @@ async def calendar_upcoming(
                     "rating"
                 )
 
-            badge = _episode_badge(
-                show, season_number, episode_number,
+            badge = episode_badge(
+                season_number, episode_number,
                 episode_types.get((show.tmdb_id, season_number, episode_number)),
                 episode_types.get((show.tmdb_id, season_number, episode_number - 1)),
+                show.status,
             )
 
             # ---------------------------------------------
@@ -750,7 +739,7 @@ async def calendar_upcoming(
 
                 "badge": badge,
 
-                "watched": bool(local_media and local_media.id in watched_media_ids),
+                "watched": watched,
 
                 "runtime": runtime,
                 

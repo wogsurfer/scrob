@@ -1,6 +1,7 @@
 ---
 import Base from "../../../../layouts/Base.astro";
 import ActionStack from "../../../../components/ActionStack.astro";
+import EpisodeBadge from "../../../../components/EpisodeBadge.astro";
 import watchdIconWhite from "../../../../assets/watchd-icon-white.png";
 import watchdIconRed from "../../../../assets/watchd-icon-red.png";
 import { api, type Season } from "../../../../lib/api";
@@ -276,6 +277,7 @@ const seasonAllWatched = airedCount > 0 && watchedCount === airedCount;
                     <div class="flex-1 min-w-0">
                       <div class="flex items-center gap-2 min-w-0">
                         <a href={href} class="truncate text-base font-black text-zinc-100 hover:text-red-400 transition-colors">{ep.title}</a>
+                        {ep.badge && <EpisodeBadge label={ep.badge} class="shrink-0" />}
                         <span class="ep-next hidden shrink-0 text-[10px] font-black uppercase tracking-wider text-red-400 bg-red-500/15 px-2 py-0.5 rounded-md">Up next</span>
                       </div>
                       <p class="text-xs font-bold text-zinc-500 mt-0.5 truncate">

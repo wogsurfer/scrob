@@ -27,6 +27,7 @@ from models.episode_order import EpisodeOrderMapping, UserShowEpisodeOrder
 from routers.media import format_media, get_user_tmdb_key, check_tmdb_key, enrich_with_state, refresh_technical_data, _extract_show_content_rating, get_where_to_watch, _effective_sonarr, _get_global_settings
 
 from dependencies import get_current_user
+from core.episode_badges import season_badges
 from core.awards import TV_FAMILIES, credited, family as award_family, join_names, name_tv_awards, topic, topic_jobs
 from core import source_work, wikidata
 from core import tmdb
@@ -2297,6 +2298,8 @@ async def get_show_season(
                 )
             )
 
+            badges = season_badges(tmdb_data, show.status if show else tmdb_show_data.get("status"))
+
             episodes = []
             for ep in tmdb_episodes:
                 ep_num = ep.get("episode_number")
@@ -2320,6 +2323,7 @@ async def get_show_season(
                         "season_number": season_number,
                         "tmdb_rating": ep.get("vote_average"),
                         "imdb_rating": imdb_ratings.get(ep_num),
+                        "badge": badges.get(ep_num),
                         "in_library": is_in_library,
                         "runtime": ep.get("runtime"),
                         "watched": ep.get("id") in watched_ep_tmdb_ids,
@@ -2660,6 +2664,7 @@ async def get_episode_detail(
             }
             for ep in season_tmdb.get("episodes", [])
         ]
+        badge = season_badges(season_tmdb, (show_info or {}).get("status")).get(episode_number)
 
         ep_tmdb_id = ep_data.get("id")
         ep_state: dict = {"tmdb_id": ep_tmdb_id, "type": "episode"}
@@ -2717,6 +2722,7 @@ async def get_episode_detail(
             "show": show_info,
             "episodes": episodes_nav,
             "library": library_info,
+            "badge": badge,
         }
     except Exception as e:
         if isinstance(e, HTTPException):

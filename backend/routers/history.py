@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import and_, or_, select, desc, func, delete
 from sqlalchemy.orm import selectinload
+from sqlalchemy.exc import IntegrityError
 from db import get_db
 from models.media import Media
 from models.show import Show
@@ -755,6 +756,43 @@ _TVDB_DATES_TTL = 6 * 3600
 _TVDB_DATES: dict[tuple[int, int], dict[int, str | None]] = {}
 _TVDB_DATES_AT: dict[tuple[int, int], float] = {}
 
+async def _store_episode(db: AsyncSession, media: Media, show: Show) -> Media:
+    """Save a new episode row for Next Up, or return the row that already
+    exists for that show, season and episode.
+
+    Another request may be adding the same episode at the same moment; the
+    unique index on (show, season, episode) stops a second copy, and the
+    existing row is used instead.
+    """
+    existing = (await db.execute(
+        select(Media).options(selectinload(Media.show)).where(
+            Media.media_type == MediaType.episode,
+            Media.show_id == show.id,
+            Media.season_number == media.season_number,
+            Media.episode_number == media.episode_number,
+        ).order_by(Media.id).limit(1)
+    )).scalar_one_or_none()
+    if existing:
+        if not existing.first_aired_at and media.first_aired_at:
+            existing.first_aired_at = media.first_aired_at
+        return existing
+    try:
+        async with db.begin_nested():
+            media.show = show
+            db.add(media)
+            await db.flush()
+        return media
+    except IntegrityError:
+        return (await db.execute(
+            select(Media).options(selectinload(Media.show)).where(
+                Media.media_type == MediaType.episode,
+                Media.show_id == show.id,
+                Media.season_number == media.season_number,
+                Media.episode_number == media.episode_number,
+            ).limit(1)
+        )).scalar_one()
+
+
 @router.get("/next-up")
 async def get_next_up(
     db: AsyncSession = Depends(get_db),
@@ -1057,10 +1095,7 @@ async def get_next_up(
                         series_tmdb_id=show.tmdb_id,
                     )
                     if media.tmdb_id:
-                        media.show = show
-                        db.add(media)
-                        await db.flush()
-                        next_per_show[show_id] = media
+                        next_per_show[show_id] = await _store_episode(db, media, show)
                         continue
 
                 next_ep = _compute_next_episode(
@@ -1089,14 +1124,13 @@ async def get_next_up(
 
                 if not media.tmdb_id:
                     continue
-                media.show = show
+                # Check the air date before the row is linked to the show:
+                # linking it adds it to the session, which would save even an
+                # unaired episode.
                 if not await episode_has_aired(media, show):
                     continue
-                db.add(media)
 
-                await db.flush()
-
-                next_per_show[show_id] = media
+                next_per_show[show_id] = await _store_episode(db, media, show)
 
             await db.commit()
 

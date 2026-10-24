@@ -1,5 +1,6 @@
 ---
 import WatchHistory from "../../../../../components/WatchHistory.astro";
+import EpisodeBadge from "../../../../../components/EpisodeBadge.astro";
 import Base from "../../../../../layouts/Base.astro";
 import ActionBar from "../../../../../components/ActionBar.astro";
 import NetworkLogo from "../../../../../components/NetworkLogo.astro";
@@ -110,6 +111,7 @@ const thumbnail = episode?.still_path || show?.poster_path || null;
           <div class="flex-1 min-w-0 action-stack-host pt-2">
             <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-4 mb-2">
               <div class="min-w-0">
+                {episode.badge && <EpisodeBadge label={episode.badge} size="lg" class="mb-3" />}
                 <div class="flex flex-wrap items-center gap-3 mb-2">
                   <span class="text-red-500 text-3xl md:text-5xl font-black tracking-tight leading-tight">
                     {String(season_number).padStart(2, '0')}x{String(episode_number).padStart(2, '0')}
