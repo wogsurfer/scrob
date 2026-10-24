@@ -1,7 +1,8 @@
 ---
 import Base from "../../../../layouts/Base.astro";
-import ActionBar from "../../../../components/ActionBar.astro";
 import ActionStack from "../../../../components/ActionStack.astro";
+import watchdIconWhite from "../../../../assets/watchd-icon-white.png";
+import watchdIconRed from "../../../../assets/watchd-icon-red.png";
 import { api, type Season } from "../../../../lib/api";
 export const prerender = false;
 
@@ -23,6 +24,18 @@ if (!season && !error) {
 }
 
 const show = season?.show;
+
+// Episode list: progress counts aired episodes only, so a season still airing
+// isn't stuck below 100%.
+const today = new Date().toISOString().slice(0, 10);
+const isAired = (date?: string | null) => !!date && date.slice(0, 10) <= today;
+const fmtDate = (date: string) =>
+  new Date(date).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+const airedEpisodes = (season?.episodes ?? []).filter((ep) => isAired(ep.air_date));
+const airedCount = airedEpisodes.length;
+const watchedCount = airedEpisodes.filter((ep) => ep.watched).length;
+const progressPct = airedCount ? Math.round((watchedCount / airedCount) * 100) : 0;
+const seasonAllWatched = airedCount > 0 && watchedCount === airedCount;
 ---
 
 <Base title={season ? `${show?.title} — ${season.name}` : "Season Details"}>
@@ -80,45 +93,6 @@ const show = season?.show;
             <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-2">
               <h1 class="text-4xl md:text-5xl font-black text-zinc-100 tracking-tight">{season.name}</h1>
               
-              {show?.seasons_meta && show.seasons_meta.length > 1 && (
-                <div class="flex items-center gap-2 shrink-0">
-                  {(() => {
-                    const currentSeason = Number(season_number);
-                    const validSeasons = show.seasons_meta
-                      .filter((s) => s.season_number > 0)
-                      .sort((a, b) => a.season_number - b.season_number);
-                    const currentIndex = validSeasons.findIndex((s) => s.season_number === currentSeason);
-                    const prevSeason = currentIndex > 0 ? validSeasons[currentIndex - 1] : null;
-                    const nextSeason = currentIndex < validSeasons.length - 1 ? validSeasons[currentIndex + 1] : null;
-                    
-                    return (
-                      <>
-                        {prevSeason && (
-                          <a href={`/show/${id}/season/${prevSeason.season_number}`} class="flex items-center gap-1.5 px-3 py-2 bg-zinc-900/60 border border-zinc-800/50 rounded-xl text-zinc-400 hover:text-zinc-100 hover:border-blue-500/50 hover:bg-zinc-800/60 active:scale-95 active:opacity-70 transition-all text-sm font-bold">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="w-4 h-4">
-                              <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12 15.75 4.5" />
-                            </svg>
-                            <span class="hidden sm:inline">S{prevSeason.season_number}</span>
-                          </a>
-                        )}
-                        
-                        <span class="px-3 py-2 bg-zinc-900/60 border border-zinc-800/50 rounded-xl text-red-500 text-sm font-black">
-                          S{currentSeason}
-                        </span>
-                        
-                        {nextSeason && (
-                          <a href={`/show/${id}/season/${nextSeason.season_number}`} class="flex items-center gap-1.5 px-3 py-2 bg-zinc-900/60 border border-zinc-800/50 rounded-xl text-zinc-400 hover:text-zinc-100 hover:border-blue-500/50 hover:bg-zinc-800/60 active:scale-95 active:opacity-70 transition-all text-sm font-bold">
-                            <span class="hidden sm:inline">S{nextSeason.season_number}</span>
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="w-4 h-4">
-                              <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
-                            </svg>
-                          </a>
-                        )}
-                      </>
-                    );
-                  })()}
-                </div>
-              )}
             </div>
             
             <p class="text-lg text-red-500 font-bold mb-6 tracking-wide uppercase">{show?.title}</p>
@@ -154,6 +128,45 @@ const show = season?.show;
             </div>
 
             <div class="action-stack-slot">
+                  {show?.seasons_meta && show.seasons_meta.length > 1 && (
+                    <div class="flex items-center justify-center md:justify-end gap-2 mb-3">
+                      {(() => {
+                        const currentSeason = Number(season_number);
+                        const validSeasons = show.seasons_meta
+                          .filter((s) => s.season_number > 0)
+                          .sort((a, b) => a.season_number - b.season_number);
+                        const currentIndex = validSeasons.findIndex((s) => s.season_number === currentSeason);
+                        const prevSeason = currentIndex > 0 ? validSeasons[currentIndex - 1] : null;
+                        const nextSeason = currentIndex < validSeasons.length - 1 ? validSeasons[currentIndex + 1] : null;
+                        
+                        return (
+                          <>
+                            {prevSeason && (
+                              <a href={`/show/${id}/season/${prevSeason.season_number}`} class="flex items-center gap-1.5 px-3 py-2 bg-zinc-900/60 border border-zinc-800/50 rounded-xl text-zinc-400 hover:text-zinc-100 hover:border-blue-500/50 hover:bg-zinc-800/60 active:scale-95 active:opacity-70 transition-all text-sm font-bold">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="w-4 h-4">
+                                  <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12 15.75 4.5" />
+                                </svg>
+                                <span class="hidden sm:inline">S{prevSeason.season_number}</span>
+                              </a>
+                            )}
+                            
+                            <span class="px-3 py-2 bg-zinc-900/60 border border-zinc-800/50 rounded-xl text-red-500 text-sm font-black">
+                              S{currentSeason}
+                            </span>
+                            
+                            {nextSeason && (
+                              <a href={`/show/${id}/season/${nextSeason.season_number}`} class="flex items-center gap-1.5 px-3 py-2 bg-zinc-900/60 border border-zinc-800/50 rounded-xl text-zinc-400 hover:text-zinc-100 hover:border-blue-500/50 hover:bg-zinc-800/60 active:scale-95 active:opacity-70 transition-all text-sm font-bold">
+                                <span class="hidden sm:inline">S{nextSeason.season_number}</span>
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="w-4 h-4">
+                                  <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+                                </svg>
+                              </a>
+                            )}
+                          </>
+                        );
+                      })()}
+                    </div>
+                  )}
               <ActionStack
                 hideRate
                 tmdbId={Number(id)}
@@ -200,105 +213,147 @@ const show = season?.show;
           </div>
         </div>
 
-        <div class="space-y-4">
-          <h2 class="text-3xl font-black text-zinc-100 tracking-tighter uppercase mb-8">Episodes</h2>
-          
-          <div class="grid gap-4">
-            {season.episodes?.map((ep) => (
-              <div class="group relative bg-zinc-900/50 border border-zinc-800 rounded-3xl overflow-hidden">
-                <a href={`/show/${id}/season/${season_number}/${ep.episode_number}`} class="flex flex-col md:flex-row gap-6 p-5 block active:opacity-70 transition-opacity duration-100">
-                  <!-- Episode Thumbnail -->
-                  <div class="w-full md:w-64 shrink-0">
-                    <div class="aspect-video rounded-2xl overflow-hidden bg-zinc-950 border border-zinc-800/50 relative shadow-lg">
-                      {ep.poster_path ? (
-                        <img src={ep.poster_path} alt={ep.title} class="w-full h-full object-cover" group-hover:scale-105 transition-transform duration-700" />
-                      ) : (
-                        <div class="w-full h-full flex items-center justify-center text-zinc-800 text-4xl font-black">
-                          {ep.episode_number}
-                        </div>
-                      )}
+        <section id="episodes">
+          <h2 class="text-3xl font-black text-zinc-100 tracking-tighter uppercase mb-6">Episodes</h2>
 
-                    </div>
-                  </div>
-
-                  <!-- Episode Info -->
-                  <div class="flex-1 min-w-0">
-                    <div class="flex items-start justify-between gap-4 mb-2">
-                      <div class="min-w-0">
-                        <div class="flex items-center gap-3 mb-1">
-                          <span class="text-blue-500 font-black text-xs px-2 py-0.5 bg-blue-500/10 rounded-lg">EP {ep.episode_number}</span>
-                          <h3 class="text-xl font-black text-zinc-100 truncate tracking-tight">{ep.title}</h3>
-                        </div>
-                        {ep.air_date && (
-                          <p class="text-xs font-bold text-zinc-500 uppercase tracking-widest">
-                            {new Date(ep.air_date).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
-                          </p>
-                        )}
-                      </div>
-
-                      <div class="flex items-center gap-4 shrink-0">
-                        {ep.tmdb_rating != null && ep.tmdb_rating > 0 && (
-                          <span class="flex items-center gap-2 text-[#01b4e4] font-black">
-                            <img
-                              src="/logos/tmdb.svg"
-                              alt="TMDB"
-                              class="w-9 h-5 object-contain"
-                            />
-                            <span>{ep.tmdb_rating.toFixed(1)}</span>
-                          </span>
-                        )}
-
-                        {ep.imdb_rating != null && ep.imdb_rating > 0 && (
-                          <span class="flex items-center gap-2 text-[#f5c518] font-black">
-                            <img
-                              src="/logos/imdb.png"
-                              alt="IMDb"
-                              class="w-9 h-5 object-contain"
-                            />
-                            <span>{ep.imdb_rating.toFixed(1)}</span>
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    
-                    <p class="text-zinc-400 text-sm leading-relaxed line-clamp-3 mb-4 opacity-80">
-                      {ep.overview || "No overview available for this episode."}
-                    </p>
-
-                    <div class="flex items-center gap-4">
-                       <span class="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500 group-hover:text-red-500 transition-colors">
-                        View Details
-                       </span>
-                       {ep.runtime && (
-                         <span class="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500 flex items-center gap-1.5">
-                           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="3" stroke="currentColor" class="w-3 h-3">
-                             <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-                           </svg>
-                           {ep.runtime} MIN
-                         </span>
-                       )}
-                    </div>
-                  </div>
-                </a>
-                <div class="px-5 pb-5">
-                  <ActionBar
-                    tmdbId={ep.tmdb_id}
-                    mediaType="episode"
-                    watched={ep.watched}
-                    inLists={ep.in_lists ?? []}
-                    inLibrary={ep.in_library}
-                    collectionPct={ep.in_library ? 100 : 0}
-                    showTmdbId={Number(id)}
-                    seasonNumber={Number(season_number)}
-                    episodeNumber={ep.episode_number}
-                    hideRequest={true}
-                    userRating={ep.user_rating}
-                  />
-                </div>
+          <!-- Season progress: aired episodes watched; kept current by the script below -->
+          <div class="flex flex-col sm:flex-row sm:items-center gap-4 mb-4">
+            <div class="flex-1 min-w-0">
+              <div class="flex justify-between text-sm font-bold text-zinc-400 mb-2">
+                <span id="season-progress-label">{watchedCount} of {airedCount} watched</span>
+                <span id="season-progress-pct">{progressPct}%</span>
               </div>
-            ))}
+              <div class="h-1.5 rounded-full bg-zinc-800 overflow-hidden">
+                <div id="season-progress-bar" class="h-full bg-red-500 rounded-full transition-[width] duration-300" style={`width:${progressPct}%`}></div>
+              </div>
+            </div>
+            <div
+              data-card
+              data-tmdb-id={String(id)}
+              data-media-type="series"
+              data-show-tmdb-id={String(id)}
+              data-season={String(season_number)}
+            >
+              <button
+                id="season-mark"
+                data-action="watched"
+                data-watched={String(seasonAllWatched)}
+                data-state={seasonAllWatched ? "active" : "inactive"}
+                class="season-mark flex items-center gap-2 px-4 py-2 text-sm font-bold rounded-xl border border-zinc-800 cursor-pointer transition-colors"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/></svg>
+                <em class="season-mark-on not-italic">Season watched</em>
+                <em class="season-mark-off not-italic">Mark season watched</em>
+              </button>
+            </div>
           </div>
-        </div>
+
+          <ul class="border-t border-zinc-800/70">
+            {season.episodes?.map((ep) => {
+              const href = `/show/${id}/season/${season_number}/${ep.episode_number}`;
+              const aired = isAired(ep.air_date);
+              const code = `${season_number}x${String(ep.episode_number).padStart(2, "0")}`;
+              return (
+                <li
+                  class="ep-row border-b border-zinc-800/70"
+                  data-card
+                  data-tmdb-id={String(ep.tmdb_id)}
+                  data-media-type="episode"
+                  data-show-tmdb-id={String(id)}
+                  data-season={String(season_number)}
+                  data-episode-number={String(ep.episode_number)}
+                  data-aired={String(aired)}
+                >
+                  <div class="ep-main flex items-center gap-3 sm:gap-4 px-2 sm:px-3 py-2.5 cursor-pointer rounded-xl hover:bg-zinc-900/60 transition-colors">
+                    <span class="hidden sm:block shrink-0 w-6 text-right text-sm font-bold text-zinc-600">{ep.episode_number}</span>
+                    <a href={href} class="ep-thumb block shrink-0 w-24 sm:w-28 aspect-video rounded-lg overflow-hidden bg-zinc-900 border border-zinc-800/60" tabindex="-1">
+                      {ep.poster_path ? (
+                        <img src={ep.poster_path} alt="" class="w-full h-full object-cover" loading="lazy" decoding="async" />
+                      ) : (
+                        <span class="w-full h-full flex items-center justify-center text-zinc-700 text-xl font-black">{ep.episode_number}</span>
+                      )}
+                    </a>
+                    <div class="flex-1 min-w-0">
+                      <div class="flex items-center gap-2 min-w-0">
+                        <a href={href} class="truncate text-base font-black text-zinc-100 hover:text-red-400 transition-colors">{ep.title}</a>
+                        <span class="ep-next hidden shrink-0 text-[10px] font-black uppercase tracking-wider text-red-400 bg-red-500/15 px-2 py-0.5 rounded-md">Up next</span>
+                      </div>
+                      <p class="text-xs font-bold text-zinc-500 mt-0.5 truncate">
+                        {code}
+                        {ep.air_date && <> · {aired ? "" : "Airs "}{fmtDate(ep.air_date)}</>}
+                        {ep.runtime ? <> · {ep.runtime} min</> : null}
+                      </p>
+                    </div>
+                    <div class="hidden md:flex items-center gap-3 text-sm font-black">
+                      {ep.tmdb_rating != null && ep.tmdb_rating > 0 && (
+                        <span class="flex items-center gap-1.5 text-[#01b4e4]"><img src="/logos/tmdb.svg" alt="TMDB" class="w-7 h-4 object-contain" />{ep.tmdb_rating.toFixed(1)}</span>
+                      )}
+                      {ep.imdb_rating != null && ep.imdb_rating > 0 && (
+                        <span class="flex items-center gap-1.5 text-[#f5c518]"><img src="/logos/imdb.png" alt="IMDb" class="w-7 h-4 object-contain" />{ep.imdb_rating.toFixed(1)}</span>
+                      )}
+                    </div>
+                    <button
+                      data-action="watched"
+                      data-watched={String(ep.watched)}
+                      data-state={ep.watched ? "active" : "inactive"}
+                      title={ep.watched ? "Mark as unwatched" : "Mark as watched"}
+                      aria-label={`Watched: ${ep.title}`}
+                      class="ep-check shrink-0 w-10 h-10 flex items-center justify-center cursor-pointer"
+                    >
+                      <img
+                        src={ep.watched ? watchdIconRed.src : watchdIconWhite.src}
+                        alt=""
+                        class="w-8 h-8 object-contain"
+                        data-watchd-red={watchdIconRed.src}
+                        data-watchd-white={watchdIconWhite.src}
+                      />
+                    </button>
+                  </div>
+
+                  <!-- Opened by clicking the row -->
+                  <div class="ep-detail hidden pb-4 px-2 sm:px-3">
+                    <div class="pl-[108px] sm:pl-[168px]">
+                      <p class="text-sm text-zinc-400 leading-relaxed max-w-4xl mb-3">{ep.overview || "No overview available for this episode."}</p>
+                      <div class="flex flex-wrap items-center gap-2">
+                        <button
+                          data-action="rate"
+                          data-rating-style="pill"
+                          data-user-rating={ep.user_rating != null ? String(ep.user_rating) : ""}
+                          data-state={ep.user_rating != null ? "active" : "inactive"}
+                          title={ep.user_rating != null ? `Your rating: ${ep.user_rating}/10` : "Rate this"}
+                          class={`flex items-center gap-1.5 h-8 px-3 rounded-lg bg-zinc-900 border border-zinc-800 text-xs font-black cursor-pointer ${ep.user_rating != null ? "text-red-500" : "text-zinc-500 hover:text-red-400"}`}
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill={ep.user_rating != null ? "currentColor" : "none"} stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                          <span data-rating-value>{ep.user_rating != null ? ep.user_rating : ""}</span>
+                          <span class="sr-only">Rate</span>
+                        </button>
+                        <button
+                          data-action="list"
+                          data-in-lists={JSON.stringify(ep.in_lists ?? [])}
+                          data-state={(ep.in_lists ?? []).length > 0 ? "active" : "inactive"}
+                          title="Add to list"
+                          class="ep-icon ep-icon-list flex items-center justify-center w-8 h-8 rounded-lg border border-zinc-800 cursor-pointer"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                        </button>
+                        <button
+                          data-action="collected"
+                          data-in-library={String(ep.in_library)}
+                          data-state={ep.in_library ? "active" : "inactive"}
+                          title={ep.in_library ? "In collection" : "Add to collection"}
+                          class="ep-icon ep-icon-collected flex items-center justify-center w-8 h-8 rounded-lg border border-zinc-800 cursor-pointer"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7"/><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><path d="M15 22v-4a3 3 0 0 0-6 0v4"/><path d="M2 7h20"/></svg>
+                        </button>
+                        <a href={href} class="ml-1 text-xs font-black uppercase tracking-wider text-zinc-500 hover:text-red-400 transition-colors">View episode →</a>
+                      </div>
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
       </div>
     </div>
   )}
@@ -371,5 +426,80 @@ const show = season?.show;
         setTimeout(() => { label.textContent = 'Refresh Metadata'; }, 3000);
       }
     });
+  }
+</script>
+
+<style>
+  /* Watched checks and icon buttons take their look from data-state, which the
+     shared handlers in Base.astro keep current (their colour classes are
+     overridden here). */
+  /* Just the Watchd W: white when unwatched, red when watched (Base.astro
+     swaps the logo). The shared handler adds colour classes; clear them. */
+  .ep-check, .ep-check:hover { background: transparent !important; border: 0; padding: 0; }
+  .ep-check img { transition: transform .15s; }
+  .ep-check:hover img { transform: scale(1.12); }
+  .ep-row[data-aired="false"] .ep-main { opacity: .55; }
+  .ep-row[data-aired="false"] .ep-check { visibility: hidden; }
+  .ep-row.is-next .ep-next { display: inline-block; }
+  .ep-row.is-open .ep-detail { display: block; }
+  .ep-row.is-open .ep-main { background: rgb(24 24 27 / .6); }
+
+  .ep-icon { background: #18181b; color: #71717a; }
+  .ep-icon:hover { color: #e4e4e7; }
+  .ep-icon-list[data-state="active"] { background: rgb(14 165 233 / .5); color: #7dd3fc; }
+  .ep-icon-collected[data-state="active"] { background: rgb(168 85 247 / .5); color: #d8b4fe; }
+
+  .season-mark { background: #18181b; color: #a1a1aa; }
+  .season-mark:hover { color: #f4f4f5; border-color: #3f3f46; }
+  .season-mark[data-state="active"] { background: rgb(239 68 68 / .2); color: #fca5a5; border-color: rgb(239 68 68 / .4); }
+  .season-mark .season-mark-on,
+  .season-mark[data-state="active"] .season-mark-off { display: none; }
+  .season-mark[data-state="active"] .season-mark-on { display: inline; }
+</style>
+
+<script>
+  // Episode rows: a click on the row (not on a link or button) shows the
+  // synopsis and actions. The progress bar, "Up next" tag and season button
+  // follow the watched checks, which the shared handlers update in place.
+  const episodes = document.getElementById('episodes');
+  if (episodes) {
+    const rows = [...episodes.querySelectorAll<HTMLElement>('.ep-row')];
+
+    episodes.addEventListener('click', (e) => {
+      const target = e.target as Element;
+      if (target.closest('a, button')) return;
+      target.closest('.ep-row')?.classList.toggle('is-open');
+    });
+
+    const refresh = () => {
+      const aired = rows.filter((r) => r.dataset.aired === 'true');
+      const isWatched = (r: HTMLElement) =>
+        r.querySelector<HTMLElement>('.ep-check')?.dataset.state === 'active';
+      const watched = aired.filter(isWatched).length;
+      const pct = aired.length ? Math.round((watched / aired.length) * 100) : 0;
+      document.getElementById('season-progress-label')!.textContent = `${watched} of ${aired.length} watched`;
+      document.getElementById('season-progress-pct')!.textContent = `${pct}%`;
+      document.getElementById('season-progress-bar')!.style.width = `${pct}%`;
+
+      const next = aired.find((r) => !isWatched(r));
+      rows.forEach((r) => r.classList.toggle('is-next', r === next && watched > 0));
+
+      const mark = document.getElementById('season-mark');
+      if (mark) {
+        const all = aired.length > 0 && watched === aired.length;
+        // Only write on change: this attribute is itself observed.
+        if (mark.dataset.watched !== String(all)) {
+          mark.dataset.state = all ? 'active' : 'inactive';
+          mark.dataset.watched = String(all);
+        }
+      }
+    };
+
+    new MutationObserver(refresh).observe(episodes, {
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['data-state'],
+    });
+    refresh();
   }
 </script>
