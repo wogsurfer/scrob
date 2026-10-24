@@ -28,7 +28,7 @@ from models.episode_order import EpisodeOrderMapping, UserShowEpisodeOrder
 from routers.media import format_media, get_user_tmdb_key, check_tmdb_key, enrich_with_state, refresh_technical_data, _extract_show_content_rating, get_where_to_watch, _effective_sonarr, _get_global_settings
 
 from dependencies import get_current_user
-from core.awards import TV_FAMILIES, credited, family as award_family, name_tv_awards, topic, topic_jobs
+from core.awards import TV_FAMILIES, credited, family as award_family, join_names, name_tv_awards, topic, topic_jobs
 from core import wikidata
 from core import tmdb
 from core.config import settings
@@ -2930,7 +2930,7 @@ async def _name_crew(named: list[dict], tmdb_id: int, tmdb_key: str | None) -> l
             team = list(dict.fromkeys(name for name, n in casting if most and n >= most * 0.8))
             if 0 < len(team) <= 3:
                 named = [
-                    {**a, "person_name": " & ".join(team)}
+                    {**a, "person_name": join_names(team), "name_inferred": True}
                     if not a.get("person_name") and topic(a.get("category_name")) == "casting" else a
                     for a in named
                 ]
@@ -2953,7 +2953,7 @@ async def _name_crew(named: list[dict], tmdb_id: int, tmdb_key: str | None) -> l
         crew = [c for t in titles for c in (episodes.get(_norm_episode(t)) or {}).get("crew") or []]
         people = credited(crew, award["category_name"])
         if people:
-            named[i] = {**award, "person_name": " & ".join(p["name"] for p in people)}
+            named[i] = {**award, "person_name": join_names([p["name"] for p in people]), "name_inferred": True}
     return named
 
 
@@ -3011,7 +3011,7 @@ async def _name_actors(awards: list[dict], tmdb_id: int, tmdb_key: str | None) -
             actors = [actor_for(c) for c in match.group(1).split("/")]
             actors = list(dict.fromkeys(a for a in actors if a))
             if actors:
-                award = {**award, "person_name": " & ".join(actors)}
+                award = {**award, "person_name": join_names(actors)}
         named.append(award)
 
     # Acting nominations with no details at all (e.g. a Golden Globe for Best
@@ -3039,7 +3039,7 @@ async def _name_actors(awards: list[dict], tmdb_id: int, tmdb_key: str | None) -
             continue
         ranked = sorted(tally[kind].items(), key=lambda kv: -kv[1])
         if len(ranked) == 1 or ranked[0][1] > ranked[1][1]:
-            named[i] = {**award, "person_name": ranked[0][0]}
+            named[i] = {**award, "person_name": ranked[0][0], "name_inferred": True}
     return named
 
 
@@ -3076,6 +3076,8 @@ async def get_tvdb_awards(
             "awards": awards,
         }
 
+    except tvdb_client.AwardIndexBuilding:
+        return {"tvdb_id": tvdb_id, "count": 0, "awards": [], "pending": True}
     except Exception as e:
         raise HTTPException(
             status_code=502,

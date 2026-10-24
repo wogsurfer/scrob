@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core import awards as awards_core
+from core.tvdb import AwardIndexBuilding
 from db import get_db
 from dependencies import get_current_user
 from models.users import User
@@ -27,6 +28,9 @@ async def get_movie_awards(
     tvdb_key, tmdb_key = await _keys(db, current_user)
     try:
         awards = await awards_core.film_awards(tmdb_id, tvdb_key, tmdb_key)
+    except AwardIndexBuilding:
+        # The award index is still being built; the page asks again shortly.
+        return {"tmdb_id": tmdb_id, "awards": [], "pending": True}
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Failed to fetch awards: {e}")
     return {"tmdb_id": tmdb_id, "awards": awards}
@@ -41,6 +45,8 @@ async def get_person_awards(
     tvdb_key, tmdb_key = await _keys(db, current_user)
     try:
         awards = await awards_core.person_awards(person_id, tvdb_key, tmdb_key)
+    except AwardIndexBuilding:
+        return {"person_id": person_id, "awards": [], "pending": True}
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Failed to fetch awards: {e}")
     return {"person_id": person_id, "awards": awards}

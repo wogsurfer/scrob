@@ -396,8 +396,10 @@ async def enrich_with_state(
     if show_tmdb_ids:
         # Total episodes from TMDB metadata.
         # Check local DB first for existing show rows.
+        # Just the season list: the whole stored TMDB record (cast and all)
+        # is large, and loading it for hundreds of shows took seconds.
         shows_meta_q = await db.execute(
-            select(ShowModel.tmdb_id, ShowModel.tmdb_data, ShowModel.status)
+            select(ShowModel.tmdb_id, ShowModel.tmdb_data["seasons"], ShowModel.status)
             .where(ShowModel.tmdb_id.in_(show_tmdb_ids))
         )
         total_map: dict[int, int] = {}
@@ -405,8 +407,8 @@ async def enrich_with_state(
         show_seasons_map: dict[int, list] = {}
         show_ep_tmdb_ids: dict[int, set[int]] = {} # show_tmdb_id -> {ep_tmdb_id, ...}
 
-        for show_tmdb_id, tmdb_data, status in shows_meta_q.all():
-            seasons = (tmdb_data or {}).get("seasons", [])
+        for show_tmdb_id, seasons, status in shows_meta_q.all():
+            seasons = seasons or []
             show_status_map[show_tmdb_id] = status or ""
             show_seasons_map[show_tmdb_id] = seasons
             total_map[show_tmdb_id] = sum(
@@ -1918,6 +1920,348 @@ async def get_collection_details(
         raise HTTPException(status_code=404, detail=f"Collection not found: {e}")
 
 
+# Explore pages hold 24 items (see frontend lib/explore.ts); with a watch
+# status filter the backend pages the filtered list itself.
+_EXPLORE_PER_PAGE = 24
+# Unwatched filter: the filtered TMDB list walked so far, per user and query,
+# so later pages carry on rather than rescan. (time, results, next TMDB page,
+# TMDB page count)
+_unwatched_walks: dict[tuple, tuple[float, list[dict], int, int | None]] = {}
+_UNWATCHED_WALK_TTL = 600
+# Watched / In progress: the user's history with its watch states, per user
+# and type, so paging through it doesn't work out every title's state again.
+_history_states: dict[tuple, tuple[float, list[dict], list[dict]]] = {}
+_HISTORY_STATES_TTL = 300
+
+
+async def _tmdb_list_page(
+    type: MediaType, category: str, page: int, genre, year, min_rating, status, tmdb_key: str,
+) -> dict:
+    """One page of TMDB's list for Explore: discover with filters, else the category list."""
+    category_sort_map = {
+        "popular": "popularity.desc",
+        "top_rated": "vote_average.desc",
+        "trending": "popularity.desc",
+    }
+    if genre or year or min_rating or status:
+        sort_by = category_sort_map.get(category, "popularity.desc")
+        if type == MediaType.movie:
+            return await tmdb.discover_movies(
+                page=page,
+                genre_id=MOVIE_GENRE_IDS.get(genre) if genre else None,
+                year=year,
+                min_rating=min_rating,
+                sort_by=sort_by,
+                api_key=tmdb_key,
+            )
+        return await tmdb.discover_shows(
+            page=page,
+            genre_id=TV_GENRE_IDS.get(genre) if genre else None,
+            year=year,
+            min_rating=min_rating,
+            sort_by=sort_by,
+            status=TV_STATUS_IDS.get(status) if status else None,
+            api_key=tmdb_key,
+        )
+    if type == MediaType.movie:
+        fetch = {"top_rated": tmdb.get_top_rated_movies, "trending": tmdb.get_trending_movies}.get(category, tmdb.get_popular_movies)
+    elif type == MediaType.series:
+        fetch = {"top_rated": tmdb.get_top_rated_shows, "trending": tmdb.get_trending_shows}.get(category, tmdb.get_popular_shows)
+    else:
+        return {"page": page, "total_pages": 1, "total_results": 0, "results": []}
+    return await fetch(page=page, api_key=tmdb_key)
+
+
+async def _library_tmdb_ids(db: AsyncSession, user_id: int, type: MediaType, tmdb_ids: list[int]) -> set[int]:
+    """Which of these titles the user has anything of in their collection."""
+    if not tmdb_ids:
+        return set()
+    if type == MediaType.series:
+        q = (
+            select(ShowModel.tmdb_id)
+            .join(Media, Media.show_id == ShowModel.id)
+            .join(Collection, Collection.media_id == Media.id)
+            .where(Collection.user_id == user_id, ShowModel.tmdb_id.in_(tmdb_ids))
+            .distinct()
+        )
+    else:
+        q = (
+            select(Media.tmdb_id)
+            .join(Collection, Collection.media_id == Media.id)
+            .where(
+                Collection.user_id == user_id,
+                Media.tmdb_id.in_(tmdb_ids),
+                Media.media_type == MediaType.movie,
+            )
+            .distinct()
+        )
+    return {row[0] for row in (await db.execute(q)).all()}
+
+
+async def _explore_items(
+    db: AsyncSession, user_id: int, type: MediaType, results: list[dict], tmdb_key: str,
+) -> list[dict]:
+    """Poster card items for TMDB results: IMDb rating, library and Watchd state."""
+
+    async def fetch_imdb_rating(res):
+        try:
+            external_ids = await tmdb.get_external_ids(
+                res["id"],
+                "movie" if type == MediaType.movie else "series",
+                api_key=tmdb_key,
+            )
+            imdb_id = external_ids.get("imdb_id")
+            return res["id"], await tmdb.get_imdb_rating(imdb_id) if imdb_id else None
+        except Exception as e:
+            print(f"IMDb rating failed for {res.get('id')}: {e}")
+            return res["id"], None
+
+    # Don't hold the page for slow ratings: whatever isn't back within 1.5s
+    # keeps loading in the background and is cached for the next visit.
+    imdb_tasks = [asyncio.create_task(fetch_imdb_rating(res)) for res in results]
+    imdb_rating_map = {}
+    if imdb_tasks:
+        done, pending = await asyncio.wait(imdb_tasks, timeout=1.5)
+        imdb_rating_map = dict(task.result() for task in done)
+        _background_tasks.update(pending)
+        for task in pending:
+            task.add_done_callback(_background_tasks.discard)
+
+    library_tmdb_ids = await _library_tmdb_ids(db, user_id, type, [r["id"] for r in results])
+
+    enriched = [
+        {
+            "id": None,
+            "tmdb_id": res["id"],
+            "type": type,
+            "title": res.get("title") or res.get("name"),
+            "poster_path": tmdb.poster_url(res.get("poster_path")),
+            "release_date": res.get("release_date") or res.get("first_air_date"),
+            "tmdb_rating": res.get("vote_average"),
+            "imdb_rating": imdb_rating_map.get(res["id"]),
+            "in_library": res["id"] in library_tmdb_ids,
+            "adult": res.get("adult", False),
+        }
+        for res in results
+    ]
+    await enrich_with_state(db, user_id, enriched)
+    return enriched
+
+
+def _watch_state_matches(item: dict, watched: str) -> bool:
+    # Shows have a watched percentage; movies are watched or not.
+    if item.get("type") == "series":
+        pct = item.get("watch_pct") or 0
+    else:
+        pct = 100 if item.get("watched") else 0
+    if watched == "watched":
+        return pct >= 100
+    if watched == "unwatched":
+        return pct == 0
+    if watched == "in_progress":
+        return 0 < pct < 100
+    return True
+
+
+def _explore_page(items: list, page: int, total: int | None = None) -> dict:
+    total = len(items) if total is None else total
+    start = (page - 1) * _EXPLORE_PER_PAGE
+    return {
+        "page": page,
+        "total_pages": max(1, -(-total // _EXPLORE_PER_PAGE)),
+        "total_results": total,
+        "results": items[start:start + _EXPLORE_PER_PAGE],
+    }
+
+
+async def _explore_from_history(
+    db: AsyncSession, user_id: int, type: MediaType, category: str, page: int,
+    genre, year, min_rating, status, watched: str, tmdb_key: str,
+) -> dict:
+    """Watched and In progress come from the user's own history, not TMDB's
+    list, where they're a few per hundred: every title they've watched any of,
+    filtered and sorted the way TMDB's list would be."""
+    if type == MediaType.series:
+        model = ShowModel
+        watched_ids = (
+            select(Media.show_id)
+            .join(WatchEvent, WatchEvent.media_id == Media.id)
+            .where(WatchEvent.user_id == user_id, Media.show_id.is_not(None))
+        )
+        q = select(
+            ShowModel.tmdb_id, ShowModel.title, ShowModel.poster_path, ShowModel.first_air_date,
+            ShowModel.tmdb_rating, ShowModel.status,
+            ShowModel.tmdb_data["genres"], ShowModel.tmdb_data["popularity"].astext,
+            ShowModel.tmdb_data["seasons"], ShowModel.tmdb_data["last_episode_to_air"],
+        ).where(ShowModel.id.in_(watched_ids))
+    else:
+        model = Media
+        watched_ids = select(WatchEvent.media_id).where(WatchEvent.user_id == user_id)
+        q = select(
+            Media.tmdb_id, Media.title, Media.poster_path, Media.release_date,
+            Media.tmdb_rating, Media.status,
+            Media.tmdb_data["genres"], Media.tmdb_data["popularity"].astext,
+            sa_cast(None, Text).label("seasons"), sa_cast(None, Text).label("last_aired"),
+        ).where(Media.media_type == MediaType.movie, Media.id.in_(watched_ids))
+    hit = _history_states.get((user_id, type))
+    if hit and _time.time() - hit[0] < _HISTORY_STATES_TTL:
+        _, all_titles, states = hit
+    else:
+        all_titles, aired_counts = [], {}
+        for tmdb_id, title, poster, aired, rating, title_status, genres, pop, seasons, last_aired in (
+            await db.execute(q.where(model.tmdb_id.is_not(None)))
+        ).all():
+            if type == MediaType.series:
+                aired_counts[tmdb_id] = _stored_aired_count(seasons, last_aired)
+            try:
+                pop = float(pop or 0)
+            except ValueError:
+                pop = 0.0
+            all_titles.append({
+                "id": tmdb_id, "title": title, "poster_path": poster, "release_date": aired,
+                "vote_average": rating, "status": title_status, "popularity": pop,
+                "genres": {g.get("name") for g in genres or [] if isinstance(g, dict)},
+            })
+        # States for all of them, before IMDb ratings, which are only fetched
+        # for the page shown. Shows use the saved episode counts (kept fresh
+        # by Progress): enrich_with_state asks TMDB about every show, which
+        # for a few hundred took 20s or more.
+        if type == MediaType.series:
+            states = await _stored_show_states(db, user_id, aired_counts)
+            states = [{"type": "series", "watch_pct": states.get(t["id"], 0)} for t in all_titles]
+        else:
+            # A movie is watched once a play of it completed.
+            completed = set((await db.execute(
+                select(Media.tmdb_id).join(WatchEvent, WatchEvent.media_id == Media.id).where(
+                    WatchEvent.user_id == user_id, WatchEvent.completed == True, Media.media_type == MediaType.movie,
+                ).distinct()
+            )).scalars().all())
+            states = [{"type": "movie", "watched": t["id"] in completed} for t in all_titles]
+        _history_states[(user_id, type)] = (_time.time(), all_titles, states)
+
+    titles = [
+        t for t, st in zip(all_titles, states)
+        if _watch_state_matches(st, watched)
+        and (not genre or genre in t["genres"])
+        and (not year or (t["release_date"] or "")[:4] == str(year))
+        and (not min_rating or (t["vote_average"] or 0) >= min_rating)
+        and (not status or t["status"] == status)
+    ]
+    if category == "top_rated":
+        titles.sort(key=lambda t: -(t["vote_average"] or 0))
+    else:
+        titles.sort(key=lambda t: -t["popularity"])
+
+    result = _explore_page(titles, page)
+    result["results"] = await _explore_items(db, user_id, type, result["results"], tmdb_key)
+    return result
+
+
+def _stored_aired_count(seasons, last_aired) -> int:
+    """Aired episodes from a show's saved TMDB data: whole seasons before the
+    last aired episode's, plus that season up to it; else every episode."""
+    seasons = [s for s in seasons or [] if isinstance(s, dict) and (s.get("season_number") or 0) > 0]
+    last = last_aired if isinstance(last_aired, dict) else {}
+    if isinstance(last.get("season_number"), int) and isinstance(last.get("episode_number"), int):
+        return last["episode_number"] + sum(
+            s.get("episode_count") or 0 for s in seasons if s["season_number"] < last["season_number"]
+        )
+    return sum(s.get("episode_count") or 0 for s in seasons)
+
+
+async def _stored_show_states(db: AsyncSession, user_id: int, aired_counts: dict[int, int]) -> dict[int, int]:
+    """Watched percentage per show (TMDB id), rounded as enrich_with_state does."""
+    watched_eps = (
+        select(ShowModel.tmdb_id.label("show_tmdb_id"), Media.season_number, Media.episode_number)
+        .join(WatchEvent, WatchEvent.media_id == Media.id)
+        .join(ShowModel, ShowModel.id == Media.show_id)
+        .where(
+            WatchEvent.user_id == user_id,
+            WatchEvent.completed == True,
+            Media.media_type == MediaType.episode,
+            Media.season_number.isnot(None),
+            Media.season_number != 0,
+            Media.episode_number.isnot(None),
+            ShowModel.tmdb_id.in_(list(aired_counts)),
+        )
+        .group_by(ShowModel.tmdb_id, Media.season_number, Media.episode_number)
+        .subquery()
+    )
+    counts = dict((await db.execute(
+        select(watched_eps.c.show_tmdb_id, func.count()).group_by(watched_eps.c.show_tmdb_id)
+    )).all())
+    pct = {}
+    for tmdb_id, aired in aired_counts.items():
+        w = counts.get(tmdb_id, 0)
+        a = max(aired, w)
+        pct[tmdb_id] = max(1, min(99, w * 100 // a)) if 0 < w < a else w * 100 // a if a else 0
+    return pct
+
+
+async def _explore_unwatched(
+    db: AsyncSession, user_id: int, type: MediaType, category: str, page: int,
+    genre, year, min_rating, status, tmdb_key: str,
+) -> dict:
+    """Unwatched is most of TMDB's list, so walk it in order, dropping what the
+    user has watched any of, until there are enough for this page. The walk is
+    kept for a few minutes so the next page carries on from there."""
+    key = (user_id, type, category, genre, year, min_rating, status)
+    hit = _unwatched_walks.get(key)
+    if hit and _time.time() - hit[0] < _UNWATCHED_WALK_TTL:
+        _, results, next_page, tmdb_pages = hit
+    else:
+        results, next_page, tmdb_pages = [], 1, None
+
+    # Unwatched means none of it watched, so one set of what has been is enough.
+    if type == MediaType.series:
+        watched_q = (
+            select(ShowModel.tmdb_id)
+            .join(Media, Media.show_id == ShowModel.id)
+            .join(WatchEvent, WatchEvent.media_id == Media.id)
+            .where(
+                WatchEvent.user_id == user_id,
+                WatchEvent.completed == True,
+                Media.media_type == MediaType.episode,
+                Media.season_number.isnot(None),
+                Media.season_number != 0,
+            )
+        )
+    else:
+        watched_q = (
+            select(Media.tmdb_id)
+            .join(WatchEvent, WatchEvent.media_id == Media.id)
+            .where(WatchEvent.user_id == user_id, WatchEvent.completed == True, Media.media_type == MediaType.movie)
+        )
+    watched_tmdb_ids = set((await db.execute(watched_q.distinct())).scalars().all())
+
+    seen = {r["id"] for r in results}
+    want = page * _EXPLORE_PER_PAGE
+    last_page = min(tmdb_pages or 500, 500)
+    while len(results) < want and next_page <= last_page:
+        # A few TMDB pages at a time; their responses are cached.
+        batch = list(range(next_page, min(next_page + 4, last_page + 1)))
+        pages = await asyncio.gather(*(
+            _tmdb_list_page(type, category, p, genre, year, min_rating, status, tmdb_key) for p in batch
+        ))
+        tmdb_pages = pages[0].get("total_pages") or 1
+        last_page = min(tmdb_pages, 500)
+        fresh = [r for data in pages for r in data.get("results", []) if r.get("id") and r["id"] not in seen]
+        seen.update(r["id"] for r in fresh)
+        results = results + [r for r in fresh if r["id"] not in watched_tmdb_ids]
+        next_page = batch[-1] + 1
+    _unwatched_walks[key] = (_time.time(), results, next_page, tmdb_pages)
+
+    if next_page > last_page:
+        total = len(results)
+    else:
+        # Not walked to the end: estimate from the share kept so far.
+        walked = (next_page - 1) * 20
+        total = int(len(results) / max(walked, 1) * last_page * 20)
+    result = _explore_page(results, page, max(total, len(results)))
+    result["results"] = await _explore_items(db, user_id, type, result["results"], tmdb_key)
+    return result
+
+
 @router.get("/tmdb/list")
 async def get_tmdb_list(
     type: MediaType = Query(...),
@@ -1931,6 +2275,8 @@ async def get_tmdb_list(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    """A page of TMDB's list for Explore: TMDB's own page of 20, or with a
+    watch status filter, the filtered list in pages of 24."""
     try:
         tmdb_key = await get_user_tmdb_key(db, current_user.id)
 
@@ -1942,246 +2288,21 @@ async def get_tmdb_list(
                 "results": [],
             }
 
-        category_sort_map = {
-            "popular": "popularity.desc",
-            "top_rated": "vote_average.desc",
-            "trending": "popularity.desc",
-        }
-
-        has_filters = bool(genre or year or min_rating or status)
-
-        # ---------------------------------------------------------
-        # Fetch TMDB results
-        # ---------------------------------------------------------
-
-        if has_filters:
-            sort_by = category_sort_map.get(
-                category,
-                "popularity.desc",
+        if watched in ("watched", "in_progress"):
+            return await _explore_from_history(
+                db, current_user.id, type, category, page, genre, year, min_rating, status, watched, tmdb_key,
+            )
+        if watched == "unwatched":
+            return await _explore_unwatched(
+                db, current_user.id, type, category, page, genre, year, min_rating, status, tmdb_key,
             )
 
-            if type == MediaType.movie:
-                genre_id = MOVIE_GENRE_IDS.get(genre) if genre else None
-
-                data = await tmdb.discover_movies(
-                    page=page,
-                    genre_id=genre_id,
-                    year=year,
-                    min_rating=min_rating,
-                    sort_by=sort_by,
-                    api_key=tmdb_key,
-                )
-
-            else:
-                genre_id = TV_GENRE_IDS.get(genre) if genre else None
-                status_id = TV_STATUS_IDS.get(status) if status else None
-
-                data = await tmdb.discover_shows(
-                    page=page,
-                    genre_id=genre_id,
-                    year=year,
-                    min_rating=min_rating,
-                    sort_by=sort_by,
-                    status=status_id,
-                    api_key=tmdb_key,
-                )
-
-        elif type == MediaType.movie:
-
-            if category == "top_rated":
-                data = await tmdb.get_top_rated_movies(
-                    page=page,
-                    api_key=tmdb_key,
-                )
-
-            elif category == "trending":
-                data = await tmdb.get_trending_movies(
-                    page=page,
-                    api_key=tmdb_key,
-                )
-
-            else:
-                data = await tmdb.get_popular_movies(
-                    page=page,
-                    api_key=tmdb_key,
-                )
-
-        elif type == MediaType.series:
-
-            if category == "top_rated":
-                data = await tmdb.get_top_rated_shows(
-                    page=page,
-                    api_key=tmdb_key,
-                )
-
-            elif category == "trending":
-                data = await tmdb.get_trending_shows(
-                    page=page,
-                    api_key=tmdb_key,
-                )
-
-            else:
-                data = await tmdb.get_popular_shows(
-                    page=page,
-                    api_key=tmdb_key,
-                )
-
-        else:
-            return {
-                "page": page,
-                "total_pages": 1,
-                "total_results": 0,
-                "results": [],
-            }
-
-        results = data.get("results", [])
-        tmdb_ids = [res["id"] for res in results if res.get("id")]
-
-        # Fetch IMDb ratings for all results
-        async def fetch_imdb_rating(res):
-            try:
-                external_ids = await tmdb.get_external_ids(
-                    res["id"],
-                    "movie" if type == MediaType.movie else "series",
-                    api_key=tmdb_key,
-                )
-                imdb_id = external_ids.get("imdb_id")
-                return res["id"], await tmdb.get_imdb_rating(imdb_id) if imdb_id else None
-            except Exception as e:
-                print(f"IMDb rating failed for {res.get('id')}: {e}")
-                return res["id"], None
-
-        # Don't hold the page for slow ratings: whatever isn't back within 1.5s
-        # keeps loading in the background and is cached for the next visit.
-        imdb_tasks = [asyncio.create_task(fetch_imdb_rating(res)) for res in results]
-        imdb_rating_map = {}
-        if imdb_tasks:
-            done, pending = await asyncio.wait(imdb_tasks, timeout=1.5)
-            imdb_rating_map = dict(task.result() for task in done)
-            _background_tasks.update(pending)
-            for task in pending:
-                task.add_done_callback(_background_tasks.discard)
-
-        # ---------------------------------------------------------
-        # Check local library
-        # ---------------------------------------------------------
-
-        if type == MediaType.series:
-
-            show_q = (
-                select(ShowModel.tmdb_id)
-                .join(Media, Media.show_id == ShowModel.id)
-                .join(Collection, Collection.media_id == Media.id)
-                .where(
-                    Collection.user_id == current_user.id,
-                    ShowModel.tmdb_id.in_(tmdb_ids),
-                )
-                .distinct()
-            )
-
-            show_result = await db.execute(show_q)
-
-            library_tmdb_ids = {
-                row[0]
-                for row in show_result.all()
-            }
-
-        else:
-
-            movie_q = (
-                select(Media.tmdb_id)
-                .join(Collection, Collection.media_id == Media.id)
-                .where(
-                    Collection.user_id == current_user.id,
-                    Media.tmdb_id.in_(tmdb_ids),
-                    Media.media_type == MediaType.movie,
-                )
-                .distinct()
-            )
-
-            movie_result = await db.execute(movie_q)
-
-            library_tmdb_ids = {
-                row[0]
-                for row in movie_result.all()
-            }
-
-        # ---------------------------------------------------------
-        # Build response items
-        # ---------------------------------------------------------
-
-        enriched = []
-
-        for res in results:
-            tmdb_id = res["id"]
-
-            enriched.append(
-                {
-                    "id": None,
-                    "tmdb_id": tmdb_id,
-                    "type": type,
-                    "title": res.get("title") or res.get("name"),
-                    "poster_path": tmdb.poster_url(
-                        res.get("poster_path")
-                    ),
-                    "release_date": (
-                        res.get("release_date")
-                        or res.get("first_air_date")
-                    ),
-                    "tmdb_rating": res.get("vote_average"),
-                    "imdb_rating": imdb_rating_map.get(tmdb_id),
-                    "in_library": tmdb_id in library_tmdb_ids,
-                    "adult": res.get("adult", False),
-                }
-            )
-
-        # ---------------------------------------------------------
-        # Add Watchd state
-        # ---------------------------------------------------------
-
-        await enrich_with_state(
-            db,
-            current_user.id,
-            enriched,
-        )
-
-        # ---------------------------------------------------------
-        # Apply Watch Status filter
-        # ---------------------------------------------------------
-
-        if watched == "watched":
-
-            enriched = [
-                item
-                for item in enriched
-                if item.get("watch_pct", 0) >= 100
-            ]
-
-        elif watched == "unwatched":
-
-            enriched = [
-                item
-                for item in enriched
-                if item.get("watch_pct", 0) == 0
-            ]
-
-        elif watched == "in_progress":
-
-            enriched = [
-                item
-                for item in enriched
-                if 0 < item.get("watch_pct", 0) < 100
-            ]
-
-        # ---------------------------------------------------------
-        # Return TMDB pagination metadata unchanged for now
-        # ---------------------------------------------------------
-
+        data = await _tmdb_list_page(type, category, page, genre, year, min_rating, status, tmdb_key)
         return {
             "page": data.get("page", page),
             "total_pages": data.get("total_pages", 1),
             "total_results": data.get("total_results", 0),
-            "results": enriched,
+            "results": await _explore_items(db, current_user.id, type, data.get("results", []), tmdb_key),
         }
 
     except Exception as e:

@@ -13,7 +13,7 @@ import re
 import time
 import unicodedata
 
-from core import tmdb, tvdb, wikidata
+from core import disk_cache, tmdb, tvdb, wikidata
 
 _TTL = 24 * 3600
 _film_cache: dict[int, tuple[float, list[dict]]] = {}
@@ -112,7 +112,7 @@ def topic(category: str) -> str:
     c = (category or "").lower()
     if role_kind(c) == "acting":
         who = "actress" if "actress" in c else "actor" if "actor" in c else "performer"
-        return f"{who}-{'supporting' if 'support' in c else 'lead'}"
+        return f"{who}-{'guest' if 'guest' in c else 'supporting' if 'support' in c else 'lead'}"
     for pattern, name in (
         (r"cinematograph", "cinematography"),
         (r"adapted", "screenplay-adapted"),
@@ -120,10 +120,12 @@ def topic(category: str) -> str:
         (r"screenplay|writ", "screenplay"),
         (r"art direction|production design|set decoration", "design"),
         (r"direct", "director"),
+        # Before editing: "Sound Effects Editing" is a sound award.
+        (r"sound (effects )?editing", "sound-editing"),
+        (r"sound", "sound"),
         (r"editing", "editing"),
         (r"song", "song"),
         (r"score|original music|music \(original|music composition", "score"),
-        (r"sound", "sound"),
         (r"costume", "costume"),
         (r"make-?up", "makeup"),
         (r"visual effects|special effects", "vfx"),
@@ -137,6 +139,22 @@ def topic(category: str) -> str:
         if re.search(pattern, c):
             return name
     return c
+
+
+def join_names(names: list[str]) -> str | None:
+    """"A", "A & B", "A, B & C"."""
+    names = [n for n in names if n]
+    return ", ".join(names[:-1]) + " & " + names[-1] if len(names) > 1 else names[0] if names else None
+
+
+def split_names(person_name: str | None) -> list[str]:
+    """The names in a person_name built by join_names."""
+    return [n.strip() for n in re.split(r" & |, ", person_name or "") if n.strip()]
+
+
+def _close_years(a, b) -> bool:
+    a, b = _year(a), _year(b)
+    return not a or not b or abs(a - b) <= 1
 
 
 def _same_topic(a: str, b: str) -> bool:
@@ -160,7 +178,18 @@ def _wikidata_groups(wd_rows: list[dict], names: dict[int, str], families=("osca
         group = groups.setdefault(key, {**r, "people": []})
         if (person_id or name) and all(p["id"] != person_id or p["name"] != name for p in group["people"]):
             group["people"].append({"id": person_id, "name": name})
-    return list(groups.values())
+    # The same nomination is sometimes recorded twice, dated a year apart
+    # (the year of the film and the year of the ceremony).
+    out: list[dict] = []
+    for g in groups.values():
+        people = {(p["id"], p["name"]) for p in g["people"]}
+        if not any(
+            o["award_label"] == g["award_label"] and o["is_winner"] == g["is_winner"] and people
+            and {(p["id"], p["name"]) for p in o["people"]} == people and _close_years(o["year"], g["year"])
+            for o in out
+        ):
+            out.append(g)
+    return out
 
 
 def name_tv_awards(awards: list[dict], wd_rows: list[dict]) -> list[dict]:
@@ -189,16 +218,20 @@ def name_tv_awards(awards: list[dict], wd_rows: list[dict]) -> list[dict]:
         return None
 
     def joined(people: list[dict]) -> str | None:
-        names = [p["name"] for p in people if p.get("name")]
-        return ", ".join(names[:-1]) + " & " + names[-1] if len(names) > 1 else names[0] if names else None
+        return join_names([p.get("name") for p in people])
 
     named = []
+    shared = set()  # see _name_film_awards
     # Already-named nominations first, so they claim their Wikidata twin and
     # it isn't added again as a separate row.
     for award in sorted(awards, key=lambda a: not a.get("person_name")):
         group = match(award)
         if group and not award.get("person_name") and joined(group["people"]):
             award = {**award, "person_name": joined(group["people"])}
+            if len(group["people"]) > 1 and role_kind(award.get("category_name")) != "acting":
+                shared.add(_key(award))
+        elif not group and not award.get("person_name") and _key(award) in shared:
+            continue
         named.append(award)
     for i, g in enumerate(groups):
         if i not in used:
@@ -234,7 +267,7 @@ def name_tv_awards(awards: list[dict], wd_rows: list[dict]) -> list[dict]:
             and year and _year(other["year"]) and abs(_year(other["year"]) - year) <= 1
         }
         if len(people) == 1:
-            named[i] = {**award, "person_name": people.pop()}
+            named[i] = {**award, "person_name": people.pop(), "name_inferred": True}
     return _dedupe(named, "person_name")
 
 
@@ -243,6 +276,14 @@ def _name_film_awards(awards: list[dict], credits: dict, wd_rows: list[dict]) ->
     crew = credits.get("crew") or []
     names = {c["id"]: c["name"] for c in [*cast, *crew] if c.get("id") and c.get("name")}
     groups = _wikidata_groups(wd_rows, names)
+    # The film's own record of a nomination, with no one named, often sits
+    # beside the nominee's record of the same one; keep just the named one.
+    groups = [g for g in groups if g["people"] or not any(
+        h["people"] and family(h["award_name"]) == family(g["award_name"])
+        and _same_topic(topic(h["category_name"]), topic(g["category_name"]))
+        and _close_years(h["year"], g["year"])
+        for h in groups
+    )]
     used: set[int] = set()
     # Acting nominees already named per (award, year), so a film's lead and
     # supporting nominations don't both land on its top-billed star.
@@ -266,8 +307,11 @@ def _name_film_awards(awards: list[dict], credits: dict, wd_rows: list[dict]) ->
     def billing_guess(award: dict) -> list[dict]:
         gender = _gender(award["category_name"])
         own = topic(award["category_name"])
-        # Someone known to be nominated in another acting category isn't this one.
-        elsewhere = {p["id"] for t, people in by_topic.items() if t != own for p in people}
+        # Someone this award body nominated in another acting category isn't
+        # this one. Other bodies don't count: they place people differently
+        # (Uma Thurman was a supporting actress to the Oscars, a lead to BAFTA).
+        elsewhere = {p["id"] for (fam, t), people in known.items()
+                     if fam == family(award["award_name"]) and t != own for p in people}
         pool = [c for c in cast if (gender is None or c.get("gender") in (gender, 0)) and c.get("id") not in elsewhere]
         taken = named_acting.get((award["award_name"], str(award["year"])), set())
         if "support" in award["category_name"].lower() and pool:
@@ -276,56 +320,73 @@ def _name_film_awards(awards: list[dict], credits: dict, wd_rows: list[dict]) ->
         return [{"id": pick["id"], "name": pick["name"]}] if pick else []
 
     def joined(people: list[dict]) -> str | None:
-        names = [p["name"] for p in people if p.get("name")]
-        return ", ".join(names[:-1]) + " & " + names[-1] if len(names) > 1 else names[0] if names else None
+        return join_names([p.get("name") for p in people])
 
     # Wikidata first (it records the actual nominees). Then, for acting, the
     # person another award body named in the same category (an Oscar nominee
     # for Best Supporting Actress is the film's Golden Globe nominee too),
     # then a guess from the billing; for crew, the film's credited crew.
-    found = [wikidata_match(a) for a in awards]
+    rows = list(awards)
+    found = [wikidata_match(a) for a in rows]
+    # Nominations Wikidata has and TVDB doesn't (TVDB misses some Best
+    # Picture years) are named the same way.
+    for i, g in enumerate(groups):
+        if i not in used:
+            rows.append({
+                "award_id": None,
+                "award_name": g["award_name"],
+                "category_id": None,
+                "category_name": g["category_name"],
+                "year": g["year"],
+                "is_winner": g["is_winner"],
+                "details": None,
+                "person_name": None,
+            })
+            found.append(g["people"])
+
     by_topic: dict[str, list[dict]] = {}
-    for award, people in zip(awards, found):
+    known: dict[tuple[str, str], list[dict]] = {}
+    for award, people in zip(rows, found):
         if people and role_kind(award["category_name"]) == "acting":
             by_topic.setdefault(topic(award["category_name"]), people)
+            known.setdefault((family(award["award_name"]), topic(award["category_name"])), []).extend(people)
             named_acting.setdefault((award["award_name"], str(award["year"])), set()).update(p["id"] for p in people)
 
+    # TVDB lists a shared nomination (two writers, three producers) once per
+    # nominee; once Wikidata has named the whole team on one row, the
+    # other copies are dropped rather than given a guessed name.
+    shared = {_key(a) for a, people in zip(rows, found) if len(people) > 1 and role_kind(a["category_name"]) != "acting"}
+
     named = []
-    for award, people in zip(awards, found):
+    for award, people in zip(rows, found):
         kind = role_kind(award["category_name"])
+        if not people and _key(award) in shared:
+            continue
+        # Names from the billing or the crew list are guesses, not records.
+        inferred = False
         if not people and kind == "acting":
             taken = named_acting.setdefault((award["award_name"], str(award["year"])), set())
             people = by_topic.get(topic(award["category_name"])) or []
             # Two nominations in one category (Brando and Pacino) are two people.
             if not people or any(p["id"] in taken for p in people):
                 people = billing_guess(award)
+                inferred = bool(people)
             taken.update(p["id"] for p in people)
         elif not people:
             people = credited(crew, award["category_name"])
+            inferred = bool(people)
         named.append({
             **award,
             "person_name": joined(people) or award.get("person_name"),
             "person_ids": [p["id"] for p in people if p.get("id")],
-        })
-
-    # Nominations Wikidata has and TVDB doesn't (TVDB misses some Best Picture years).
-    for i, g in enumerate(groups):
-        if i in used:
-            continue
-        if not g["people"]:
-            g = {**g, "people": credited(crew, g["category_name"])}
-        named.append({
-            "award_id": None,
-            "award_name": g["award_name"],
-            "category_id": None,
-            "category_name": g["category_name"],
-            "year": g["year"],
-            "is_winner": g["is_winner"],
-            "details": None,
-            "person_name": joined(g["people"]),
-            "person_ids": [p["id"] for p in g["people"] if p.get("id")],
+            "name_inferred": inferred,
         })
     return _dedupe(named, "person_name")
+
+
+def _key(award: dict) -> tuple:
+    # Details tell apart separate nominations in one category (two episodes).
+    return award["award_name"], award["category_name"], str(award["year"]), award["is_winner"], award.get("details") or ""
 
 
 def _dedupe(rows: list[dict], subject: str) -> list[dict]:
@@ -341,8 +402,9 @@ def _dedupe(rows: list[dict], subject: str) -> list[dict]:
 
 async def film_awards(movie_tmdb_id: int, tvdb_key: str, tmdb_key: str | None, movie: dict | None = None) -> list[dict]:
     """A film's Oscar, Golden Globe and BAFTA nominations, with nominees named."""
-    hit = _film_cache.get(movie_tmdb_id)
+    hit = _film_cache.get(movie_tmdb_id) or disk_cache.load("film_awards", movie_tmdb_id, _TTL)
     if hit and time.time() - hit[0] < _TTL:
+        _film_cache[movie_tmdb_id] = hit
         return hit[1]
 
     if movie is None:
@@ -367,6 +429,7 @@ async def film_awards(movie_tmdb_id: int, tvdb_key: str, tmdb_key: str | None, m
     wd_rows = await wikidata.film_award_people(movie_tmdb_id)
     named = _name_film_awards(awards, movie.get("credits") or {}, wd_rows)
     _film_cache[movie_tmdb_id] = (time.time(), named)
+    disk_cache.save("film_awards", movie_tmdb_id, named)
     return named
 
 
@@ -414,8 +477,9 @@ async def _series_title_index(tvdb_key: str) -> dict[str, list[tuple[dict, dict,
 
 async def person_awards(person_id: int, tvdb_key: str, tmdb_key: str | None) -> list[dict]:
     """A person's Oscar, Golden Globe, BAFTA and Emmy nominations and wins."""
-    hit = _person_cache.get(person_id)
+    hit = _person_cache.get(person_id) or disk_cache.load("person_awards", person_id, _TTL)
     if hit and time.time() - hit[0] < _TTL:
+        _person_cache[person_id] = hit
         return hit[1]
 
     from routers.shows import _name_award_nominees  # avoid a circular import
@@ -501,7 +565,7 @@ async def person_awards(person_id: int, tvdb_key: str, tmdb_key: str | None) -> 
                 print(f"Series awards failed for {show_id}: {e}")
                 return
         for a in awards:
-            if name and name in [p.strip().lower() for p in (a.get("person_name") or "").split("&")]:
+            if name and name in [p.lower() for p in split_names(a.get("person_name"))]:
                 rows.append(_person_row(a, shows[show_id]["title"], "series", show_id))
 
     await asyncio.gather(
@@ -541,6 +605,7 @@ async def person_awards(person_id: int, tvdb_key: str, tmdb_key: str | None) -> 
 
     rows = _dedupe(rows, "work_title")
     _person_cache[person_id] = (time.time(), rows)
+    disk_cache.save("person_awards", person_id, rows)
     return rows
 
 
@@ -554,6 +619,8 @@ def _person_row(award: dict, title: str, work_type: str, work_id: int) -> dict:
         "year": award["year"],
         "is_winner": award["is_winner"],
         "details": award.get("details"),
+        # Attributed to the person by a guessed name (see _name_film_awards).
+        "name_inferred": bool(award.get("name_inferred")),
         "work_title": title,
         "work_type": work_type,
         "work_tmdb_id": work_id,
