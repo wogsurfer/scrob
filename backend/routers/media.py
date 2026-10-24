@@ -319,7 +319,6 @@ async def enrich_with_state(
             .where(ShowModel.tmdb_id.in_(show_tmdb_ids))
         )
         show_tmdb_to_local_id = {r[0]: r[1] for r in show_id_map_q.all()}
-        local_show_ids = list(show_tmdb_to_local_id.values())
 
         watched_eps_sq = (
             select(ShowModel.tmdb_id.label("show_tmdb_id"), Media.season_number, Media.episode_number)
@@ -405,7 +404,6 @@ async def enrich_with_state(
         total_map: dict[int, int] = {}
         show_status_map: dict[int, str] = {}
         show_seasons_map: dict[int, list] = {}
-        show_ep_tmdb_ids: dict[int, set[int]] = {} # show_tmdb_id -> {ep_tmdb_id, ...}
 
         for show_tmdb_id, seasons, status in shows_meta_q.all():
             seasons = seasons or []
@@ -501,32 +499,7 @@ async def enrich_with_state(
             show_pct[tmdb_id] = min(100, int((collected / total) * 100)) if total > 0 else 0
 
         # --- Aired counts for 'watched' logic ---
-        # Count aired episodes per show.
-        show_aired_count: dict[int, int] = {}
-        aired_eps_sq = (
-            select(
-                ShowModel.tmdb_id.label("show_tmdb_id"),
-                Media.season_number,
-                Media.episode_number,
-            )
-            .join(ShowModel, ShowModel.id == Media.show_id)
-            .where(
-                Media.media_type == MediaType.episode,
-                Media.season_number.isnot(None),
-                Media.season_number != 0,
-                Media.episode_number.isnot(None),
-                ShowModel.tmdb_id.in_(show_tmdb_ids),
-                
-            )
-            .group_by(
-                ShowModel.tmdb_id,
-                Media.season_number,
-                Media.episode_number,
-            )
-            .subquery()
-        )
-
-       # --- Accurate aired episode counts from TMDB ---
+        # --- Accurate aired episode counts from TMDB ---
         show_aired_count: dict[int, int] = {}
 
         tmdb_key = await get_user_tmdb_key(db, user_id)
@@ -2835,7 +2808,7 @@ async def recommended(
             if not is_show and tmdb_id in all_collected_movie_ids:
                 continue
             if is_show:
-                external_ids = await tmdb.get_external_ids(tmdb_id, api_key=api_key)
+                external_ids = await tmdb.get_external_ids(tmdb_id, api_key=tmdb_key)
                 imdb_id = external_ids.get("imdb_id")
                 imdb_rating = await tmdb.get_imdb_rating(imdb_id) if imdb_id else None
 
@@ -2852,7 +2825,7 @@ async def recommended(
                     "adult": item.get("adult", False),
                 })
             else:
-                external_ids = await tmdb.get_external_ids(tmdb_id, api_key=api_key)
+                external_ids = await tmdb.get_external_ids(tmdb_id, api_key=tmdb_key)
                 imdb_id = external_ids.get("imdb_id")
                 imdb_rating = await tmdb.get_imdb_rating(imdb_id) if imdb_id else None
 
@@ -3044,7 +3017,7 @@ async def clear_collection(
     )
     media_ids = {row[0] for row in media_ids_q.all()}
 
-    await db.execute(delete(Collection).where(Collection.user_id == current_user.id))
+    await db.execute(sa_delete(Collection).where(Collection.user_id == current_user.id))
     await db.commit()
 
     await _push_collection_change(db, current_user.id, media_ids, added=False)
@@ -5392,7 +5365,6 @@ async def get_media_details(
             "watch_history": watch_history,
             "in_lists": state_item.get("in_lists", []),
             "in_watchlist": state_item.get("in_watchlist", False),
-            "user_rating": state_item.get("user_rating"),
             "play_count": state_item.get("play_count", 0),
             "in_library": state_item.get("in_library", local_info["in_library"]),
             "collection_pct": state_item.get("collection_pct", 100 if local_info["in_library"] else 0),

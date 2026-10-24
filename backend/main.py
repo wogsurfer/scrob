@@ -435,9 +435,6 @@ app.include_router(
     tags=["Watchlist"],
 )
 
-for route in app.routes:
-    print(route.path, route.methods)
-
 @app.get("/health")
 async def health():
     from sqlalchemy import text

@@ -964,6 +964,22 @@ async def _handle_emby_webhook(request: Request, db: AsyncSession, api_key: str,
     return {"status": "ok", "event": notification_type, "title": data["title"]}
 
 
+def _webhook_json(body: bytes) -> dict | None:
+    """A webhook's JSON payload: the body itself (Jellyfin, newer Emby), or the
+    JSON part of a multipart/form-data body (older Emby)."""
+    try:
+        return json.loads(body)
+    except ValueError:
+        pass
+    parts = body.split(b"\r\n\r\n", 1)
+    if len(parts) != 2:
+        return None
+    try:
+        return json.loads(parts[1].split(b"\r\n--", 1)[0])
+    except ValueError:
+        return None
+
+
 async def _handle_jellyfin_scrobble_webhook(
     request: Request, db: AsyncSession, api_key: str, connection_id: int, source: str
 ):
@@ -972,27 +988,12 @@ async def _handle_jellyfin_scrobble_webhook(
     if not user:
         raise HTTPException(status_code=401, detail="Invalid API key")
 
-    try:
-        body = await request.body()
-
-        # Emby sends the JSON inside a multipart/form-data wrapper.
-        # Extract the JSON portion directly.
-        parts = body.split(b"\r\n\r\n", 1)
-
-        if len(parts) != 2:
-            print("🔥 EMBY WEBHOOK: could not locate JSON payload")
-            return {"status": "ignored", "reason": "invalid multipart body"}
-
-        json_body = parts[1]
-
-        # Remove the closing multipart boundary.
-        if b"\r\n--" in json_body:
-            json_body = json_body.split(b"\r\n--", 1)[0]
-
-        payload = json.loads(json_body.decode("utf-8"))
-
-    except Exception:
-        return {"status": "ignored", "reason": "invalid multipart payload"}
+    body = await request.body()
+    if not body:
+        return {"status": "ignored", "reason": "empty body"}
+    payload = _webhook_json(body)
+    if payload is None:
+        return {"status": "ignored", "reason": "invalid JSON"}
 
     data = parse_jellyfin_payload(payload)
     if not data:
@@ -1016,24 +1017,21 @@ async def _handle_jellyfin_scrobble_webhook(
 
     coll_source = CollectionSource.jellyfin if source == "jellyfin" else CollectionSource.emby
 
-    if notification_type in ("PlaybackStart", "playback.start"):
-
-        if notification_type in ("PlaybackStart", "playback.start"):
-            if conn.sync_playback:
-                session = await _get_or_open_session(db, session_key, source, user.id, media.id)
-                session.state = "playing"
-                await db.commit()
-
-            print("🔥 SCROBBLE → TRAKT START")
-            await _maybe_trakt_scrobble(
-                settings, media, "start", data["progress_percent"], db=db
+    if notification_type in ("PlaybackStart", "PlaybackProgress", "PlaybackStop", "MarkPlayed", "playback.start", "playback.progress", "playback.pause", "playback.stop", "item.markplayed"):
+        if conn.sync_collection:
+            await _ensure_collection_entry(
+                db, user.id, media.id, coll_source, data["jellyfin_id"], data.get("quality"),
+                connection_id=None,
             )
 
-    elif notification_type in (
-        "PlaybackProgress",
-        "playback.progress",
-        "playback.pause",
-    ):
+    if notification_type in ("PlaybackStart", "playback.start"):
+        if conn.sync_playback:
+            session = await _get_or_open_session(db, session_key, source, user.id, media.id)
+            session.state = "playing"
+            await db.commit()
+        await _maybe_trakt_scrobble(settings, media, "start", data["progress_percent"], db=db)
+
+    elif notification_type in ("PlaybackProgress", "playback.progress", "playback.pause"):
         if conn.sync_playback:
             session = await _get_or_open_session(db, session_key, source, user.id, media.id)
             session.state = "paused" if data["is_paused"] else "playing"
@@ -1041,115 +1039,27 @@ async def _handle_jellyfin_scrobble_webhook(
             session.progress_seconds = data["progress_seconds"]
             session.updated_at = datetime.utcnow()
             await db.commit()
-
         if data["is_paused"]:
-            print("🔥 SCROBBLE → TRAKT PAUSE")
-            await _maybe_trakt_scrobble(
-                settings, media, "pause", data["progress_percent"], db=db
-            )
+            await _maybe_trakt_scrobble(settings, media, "pause", data["progress_percent"], db=db)
 
     elif notification_type in ("PlaybackStop", "playback.stop"):
-        import logging
-        logger = logging.getLogger("scrob.emby.stop")
-
-        logger.warning(
-            "EMBY STOP RECEIVED | title=%s | item_id=%s | session_id=%s | "
-            "progress=%.1f%% | media_id=%s | conn=%s | sync_watched=%s",
-            data.get("title"),
-            data.get("jellyfin_id"),
-            data.get("session_id"),
-            data.get("progress_percent", 0) * 100,
-            media.id if media else None,
-            conn.id if conn else None,
-            conn.sync_watched if conn else None,
-        )
-
         session = await _close_session(db, session_key)
-
-        logger.warning(
-            "EMBY STOP SESSION | title=%s | session_found=%s | "
-            "session_progress=%.1f%% | session_seconds=%s",
-            data.get("title"),
-            session is not None,
-            (session.progress_percent * 100) if session else 0,
-            session.progress_seconds if session else 0,
-        )
-
-        progress_percent = data["progress_percent"] or (
-            session.progress_percent if session else 0.0
-        )
-        progress_seconds = data["progress_seconds"] or (
-            session.progress_seconds if session else 0
-        )
-
+        progress_percent = data["progress_percent"] or (session.progress_percent if session else 0.0)
+        progress_seconds = data["progress_seconds"] or (session.progress_seconds if session else 0)
         if conn.sync_watched and progress_percent > 0.05:
-            logger.warning(
-                "EMBY STOP → WRITE WATCH | title=%s | media_id=%s | "
-                "progress=%.1f%% | completed=%s",
-                data.get("title"),
-                media.id,
-                progress_percent * 100,
-                progress_percent >= 0.90,
-            )
-
-            await _write_watch_event(
-                db,
-                user.id,
-                media.id,
-                progress_percent,
-                progress_seconds,
-                progress_percent >= 0.90,
-            )
+            await _write_watch_event(db, user.id, media.id, progress_percent, progress_seconds, progress_percent >= 0.90)
             await db.commit()
-
-            logger.warning(
-                "EMBY STOP → WATCH COMMIT OK | title=%s | media_id=%s",
-                data.get("title"),
-                media.id,
-            )
-        else:
-            logger.warning(
-                "EMBY STOP → WATCH SKIPPED | title=%s | sync_watched=%s | "
-                "progress=%.1f%%",
-                data.get("title"),
-                conn.sync_watched,
-                progress_percent * 100,
-            )
-
-        logger.warning(
-            "EMBY STOP → TRAKT | title=%s | progress=%.1f%%",
-            data.get("title"),
-            progress_percent * 100,
-        )
-
-        await _maybe_trakt_scrobble(
-            settings, media, "stop", progress_percent, db=db
-        )
-
-        logger.warning(
-            "EMBY STOP COMPLETE | title=%s | media_id=%s",
-            data.get("title"),
-            media.id,
-        )
+        await _maybe_trakt_scrobble(settings, media, "stop", progress_percent, db=db)
 
     elif notification_type in ("MarkPlayed", "item.markplayed"):
         await _close_session(db, session_key)
-
         if conn.sync_watched:
-            await _write_watch_event(
-                db,
-                user.id,
-                media.id,
-                1.0,
-                data["progress_seconds"],
-                True,
-            )
+            await _write_watch_event(db, user.id, media.id, 1.0, data["progress_seconds"], True)
             await db.commit()
+        await _maybe_trakt_scrobble(settings, media, "stop", 1.0, db=db)
 
-        print("🔥 SCROBBLE → TRAKT STOP / WATCHED")
-        await _maybe_trakt_scrobble(
-            settings, media, "stop", 1.0, db=db
-        )
+    return {"status": "ok", "event": notification_type, "title": data["title"]}
+
 
 @router.post("/emby")
 async def emby_webhook(
@@ -1177,8 +1087,7 @@ async def emby_webhook_connection(
     db: AsyncSession = Depends(get_db),
     api_key: str = Query(..., description="Scrob user API key"),
 ):
-        body = await request.body()
-        return {"status": "received"}
+    return await _handle_emby_webhook(request, db, api_key, connection_id)
 
 
 # ── Plex ───────────────────────────────────────────────────────────────────────

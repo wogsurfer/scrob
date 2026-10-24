@@ -141,10 +141,6 @@ async def _fetch_tvmaze(show_title: str) -> dict | None:
             )
 
             if response.status_code == 404:
-                print(
-                    "CALENDAR TVMAZE: no show found:",
-                    show_title,
-                )
                 return {"episodes": []}
 
             response.raise_for_status()
@@ -158,12 +154,6 @@ async def _fetch_tvmaze(show_title: str) -> dict | None:
                 normalise_title(tvmaze_title)
                 != normalise_title(show_title)
             ):
-                print(
-                    "CALENDAR TVMAZE: fuzzy match rejected:",
-                    show_title,
-                    "->",
-                    tvmaze_title,
-                )
                 return {"episodes": []}
 
             tvmaze_id = show_data.get("id")

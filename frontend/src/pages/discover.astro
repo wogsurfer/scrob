@@ -5,9 +5,10 @@ export const prerender = false;
 
 const { token } = Astro.locals;
 Astro.response.headers.set("Cache-Control", "private, no-cache");
-const [settings, profileData] = await Promise.all([
+const [settings, profileData, connections] = await Promise.all([
   api.auth.getSettings(token!),
   api.profile.get(token!).catch(() => null),
+  api.auth.getConnections(token!).catch(() => []),
 ]);
 const hasTmdbKey = !!settings?.has_effective_tmdb_key;
 const watchRegion: string = profileData?.country ?? 'US';
@@ -27,7 +28,7 @@ const PROVIDER_NAMES: Record<string, string> = {
 };
 
 const userServices = (profileData?.streaming_services ?? []).filter(id => id in PROVIDER_NAMES);
-const hasMediaServer = !!(settings?.plex_url || settings?.jellyfin_url || settings?.emby_url);
+const hasMediaServer = (connections ?? []).some((c) => c.type !== "nuvio");
 const canPick = hasTmdbKey && (userServices.length > 0 || hasMediaServer);
 
 // Grab a random backdrop for the "Feeling lucky?" banner

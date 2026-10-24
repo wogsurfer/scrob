@@ -118,7 +118,7 @@ async def search_series(query: str, api_key: str) -> list[dict]:
     for item in data.get("data") or []:
         tvdb_id_str = item.get("tvdb_id") or item.get("id") or ""
         try:
-            tvdb_id = int(str(tvdb_id_str).lstrip("series-"))
+            tvdb_id = int(str(tvdb_id_str).removeprefix("series-"))
         except (ValueError, TypeError):
             continue
         results.append({

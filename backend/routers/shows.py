@@ -4,7 +4,6 @@ from datetime import datetime, date, timedelta, timezone
 from zoneinfo import ZoneInfo
 from pydantic import BaseModel
 from fastapi import APIRouter, BackgroundTasks, Depends, Query, HTTPException
-from models import show
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy import select, update, func, case, cast as sa_cast, Text, or_, and_
 from sqlalchemy.orm import aliased
@@ -474,6 +473,82 @@ async def list_shows(
                 ShowModel.id.in_(select(watched_show_ids))
             )
 
+    # Sort and Paginate
+    if sort == "rating":
+        q = base_query.order_by(ShowModel.tmdb_rating.desc().nulls_last())
+    elif sort == "release_date":
+        q = base_query.order_by(ShowModel.first_air_date.desc().nulls_last())
+    elif sort == "created_at":
+        q = base_query.order_by(ShowModel.created_at.desc().nulls_last())
+    elif sort == "last_watched":
+        last_watched_sq = (
+            select(Media.show_id, func.max(WatchEvent.watched_at).label("last_watched_at"))
+            .join(WatchEvent, WatchEvent.media_id == Media.id)
+            .where(WatchEvent.user_id == current_user.id, Media.show_id.isnot(None))
+            .group_by(Media.show_id)
+            .subquery()
+        )
+        q = (
+            base_query
+            .outerjoin(last_watched_sq, last_watched_sq.c.show_id == ShowModel.id)
+            .order_by(last_watched_sq.c.last_watched_at.desc().nulls_last())
+        )
+    else:
+        q = base_query.order_by(func.lower(ShowModel.title).asc())
+
+    filter_by_progress = bool(watched_states) and watched_states != {"watched", "unwatched"}
+    if not filter_by_progress:
+        # No Watch Status filter: count and page in the database.
+        total = (await db.execute(select(func.count()).select_from(base_query.subquery()))).scalar_one()
+        result = await db.execute(q.limit(page_size).offset(offset))
+        results = [format_show(s) for s in result.scalars().all()]
+        await enrich_with_state(db, current_user.id, results)
+    else:
+        # Fetch all matching shows first so watch_pct can be calculated
+        # before applying Watch Status filtering.
+        result = await db.execute(q)
+        results = [format_show(s) for s in result.scalars().all()]
+        await enrich_with_state(db, current_user.id, results)
+
+    # Apply Watch Status using the existing watch_pct value.
+    if filter_by_progress:
+        if "unwatched" in watched_states:
+            results = [
+                show for show in results
+                if show.get("watch_pct", 0) == 0
+            ]
+
+        elif "in_progress" in watched_states:
+            results = [
+                show for show in results
+                if 0 < show.get("watch_pct", 0) < 100
+            ]
+
+        elif "watched" in watched_states:
+            results = [
+                show for show in results
+                if show.get("watch_pct", 0) >= 100
+            ]
+
+        # Correct pagination after filtering.
+        total = len(results)
+        results = results[offset:offset + page_size]
+    total_pages = (total + page_size - 1) // page_size
+
+    lang = await get_user_metadata_language(db, current_user.id)
+    if lang:
+        show_ids = [r["id"] for r in results if r.get("id")]
+        translations = await get_show_translations(db, show_ids, lang)
+        apply_show_translations(results, translations)
+    return {
+        "page": page,
+        "page_size": page_size,
+        "total_results": total,
+        "total_pages": total_pages,
+        "results": results,
+    }
+
+
 @router.get("/years")
 async def list_show_years(
     db: AsyncSession = Depends(get_db),
@@ -701,68 +776,6 @@ async def get_active_episode_order_job(
         .limit(1)
     )
     return result.scalar_one_or_none()
-
-    # Count total
-    count_query = select(func.count()).select_from(base_query.subquery())
-    total_result = await db.execute(count_query)
-    total_count = total_result.scalar_one()
-    total_pages = (total_count + page_size - 1) // page_size
-
-    # Sort and Paginate
-    if sort == "rating":
-        q = base_query.order_by(ShowModel.tmdb_rating.desc().nulls_last())
-    elif sort == "release_date":
-        q = base_query.order_by(ShowModel.first_air_date.desc().nulls_last())
-    elif sort == "created_at":
-        q = base_query.order_by(ShowModel.created_at.desc().nulls_last())
-    elif sort == "last_watched":
-        last_watched_sq = (
-            select(Media.show_id, func.max(WatchEvent.watched_at).label("last_watched_at"))
-            .join(WatchEvent, WatchEvent.media_id == Media.id)
-            .where(WatchEvent.user_id == current_user.id, Media.show_id.isnot(None))
-            .group_by(Media.show_id)
-            .subquery()
-        )
-        q = (
-            base_query
-            .outerjoin(last_watched_sq, last_watched_sq.c.show_id == ShowModel.id)
-            .order_by(last_watched_sq.c.last_watched_at.desc().nulls_last())
-        )
-    else:
-        q = base_query.order_by(func.lower(ShowModel.title).asc())
-
-    # Fetch all matching shows first so watch_pct can be calculated
-    # before applying Watch Status filtering.
-    result = await db.execute(q)
-    results = [format_show(s) for s in result.scalars().all()]
-
-    await enrich_with_state(db, current_user.id, results)
-
-    # Apply Watch Status using the existing watch_pct value.
-    if watched_states and watched_states != {"watched", "unwatched"}:
-        if "unwatched" in watched_states:
-            results = [
-                show for show in results
-                if show.get("watch_pct", 0) == 0
-            ]
-
-        elif "in_progress" in watched_states:
-            results = [
-                show for show in results
-                if 0 < show.get("watch_pct", 0) < 100
-            ]
-
-        elif "watched" in watched_states:
-            results = [
-                show for show in results
-                if show.get("watch_pct", 0) >= 100
-            ]
-
-    # Correct pagination after filtering.
-    total = len(results)
-    total_pages = (total + page_size - 1) // page_size
-
-    results = results[offset:offset + page_size]
 
 # Show id -> monotonic time its TMDB season list was last refreshed for Progress.
 _PROGRESS_META_REFRESHED: dict[int, float] = {}

@@ -1,10 +1,7 @@
 ---
 import Base from "../layouts/Base.astro";
-import MediaRow from "../components/MediaRow.astro";
 import PosterCard from "../components/PosterCard.astro";
 import UpNextCard from "../components/UpNextCard.astro";
-import EpisodeCard from "../components/EpisodeCard.astro";
-import ContinueWatchingCard from "../components/ContinueWatchingCard.astro";
 import DashboardHeader from "../components/DashboardHeader.astro";
 import UpcomingSchedule from "../components/UpcomingSchedule.astro";
 import Last30Days from "../components/Last30Days.astro";
@@ -12,19 +9,13 @@ import GenreStrip from "../components/GenreStrip.astro";
 
 import {
   api,
-  type ContinueWatchingItem,
   type MediaItem,
   type WatchlistMovie,
-  tmdbImageUrl,
 } from "../lib/api";
 
 const { token } = Astro.locals;
 
 Astro.response.headers.set("Cache-Control", "private, no-cache");
-
-const apiUrl =
-  import.meta.env.PUBLIC_API_URL ??
-  "http://localhost:8000";
 
 // ----------------------------------------------------
 // Settings
@@ -38,16 +29,6 @@ const hasTmdbKey =
 // ----------------------------------------------------
 // Defaults
 // ----------------------------------------------------
-
-let recentMovies: { results: MediaItem[] } = {
-  results: [],
-};
-
-let recentShows: { results: MediaItem[] } = {
-  results: [],
-};
-
-let continueWatching: ContinueWatchingItem[] = [];
 
 let nextUp: MediaItem[] = [];
 
@@ -80,12 +61,6 @@ if (token) {
 
   const results = await Promise.allSettled([
 
-    api.media.recentlyAdded("movie", token),
-
-    api.media.recentlyAdded("episode", token),
-
-    api.history.continueWatching(token),
-
     api.history.nextUp(token, 20),
 
     api.dashboard.stats(token),
@@ -97,46 +72,31 @@ if (token) {
     api.dashboard.watchlist(token),
 
     api.dashboard.last30(token),
-    
+
   ]);
 
   if (results[0].status === "fulfilled") {
-    recentMovies = results[0].value;
+    nextUp = results[0].value?.next_up ?? [];
   }
 
   if (results[1].status === "fulfilled") {
-    recentShows = results[1].value;
+    dashboardStats = results[1].value;
   }
 
   if (results[2].status === "fulfilled") {
-    continueWatching =
-      results[2].value?.continue_watching ?? [];
+    dashboardHero = results[2].value;
   }
 
   if (results[3].status === "fulfilled") {
-
-    nextUp = results[3].value?.next_up ?? [];
-
+    upcomingSchedule = results[3].value?.episodes ?? [];
   }
 
   if (results[4].status === "fulfilled") {
-    dashboardStats = results[4].value;
+    watchlist = results[4].value;
   }
 
   if (results[5].status === "fulfilled") {
-    dashboardHero = results[5].value;
-  }
-
-  if (results[6].status === "fulfilled") {
-    upcomingSchedule = results[6].value?.episodes ?? [];
-  }
-
-  if (results[7].status === "fulfilled") {
-    watchlist = results[7].value;
-  }
-
-  if (results[8].status === "fulfilled") {
-    last30 = results[8].value;
+    last30 = results[5].value;
   }
 
 }
@@ -465,3 +425,5 @@ if (token) {
     update();
   }
 </script>
+
+</Base>
