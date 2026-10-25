@@ -345,6 +345,43 @@ async def _warm_award_index(async_session):
         print(f"Award index warm-up skipped: {e!r}")
 
 
+async def _physical_ratings_refresher():
+    """Keep the IMDb ratings of every disc in the physical collection
+    current: a few minutes after start-up, then every six hours, it looks up
+    the ratings not checked for a week (and any never checked)."""
+    import logging
+    from datetime import date, timedelta
+    from db import AsyncSessionLocal
+    from core.physical import IMDB_REFRESH_DAYS, refresh_imdb_ratings
+    from models.physical import PhysicalItem
+    from routers.media import get_user_tmdb_key
+
+    log = logging.getLogger("uvicorn.error")
+    await asyncio.sleep(120)
+    while True:
+        try:
+            stale = (date.today() - timedelta(days=IMDB_REFRESH_DAYS)).isoformat()
+            async with AsyncSessionLocal() as db:
+                items = (await db.execute(
+                    select(PhysicalItem).where(or_(
+                        PhysicalItem.specs["imdb_checked"].astext.is_(None),
+                        PhysicalItem.specs["imdb_checked"].astext < stale,
+                    ))
+                )).scalars().all()
+                by_user: dict[int, list] = {}
+                for item in items:
+                    by_user.setdefault(item.user_id, []).append(item)
+                for user_id, user_items in by_user.items():
+                    api_key = await get_user_tmdb_key(db, user_id)
+                    for start in range(0, len(user_items), 50):
+                        got = await refresh_imdb_ratings(db, user_items[start:start + 50], api_key)
+                        await db.commit()
+                        log.info(f"IMDb ratings: {got} of {len(user_items[start:start + 50])} discs updated for user {user_id}")
+        except Exception as e:
+            log.error(f"IMDb ratings refresh error: {e}", exc_info=True)
+        await asyncio.sleep(6 * 3600)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from core.tmdb import start_http_client, close_http_client
@@ -371,8 +408,11 @@ async def lifespan(app: FastAPI):
     scheduler_task = asyncio.create_task(_auto_sync_scheduler())
     watchlist_task = asyncio.create_task(_watchlist_poller())
     manual_session_task = asyncio.create_task(_manual_session_completer())
+    ratings_task = asyncio.create_task(_physical_ratings_refresher())
 
     yield
+
+    ratings_task.cancel()
 
     scheduler_task.cancel()
     watchlist_task.cancel()

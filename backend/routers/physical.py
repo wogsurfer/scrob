@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from core import tmdb
-from core.physical import cover_path, fetch_cover, fill_from_tmdb, link_media, rebuild_collection_mirror, save_cover
+from core.physical import cover_path, fetch_cover, fill_from_tmdb, link_media, rebuild_collection_mirror, refresh_imdb_ratings, save_cover
 from db import get_db
 from dependencies import get_current_user
 from models.base import MediaType
@@ -309,7 +309,9 @@ async def create_item(
     item = PhysicalItem(user_id=current_user.id, title=fields.title or "", status=fields.status or "owned", specs={}, tags=[])
     db.add(item)
     await _apply(db, current_user.id, item, fields)
-    await fill_from_tmdb(item, await get_user_tmdb_key(db, current_user.id))
+    api_key = await get_user_tmdb_key(db, current_user.id)
+    await fill_from_tmdb(item, api_key)
+    await refresh_imdb_ratings(db, [item], api_key)
     await db.flush()
     if fields.cover_url:
         raw = await fetch_cover(fields.cover_url)

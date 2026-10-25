@@ -203,6 +203,63 @@ async def import_clz_records(
     return counts
 
 
+# How often each disc's IMDb rating is looked up again.
+IMDB_REFRESH_DAYS = 7
+
+
+async def refresh_imdb_ratings(db: AsyncSession, items: list[PhysicalItem], api_key: str | None) -> int:
+    """Look up the current IMDb rating and votes of each release (finding
+    its IMDb id through TMDB when Collectorz didn't have one). Returns how
+    many ratings it got."""
+    import asyncio
+    from datetime import date
+
+    async def one(item: PhysicalItem) -> bool:
+        specs = dict(item.specs or {})
+        # Collectorz writes 0.0 when it has no rating.
+        if not specs.get("imdb_rating"):
+            specs.pop("imdb_rating", None)
+        imdb_id = specs.get("imdb_id")
+
+        async def external_imdb(tmdb_id: int, kind: str) -> str | None:
+            try:
+                return (await tmdb.get_external_ids(tmdb_id, kind, api_key=api_key)).get("imdb_id")
+            except Exception:
+                return None
+
+        # The stored TMDB id, as the kind Collectorz recorded it as (the same
+        # number is an unrelated title as the other kind).
+        if not imdb_id and item.tmdb_id:
+            imdb_id = await external_imdb(item.tmdb_id, specs.get("tmdb_kind") or "movie")
+        # No link, or a stale one: find the title on TMDB by name and year.
+        # TV specials are often films on TMDB (and the reverse), so try both.
+        kinds = ("tv", "movie") if item.is_tv else ("movie", "tv")
+        for kind in kinds:
+            if imdb_id:
+                break
+            try:
+                search = tmdb.search_shows if kind == "tv" else tmdb.search_movies
+                found = (await search(item.title, year=item.release_year, api_key=api_key)).get("results") or []
+            except Exception:
+                found = []
+            if found:
+                imdb_id = await external_imdb(found[0]["id"], kind)
+        if imdb_id:
+            specs["imdb_id"] = imdb_id
+        rating, votes = await tmdb.get_imdb_score(imdb_id) if imdb_id else (None, None)
+        if rating is not None:
+            specs["imdb_rating"] = rating
+            if votes is not None:
+                specs["imdb_votes"] = votes
+        specs["imdb_checked"] = date.today().isoformat()
+        item.specs = specs
+        return rating is not None
+
+    got = sum(await asyncio.gather(*(one(i) for i in items)))
+    await db.flush()
+    return got
+
+
 async def fill_from_tmdb(item: PhysicalItem, api_key: str | None) -> None:
     """Fill a new release's film details (plot, genres, cast, crew...) from
     TMDB, keeping anything already entered."""

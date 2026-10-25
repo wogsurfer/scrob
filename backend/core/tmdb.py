@@ -411,13 +411,18 @@ async def get_show_watch_providers(show_id: int, api_key: str = None) -> dict:
 # IMDb ratings barely move, and the ratings service slows right down under
 # 20-40 concurrent requests, so cache them for a day and limit concurrency.
 _IMDB_RATING_TTL = 24 * 3600
-_imdb_rating_cache: dict[str, tuple[float, float | None]] = {}
+_imdb_rating_cache: dict[str, tuple[float, tuple[float | None, int | None]]] = {}
 _imdb_rating_limit = asyncio.Semaphore(5)
 
 
 async def get_imdb_rating(imdb_id: str) -> float | None:
+    return (await get_imdb_score(imdb_id))[0]
+
+
+async def get_imdb_score(imdb_id: str) -> tuple[float | None, int | None]:
+    """An IMDb title's rating and number of votes."""
     if not imdb_id:
-        return None
+        return None, None
 
     hit = _imdb_rating_cache.get(imdb_id)
     if hit and time.monotonic() - hit[0] < _IMDB_RATING_TTL:
@@ -434,20 +439,24 @@ async def get_imdb_rating(imdb_id: str) -> float | None:
                 timeout=10.0,
             )
         except httpx.HTTPError:
-            return None
+            return None, None
 
     if not response.is_success:
         print("IMDb ratings HTTP error:", response.status_code, response.text)
-        return None
+        return None, None
 
     data = response.json()
-    rating = None
+    rating = votes = None
     if isinstance(data, list) and data:
         try:
             raw = data[0].get("rating")
             rating = float(raw) if raw is not None else None
         except (TypeError, ValueError):
             rating = None
+        try:
+            votes = int(data[0].get("votes")) if data[0].get("votes") is not None else None
+        except (TypeError, ValueError):
+            votes = None
 
-    _imdb_rating_cache[imdb_id] = (time.monotonic(), rating)
-    return rating
+    _imdb_rating_cache[imdb_id] = (time.monotonic(), (rating, votes))
+    return rating, votes
