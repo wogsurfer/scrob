@@ -1054,8 +1054,11 @@ export interface PhysicalDetail extends PhysicalSummary {
   seen_it: boolean;
   last_watched: string | null;
   cover_full: string | null;
-  cover_back: string | null;
   backdrop: string | null;
+  backdrop_is_own: boolean;
+  front_cover: string | null;
+  poster: string | null;
+  poster_is_own: boolean;
   box_set_items: { id: number; title: string; release_year: number | null; cover: string | null }[];
   other_editions: { id: number; format: string | null; edition: string | null; status: string }[];
   loans: PhysicalLoan[];

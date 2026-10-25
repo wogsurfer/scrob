@@ -77,7 +77,7 @@ const loans = items.filter((i) => i.on_loan).length;
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" stroke-linecap="round" /></svg>
               </button>
             </div>
-            <input id="coll-size" type="range" min="110" max="240" step="10" value="150" title="Cover size" aria-label="Cover size" />
+            <input id="coll-size" type="range" min="120" max="300" step="10" value="180" title="Cover size" aria-label="Cover size" />
           </div>
         </div>
 
@@ -178,7 +178,7 @@ const loans = items.filter((i) => i.on_loan).length;
       sort: saved.sort || "title",
       dir: saved.dir || 1,
       view: saved.view || "grid",
-      size: saved.size || 150,
+      size: saved.size || 180,
       // A link can open a folder: ?group=kind&folder=TV.
       group: new URL(location.href).searchParams.get("group") ?? saved.group ?? "format",
       folder: new URL(location.href).searchParams.get("folder") as string | null,
@@ -360,7 +360,7 @@ const loans = items.filter((i) => i.on_loan).length;
         ${d.backdrop ? `<div class="cd-backdrop" style="background-image:url('${esc(d.backdrop)}')"></div>` : ""}
         <button type="button" class="cd-close" aria-label="Close">×</button>
         <div class="cd-top">
-          <button type="button" class="cd-cover" ${d.cover_back ? `data-front="${esc(d.cover_full)}" data-back="${esc(d.cover_back)}" title="Show the back"` : ""}>
+          <button type="button" class="cd-cover">
             ${d.cover_full ? `<img src="${esc(d.cover_full)}" alt="Cover of ${esc(d.title)}" />` : `<span class="coll-nocover">${esc(d.title)}</span>`}
           </button>
           <div class="cd-head">
@@ -518,12 +518,6 @@ const loans = items.filter((i) => i.on_loan).length;
     detail.addEventListener("click", async (e) => {
       const t = e.target as HTMLElement;
       if (t.closest(".cd-close")) return select(null);
-      const cover = t.closest<HTMLElement>(".cd-cover[data-back]");
-      if (cover) {
-        const img = cover.querySelector("img")!;
-        img.src = img.src.endsWith(cover.dataset.back!) ? cover.dataset.front! : cover.dataset.back!;
-        return;
-      }
       const jump = t.closest<HTMLElement>(".cd-mini [data-id], .cd-others [data-id]");
       if (jump) return select(Number(jump.dataset.id), true);
       const lend = t.closest<HTMLElement>("[data-lend]");
@@ -602,10 +596,11 @@ const loans = items.filter((i) => i.on_loan).length;
 
   .coll-main { height: var(--top); overflow-y: auto; padding-right: 6px; scrollbar-width: thin; }
   .coll-count { margin-bottom: 10px; color: #71717a; font-size: 13px; font-weight: 700; }
-  .coll-grid { --cover: 150px; display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--cover), 1fr)); gap: 14px 12px; }
+  .coll-grid { --cover: 180px; display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--cover), 1fr)); gap: 18px 14px; align-items: end; }
   .coll-card { display: flex; flex-direction: column; gap: 6px; min-width: 0; text-align: left; color: inherit; }
-  .coll-cover { position: relative; display: block; aspect-ratio: 27 / 34; border-radius: 10px; overflow: hidden; background: #18181b; border: 2px solid transparent; transition: border-color .15s, transform .15s; }
-  .coll-cover > img:first-child { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .coll-cover { position: relative; display: block; border-radius: 8px; overflow: hidden; background: #18181b; border: 2px solid transparent; transition: border-color .15s, transform .15s; }
+  .coll-cover > img:first-child { width: 100%; height: auto; display: block; }
+  .coll-cover:has(.coll-nocover) { aspect-ratio: 27 / 34; }
   .coll-card:hover .coll-cover { transform: translateY(-2px); border-color: #3f3f46; }
   .coll-card.selected .coll-cover { border-color: #e50914; }
   .coll-nocover { display: grid; place-items: center; height: 100%; padding: 10px; color: #a1a1aa; font-size: 13px; font-weight: 800; text-align: center; }
@@ -616,7 +611,7 @@ const loans = items.filter((i) => i.on_loan).length;
   .coll-fmt-dvd { background: #3f3f46; color: #fff; }
   .coll-w { position: absolute; right: 5px; bottom: 5px; width: 20px; height: 20px; filter: drop-shadow(0 1px 3px rgba(0, 0, 0, .9)); }
   .coll-loan { position: absolute; left: 0; right: 0; bottom: 0; padding: 3px; background: rgba(245, 158, 11, .92); color: #1c1917; font-size: 10px; font-weight: 900; letter-spacing: .08em; text-align: center; text-transform: uppercase; }
-  .coll-card-title { font-size: 12.5px; font-weight: 800; color: #f4f4f5; line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .coll-card-title { min-height: 2.5em; font-size: 12.5px; font-weight: 800; color: #f4f4f5; line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .coll-card-sub { margin-top: -3px; font-size: 11px; color: #71717a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .coll-more { display: block; margin: 20px auto 0; padding: 9px 18px; border-radius: 999px; border: 1px solid #27272a; color: #d4d4d8; font-size: 13px; font-weight: 800; }
   .coll-more:hover { border-color: #52525b; color: #fff; }
@@ -643,14 +638,13 @@ const loans = items.filter((i) => i.on_loan).length;
   .coll-detail-empty { padding: 60px 10px; color: #52525b; font-weight: 700; text-align: center; }
   .coll-detail .cd-backdrop { position: absolute; inset: 0; background-size: cover; background-position: center 20%; opacity: .3; z-index: -1; mask-image: linear-gradient(90deg, rgba(0,0,0,.5), #000 45%, rgba(0,0,0,.35)), linear-gradient(#000 40%, transparent 95%); mask-composite: intersect; }
   .coll-detail .cd-close { display: none; position: absolute; right: 12px; top: 10px; width: 32px; height: 32px; border-radius: 999px; background: rgba(0, 0, 0, .6); color: #fff; font-size: 22px; line-height: 1; }
-  .coll-detail .cd-top { display: grid; grid-template-columns: 200px minmax(0, 1fr) minmax(0, 1.1fr); gap: 24px; align-items: start; }
+  .coll-detail .cd-top { display: grid; grid-template-columns: 240px minmax(0, 1fr) minmax(0, 1.1fr); gap: 24px; align-items: start; }
   .coll-detail .cd-story { min-width: 0; }
   .coll-detail .cd-plot-label { color: #f87171; font-size: 12px; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; }
   .coll-detail .cd-sections { columns: 3 300px; column-gap: 28px; margin-top: 12px; }
   .coll-detail .cd-sections .cd-section { break-inside: avoid; }
-  .coll-detail .cd-cover { flex: none; width: 200px; aspect-ratio: 27 / 34; border-radius: 10px; overflow: hidden; background: #18181b; box-shadow: 0 10px 30px rgba(0, 0, 0, .6); }
-  .coll-detail .cd-cover img { width: 100%; height: 100%; object-fit: cover; }
-  .coll-detail .cd-cover[data-back] { cursor: pointer; }
+  .coll-detail .cd-cover { flex: none; width: 240px; align-self: start; border-radius: 10px; overflow: hidden; background: #18181b; box-shadow: 0 10px 30px rgba(0, 0, 0, .6); cursor: default; }
+  .coll-detail .cd-cover img { width: 100%; height: auto; display: block; }
   .coll-detail .cd-head { min-width: 0; }
   .coll-detail .cd-head h2 { font-size: 28px; font-weight: 900; line-height: 1.1; letter-spacing: -.02em; color: #f87171; }
   .coll-detail .cd-head h2 span { color: #a1a1aa; font-size: 14px; font-weight: 700; }

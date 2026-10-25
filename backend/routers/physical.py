@@ -66,6 +66,36 @@ def _poster_thumb(poster: str | None) -> str | None:
     return poster.replace("/w500/", "/w342/") if poster else None
 
 
+# The artwork a release can have: its covers (columns) and its own poster
+# and backdrop, which replace the film's from TMDB (stored names in specs).
+ART_SLOTS = ("front", "poster", "backdrop")
+
+
+def _own_art(item: PhysicalItem, slot: str) -> str | None:
+    if slot == "front":
+        return item.cover_front
+    return (item.specs or {}).get(f"{slot}_image")
+
+
+def _set_art(item: PhysicalItem, slot: str, stored: str | None) -> None:
+    if slot == "front":
+        item.cover_front = stored
+        return
+    specs = dict(item.specs or {})
+    if stored:
+        specs[f"{slot}_image"] = stored
+    else:
+        specs.pop(f"{slot}_image", None)
+    item.specs = specs
+
+
+def _remove_files(stored: str | None) -> None:
+    for thumb in (False, True):
+        path = cover_path(stored, thumb)
+        if path and path.exists():
+            path.unlink()
+
+
 def _summary(item: PhysicalItem, plays: dict[int, int], on_loan: set[int], poster: str | None = None) -> dict:
     specs = item.specs or {}
     watched = bool(item.tmdb_id and plays.get(item.tmdb_id))
@@ -108,7 +138,11 @@ def _summary(item: PhysicalItem, plays: dict[int, int], on_loan: set[int], poste
         "tags": item.tags or [],
         "date_added": item.date_added,
         "on_loan": item.id in on_loan,
-        "cover": _cover_url(item.cover_front, thumb=True) or _poster_thumb(poster),
+        "cover": (
+            _cover_url(item.cover_front, thumb=True)
+            or _cover_url((item.specs or {}).get("poster_image"), thumb=True)
+            or _poster_thumb(poster)
+        ),
     }
 
 
@@ -185,6 +219,8 @@ async def get_item(
             select(Media.backdrop_path, Media.poster_path).where(Media.id == item.media_id)
         )).one()
     data["cover"] = data["cover"] or _poster_thumb(poster)
+    own_poster = _cover_url(specs.get("poster_image"))
+    own_backdrop = _cover_url(specs.get("backdrop_image"))
 
     siblings = []
     if item.box_set_id:
@@ -213,9 +249,13 @@ async def get_item(
         "viewing_date": item.viewing_date,
         "seen_it": item.seen_it,
         "last_watched": last_watched,
-        "cover_full": _cover_url(item.cover_front) or poster,
-        "cover_back": _cover_url(item.cover_back),
-        "backdrop": backdrop,
+        "cover_full": _cover_url(item.cover_front) or own_poster or poster,
+        # The disc's own poster and backdrop when set, else the film's.
+        "front_cover": _cover_url(item.cover_front),
+        "poster": own_poster or poster,
+        "poster_is_own": bool(own_poster),
+        "backdrop_is_own": bool(own_backdrop),
+        "backdrop": own_backdrop or backdrop,
         "box_set_items": siblings,
         "other_editions": other_editions,
         "loans": [
@@ -347,11 +387,8 @@ async def delete_item(
     current_user: User = Depends(get_current_user),
 ):
     item = await _own_item(db, current_user.id, item_id)
-    for name in (item.cover_front, item.cover_back):
-        for thumb in (False, True):
-            path = cover_path(name, thumb)
-            if path and path.exists():
-                path.unlink()
+    for slot in ART_SLOTS:
+        _remove_files(_own_art(item, slot))
     await db.delete(item)
     await db.flush()
     await rebuild_collection_mirror(db, current_user.id)
@@ -359,23 +396,103 @@ async def delete_item(
     return {"deleted": item_id}
 
 
+async def _store_art(db: AsyncSession, item: PhysicalItem, slot: str, data: bytes) -> str:
+    # A fresh name each time, so browsers don't show the old image from cache.
+    import time as _time
+
+    try:
+        stored = save_cover(data, f"item-{item.id}-{slot}-{int(_time.time())}")
+    except Exception:
+        raise HTTPException(status_code=422, detail="That isn't an image")
+    old = _own_art(item, slot)
+    _set_art(item, slot, stored)
+    item.edited_locally = True
+    await db.commit()
+    if old and old != stored:
+        _remove_files(old)
+    return stored
+
+
 @router.post("/items/{item_id}/cover")
 async def upload_cover(
     item_id: int,
-    side: str = Query("front", pattern="^(front|back)$"),
+    side: str = Query("front", pattern="^(front|poster|backdrop)$"),
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    """Upload a release's front cover, poster or backdrop."""
     item = await _own_item(db, current_user.id, item_id)
-    try:
-        stored = save_cover(await file.read(), f"item-{item.id}-{side}")
-    except Exception:
-        raise HTTPException(status_code=422, detail="That file isn't an image")
-    setattr(item, f"cover_{side}", stored)
+    stored = await _store_art(db, item, side, await file.read())
+    return {"cover": _cover_url(stored)}
+
+
+class ArtLink(BaseModel):
+    side: str
+    url: str
+
+
+@router.post("/items/{item_id}/art-link")
+async def art_from_link(
+    item_id: int,
+    body: ArtLink,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Set one of a release's images from an image on the web (a TMDB
+    image from the picker, or any https link)."""
+    if body.side not in ART_SLOTS:
+        raise HTTPException(status_code=422, detail="Unknown image")
+    item = await _own_item(db, current_user.id, item_id)
+    url = body.url.strip()
+    # TMDB images in the picker are previews: fetch the original.
+    url = re.sub(r"image\.tmdb\.org/t/p/w\d+/", "image.tmdb.org/t/p/original/", url)
+    raw = await fetch_cover(url)
+    if not raw:
+        raise HTTPException(status_code=422, detail="Couldn't get an image from that link")
+    stored = await _store_art(db, item, body.side, raw)
+    return {"cover": _cover_url(stored)}
+
+
+@router.delete("/items/{item_id}/art")
+async def remove_art(
+    item_id: int,
+    side: str = Query(..., pattern="^(front|poster|backdrop)$"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Remove one of a release's images; a poster or backdrop goes back to
+    the film's own from TMDB."""
+    item = await _own_item(db, current_user.id, item_id)
+    old = _own_art(item, side)
+    _set_art(item, side, None)
     item.edited_locally = True
     await db.commit()
-    return {"cover": _cover_url(stored)}
+    _remove_files(old)
+    return {"removed": side}
+
+
+@router.get("/items/{item_id}/tmdb-images")
+async def tmdb_images(
+    item_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """The film's or series' posters and backdrops on TMDB, to pick from."""
+    item = await _own_item(db, current_user.id, item_id)
+    if not item.tmdb_id:
+        return {"posters": [], "backdrops": []}
+    kind = (item.specs or {}).get("tmdb_kind") or ("tv" if item.is_tv else "movie")
+    try:
+        data = await tmdb.get_images(item.tmdb_id, kind, api_key=await get_user_tmdb_key(db, current_user.id))
+    except Exception:
+        return {"posters": [], "backdrops": []}
+
+    def urls(images, size):
+        ranked = sorted(images or [], key=lambda i: (i.get("vote_count") or 0, i.get("vote_average") or 0), reverse=True)
+        return [f"https://image.tmdb.org/t/p/{size}{i['file_path']}" for i in ranked[:40] if i.get("file_path")]
+
+    return {"posters": urls(data.get("posters"), "w342"), "backdrops": urls(data.get("backdrops"), "w780")}
 
 
 @router.get("/covers/{name}")

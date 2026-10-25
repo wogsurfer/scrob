@@ -166,10 +166,9 @@ async def import_clz_records(
     await db.flush()
     for data in box_sets:
         box = existing_sets[data["name"]]
-        for side in ("front", "back"):
-            raw = read_image(data.get(f"cover_{side}"))
-            if raw:
-                setattr(box, f"cover_{side}", save_cover(raw, f"boxset-{box.id}-{side}"))
+        raw = read_image(data.get("cover_front"))
+        if raw:
+            box.cover_front = save_cover(raw, f"boxset-{box.id}-front")
 
     existing = {
         i.clz_id: i for i in (await db.execute(
@@ -193,11 +192,10 @@ async def import_clz_records(
             setattr(item, key, data.get(key))
         item.box_set_id = existing_sets[data["box_set"]].id if data.get("box_set") in existing_sets else None
         await link_media(db, item, api_key)
-        for side in ("front", "back"):
-            raw = read_image(data.get(f"cover_{side}"))
-            if raw:
-                setattr(item, f"cover_{side}", save_cover(raw, f"{data['clz_id']}-{side}"))
-                counts["covers"] += 1
+        raw = read_image(data.get("cover_front"))
+        if raw:
+            item.cover_front = save_cover(raw, f"{data['clz_id']}-front")
+            counts["covers"] += 1
     await db.flush()
     counts["collection_films"] = await rebuild_collection_mirror(db, user_id)
     return counts

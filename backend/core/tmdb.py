@@ -117,6 +117,15 @@ async def get_movie(tmdb_id: int, api_key: str = None, language: str | None = No
     )
 
 
+async def get_images(tmdb_id: int, kind: str = "movie", api_key: str = None) -> dict:
+    """A movie's or series' posters and backdrops (English and textless)."""
+    return await _get(
+        f"{TMDB_BASE}/{'tv' if kind == 'tv' else 'movie'}/{tmdb_id}/images",
+        headers=get_headers(api_key),
+        params={"include_image_language": "en,null"},
+    )
+
+
 async def get_movie_releases(tmdb_id: int, api_key: str = None) -> dict:
     """A movie's basic details and per-country release dates, without the
     credits and recommendations get_movie adds."""
