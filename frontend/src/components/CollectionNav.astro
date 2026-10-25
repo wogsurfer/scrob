@@ -19,7 +19,6 @@ const tabs = [
 <header class="coll-head">
   <div class="coll-title">
     <h1 class="text-3xl font-black text-zinc-100 tracking-tighter uppercase">Collection</h1>
-    <p>Your discs: every edition, where it came from and who has it</p>
   </div>
   <nav class="coll-tabs" aria-label="Collection sections">
     {tabs.map((t) => (
@@ -37,7 +36,6 @@ const tabs = [
 
 <style>
   .coll-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px 24px; margin-bottom: 1.75rem; }
-  .coll-title p { margin-top: 4px; color: #a1a1aa; font-size: 14px; }
   .coll-tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
   .coll-tab { display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px; border: 1px solid #27272a; color: #a1a1aa; font-size: 13px; font-weight: 800; text-decoration: none; transition: color .15s, border-color .15s, background .15s; }
   .coll-tab:hover { color: #f4f4f5; border-color: #3f3f46; }
