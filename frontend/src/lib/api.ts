@@ -1052,6 +1052,7 @@ export interface PhysicalDetail extends PhysicalSummary {
   notes: string | null;
   viewing_date: string | null;
   seen_it: boolean;
+  last_watched: string | null;
   cover_full: string | null;
   cover_back: string | null;
   backdrop: string | null;

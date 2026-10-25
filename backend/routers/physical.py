@@ -165,6 +165,18 @@ async def get_item(
     active = {loan.item_id: loan for loan in item.loans if loan.returned_on is None}
     data = _summary(item, plays, set(active))
     specs = item.specs or {}
+    last_watched = None
+    if item.tmdb_id and data["plays"]:
+        last_watched = await db.scalar(
+            select(func.max(WatchEvent.watched_at))
+            .join(Media, Media.id == WatchEvent.media_id)
+            .where(
+                WatchEvent.user_id == current_user.id,
+                WatchEvent.completed.is_(True),
+                Media.media_type == MediaType.movie,
+                Media.tmdb_id == item.tmdb_id,
+            )
+        )
 
     # Backdrop and film page from the film's TMDB entry when Watchd has it.
     backdrop = poster = None
@@ -200,6 +212,7 @@ async def get_item(
         "notes": item.notes,
         "viewing_date": item.viewing_date,
         "seen_it": item.seen_it,
+        "last_watched": last_watched,
         "cover_full": _cover_url(item.cover_front) or poster,
         "cover_back": _cover_url(item.cover_back),
         "backdrop": backdrop,

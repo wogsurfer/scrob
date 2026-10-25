@@ -323,6 +323,16 @@ const loans = items.filter((i) => i.on_loan).length;
     const fact = (label: string, value: unknown) => (value === null || value === undefined || value === "" ? "" : `<div class="cd-fact"><dt>${esc(label)}</dt><dd>${value}</dd></div>`);
     const section = (title: string, body: string, open = true) => (body ? `<details class="cd-section"${open ? " open" : ""}><summary>${esc(title)}</summary>${body}</details>` : "");
 
+    // "Watched twice, last on 14 March 2025"; "Watched once, on 2 June 2024".
+    function watchedText(d: PhysicalDetail) {
+      if (!d.plays) return d.seen ? "Marked as seen" : "Not watched yet";
+      const times = d.plays === 1 ? "once" : d.plays === 2 ? "twice" : `${d.plays} times`;
+      const when = d.last_watched
+        ? new Date(d.last_watched).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })
+        : "";
+      return when ? `Watched ${times}, ${d.plays === 1 ? "on" : "last on"} ${when}` : `Watched ${times}`;
+    }
+
     function stars(n?: number) {
       if (!n) return "";
       return `<span class="cd-stars" title="${n}/10">${Array.from({ length: 10 }, (_, k) => `<i class="${k < n ? "on" : ""}"></i>`).join("")}</span>`;
@@ -367,7 +377,7 @@ const loans = items.filter((i) => i.on_loan).length;
             </div>
             <p class="cd-seen ${d.seen ? "on" : ""}">
               <img src="${d.seen ? icons.red : icons.white}" alt="" />
-              ${d.plays ? `Watched ${d.plays === 1 ? "once" : `${d.plays} times`} in Watchd` : d.seen ? "Seen" : "Not seen yet"}
+              ${watchedText(d)}
             </p>
           </div>
           <div class="cd-story">
