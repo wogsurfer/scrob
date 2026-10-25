@@ -136,10 +136,12 @@ const coverUrl = p.get("cover");
       if (barcode || q) find(barcode, q);
     });
 
-    // Camera scanning where the browser can read barcodes (Chrome on Android).
+    // Camera scanning: the browser's own barcode reader where it has one
+    // (Chrome on Android), otherwise ZXing's (Safari on iPhone). Phones only
+    // allow the camera on an https address.
     const Detector = (window as any).BarcodeDetector;
     const scanBtn = document.getElementById("add-scan") as HTMLButtonElement;
-    if (Detector && navigator.mediaDevices?.getUserMedia) {
+    if (navigator.mediaDevices?.getUserMedia) {
       scanBtn.hidden = false;
       scanBtn.addEventListener("click", async () => {
         const video = document.getElementById("add-video") as HTMLVideoElement;
@@ -153,24 +155,37 @@ const coverUrl = p.get("cover");
         video.srcObject = stream;
         video.hidden = false;
         await video.play();
-        const detector = new Detector({ formats: ["ean_13", "upc_a", "ean_8", "upc_e"] });
         status.textContent = "Point the camera at the barcode…";
-        const stop = () => { stream.getTracks().forEach((t) => t.stop()); video.hidden = true; };
-        const tick = async () => {
-          if (video.hidden) return;
-          try {
-            const codes = await detector.detect(video);
-            if (codes.length) {
-              stop();
-              const code = codes[0].rawValue;
-              form.querySelector<HTMLInputElement>('input[name="barcode"]')!.value = code;
-              find(code, "");
-              return;
-            }
-          } catch {}
-          requestAnimationFrame(tick);
+        let stopReader = () => {};
+        const stop = () => { stopReader(); stream.getTracks().forEach((t) => t.stop()); video.hidden = true; };
+        const found = (code: string) => {
+          stop();
+          form.querySelector<HTMLInputElement>('input[name="barcode"]')!.value = code;
+          find(code, "");
         };
-        tick();
+
+        if (Detector) {
+          const detector = new Detector({ formats: ["ean_13", "upc_a", "ean_8", "upc_e"] });
+          const tick = async () => {
+            if (video.hidden) return;
+            try {
+              const codes = await detector.detect(video);
+              if (codes.length) return found(codes[0].rawValue);
+            } catch {}
+            requestAnimationFrame(tick);
+          };
+          tick();
+          return;
+        }
+        const [{ BrowserMultiFormatReader }, { BarcodeFormat, DecodeHintType }] = await Promise.all([
+          import("@zxing/browser"), import("@zxing/library"),
+        ]);
+        const hints = new Map([[DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.EAN_13, BarcodeFormat.UPC_A, BarcodeFormat.EAN_8, BarcodeFormat.UPC_E]]]);
+        const reader = new BrowserMultiFormatReader(hints);
+        const controls = await reader.decodeFromVideoElement(video, (result) => {
+          if (result && !video.hidden) found(result.getText());
+        });
+        stopReader = () => controls.stop();
       });
     }
   }
