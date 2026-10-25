@@ -1,18 +1,16 @@
 ---
 // The physical collection's page header: title, counts and the tabs between
-// the collection, wish list, loans, statistics and pick lists.
+// the collection, wish list, statistics and pick lists.
 interface Props {
-  active: "owned" | "wishlist" | "loans" | "stats" | "picklists" | "add";
+  active: "owned" | "wishlist" | "stats" | "picklists" | "add";
   owned?: number;
   wishlist?: number;
-  loans?: number;
 }
 
-const { active, owned, wishlist, loans } = Astro.props;
+const { active, owned, wishlist } = Astro.props;
 const tabs = [
   { key: "owned", label: "Collection", href: "/collection", count: owned },
   { key: "wishlist", label: "Wish List", href: "/collection?status=wishlist", count: wishlist },
-  { key: "loans", label: "Loans", href: "/collection/loans", count: loans },
   { key: "stats", label: "Statistics", href: "/collection/stats" },
   { key: "picklists", label: "Pick Lists", href: "/collection/picklists" },
 ];

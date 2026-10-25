@@ -1,4 +1,4 @@
-"""The user's physical disc collection: browsing, editing, covers, loans,
+"""The user's physical disc collection: browsing, editing, covers,
 statistics and barcode lookup."""
 
 import re
@@ -25,7 +25,7 @@ from models.base import MediaType
 from models.events import WatchEvent
 from models.media import Media
 from models.show import Show
-from models.physical import PhysicalItem, PhysicalLoan, PhysicalPickValue
+from models.physical import PhysicalItem, PhysicalPickValue
 from models.users import User
 from routers.media import get_user_tmdb_key
 
@@ -100,7 +100,7 @@ def _remove_files(stored: str | None) -> None:
             path.unlink()
 
 
-def _summary(item: PhysicalItem, plays: dict[int, int], on_loan: set[int], poster: str | None = None) -> dict:
+def _summary(item: PhysicalItem, plays: dict[int, int], poster: str | None = None) -> dict:
     specs = item.specs or {}
     # Plays are counted per film TMDB id; a series id is a different title.
     film_id = item.tmdb_id if specs.get("tmdb_kind", "movie") == "movie" else None
@@ -148,7 +148,6 @@ def _summary(item: PhysicalItem, plays: dict[int, int], on_loan: set[int], poste
         "position": item.position,
         "tags": item.tags or [],
         "date_added": item.date_added,
-        "on_loan": item.id in on_loan,
         "cover": (
             _cover_url(item.cover_front, thumb=True)
             or _cover_url((item.specs or {}).get("poster_image"), thumb=True)
@@ -157,23 +156,10 @@ def _summary(item: PhysicalItem, plays: dict[int, int], on_loan: set[int], poste
     }
 
 
-async def _active_loans(db: AsyncSession, user_id: int) -> dict[int, PhysicalLoan]:
-    rows = await db.execute(
-        select(PhysicalLoan)
-        .join(PhysicalItem, PhysicalItem.id == PhysicalLoan.item_id)
-        .where(PhysicalItem.user_id == user_id, PhysicalLoan.returned_on.is_(None))
-    )
-    return {loan.item_id: loan for loan in rows.scalars()}
-
-
 async def _own_item(db: AsyncSession, user_id: int, item_id: int) -> PhysicalItem:
     item = (await db.execute(
         select(PhysicalItem)
-        .options(
-            selectinload(PhysicalItem.loans),
-            selectinload(PhysicalItem.parent).selectinload(PhysicalItem.loans),
-            selectinload(PhysicalItem.contents),
-        )
+        .options(selectinload(PhysicalItem.parent), selectinload(PhysicalItem.contents))
         .where(PhysicalItem.id == item_id, PhysicalItem.user_id == user_id)
     )).scalar_one_or_none()
     if item is None:
@@ -196,12 +182,11 @@ async def list_items(
         .where(PhysicalItem.user_id == current_user.id)
     )).all()
     plays = await _watched_tmdb_ids(db, current_user.id)
-    on_loan = set(await _active_loans(db, current_user.id))
     # A franchise you have one film of isn't filed as one.
     franchises = Counter((i.specs or {}).get("franchise") for i, _ in rows if not i.is_set)
     summaries = []
     for i, poster in rows:
-        data = _summary(i, plays, on_loan, poster)
+        data = _summary(i, plays, poster)
         _drop_lone_franchise(data, franchises[data["franchise"]], i)
         # Empty fields are left out: it's the whole collection in one response.
         summaries.append({k: v for k, v in data.items() if v not in (None, "", [], False)})
@@ -222,8 +207,7 @@ async def get_item(
 ):
     item = await _own_item(db, current_user.id, item_id)
     plays = await _watched_tmdb_ids(db, current_user.id)
-    active = {loan.item_id: loan for loan in item.loans if loan.returned_on is None}
-    data = _summary(item, plays, set(active))
+    data = _summary(item, plays)
     specs = item.specs or {}
     if data["franchise"]:
         films_in_it = await db.scalar(select(func.count(PhysicalItem.id)).where(
@@ -280,7 +264,7 @@ async def get_item(
             .order_by(PhysicalItem.position.nulls_last(), PhysicalItem.release_year, PhysicalItem.title)
         )).all()
         contents = [
-            {k: v for k, v in _summary(f, plays, set(), p).items() if k in (
+            {k: v for k, v in _summary(f, plays, p).items() if k in (
                 "id", "title", "title_extension", "release_year", "cover", "seen", "plays", "is_tv", "format", "imdb_rating",
             )}
             for f, p in rows
@@ -292,7 +276,7 @@ async def get_item(
             "id": p.id, "title": p.title, "cover": _cover_url(p.cover_front, thumb=True), "format": p.format,
             "edition": p.edition, "barcode": p.barcode, "location": p.location, "purchase_date": p.purchase_date,
             "purchase_price": _num(p.purchase_price), "store": p.store, "condition": p.condition,
-            "distributor": p.distributor, "on_loan": any(loan.returned_on is None for loan in p.loans),
+            "distributor": p.distributor,
         }
     other_editions = []
     if item.tmdb_id:
@@ -323,13 +307,6 @@ async def get_item(
         "contents": contents,
         "parent": parent,
         "other_editions": other_editions,
-        "loans": [
-            {
-                "id": loan.id, "loaned_to": loan.loaned_to, "loan_date": loan.loan_date,
-                "due_date": loan.due_date, "returned_on": loan.returned_on, "notes": loan.notes,
-            }
-            for loan in sorted(item.loans, key=lambda loan: loan.loan_date, reverse=True)
-        ],
     }
 
 
@@ -628,79 +605,6 @@ async def get_cover(name: str, thumb: bool = False, current_user: User = Depends
     if path is None or not path.exists():
         raise HTTPException(status_code=404)
     return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=86400"})
-
-
-# ── Loans ────────────────────────────────────────────────────────────────────
-
-class LoanFields(BaseModel):
-    loaned_to: str
-    loan_date: date | None = None
-    due_date: date | None = None
-    notes: str | None = None
-
-
-@router.post("/items/{item_id}/loans")
-async def lend_item(
-    item_id: int,
-    fields: LoanFields,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    item = await _own_item(db, current_user.id, item_id)
-    if item.parent is not None:
-        item = item.parent
-    if any(loan.returned_on is None for loan in item.loans):
-        raise HTTPException(status_code=409, detail="It's already out on loan")
-    if not fields.loaned_to.strip():
-        raise HTTPException(status_code=422, detail="Who has it?")
-    loan = PhysicalLoan(
-        item_id=item.id, loaned_to=fields.loaned_to.strip(), loan_date=fields.loan_date or date.today(),
-        due_date=fields.due_date, notes=fields.notes,
-    )
-    db.add(loan)
-    await db.commit()
-    return {"id": loan.id}
-
-
-@router.post("/loans/{loan_id}/return")
-async def return_loan(
-    loan_id: int,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    loan = (await db.execute(
-        select(PhysicalLoan).join(PhysicalItem, PhysicalItem.id == PhysicalLoan.item_id)
-        .where(PhysicalLoan.id == loan_id, PhysicalItem.user_id == current_user.id)
-    )).scalar_one_or_none()
-    if loan is None:
-        raise HTTPException(status_code=404)
-    loan.returned_on = date.today()
-    await db.commit()
-    return {"returned_on": loan.returned_on}
-
-
-@router.get("/loans")
-async def list_loans(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    rows = await db.execute(
-        select(PhysicalLoan, PhysicalItem.title, PhysicalItem.format, PhysicalItem.cover_front)
-        .join(PhysicalItem, PhysicalItem.id == PhysicalLoan.item_id)
-        .where(PhysicalItem.user_id == current_user.id)
-        .order_by(PhysicalLoan.returned_on.is_not(None), PhysicalLoan.loan_date.desc())
-    )
-    today = date.today()
-    return {"loans": [
-        {
-            "id": loan.id, "item_id": loan.item_id, "title": title, "format": fmt,
-            "cover": _cover_url(cover, thumb=True), "loaned_to": loan.loaned_to,
-            "loan_date": loan.loan_date, "due_date": loan.due_date, "returned_on": loan.returned_on,
-            "notes": loan.notes,
-            "overdue": bool(loan.returned_on is None and loan.due_date and loan.due_date < today),
-        }
-        for loan, title, fmt, cover in rows.all()
-    ]}
 
 
 # ── Statistics ───────────────────────────────────────────────────────────────

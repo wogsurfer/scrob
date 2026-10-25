@@ -24,12 +24,11 @@ const status = Astro.url.searchParams.get("status") === "wishlist" ? "wishlist" 
 // Counted as they sit on the shelf: a box set once.
 const owned = items.filter((i) => i.status === "owned" && !i.parent_id).length;
 const wishlist = items.filter((i) => i.status === "wishlist" && !i.parent_id).length;
-const loans = items.filter((i) => i.on_loan).length;
 ---
 
 <Base title={status === "wishlist" ? "Wish List" : "Collection"}>
   <div class="coll" data-status={status}>
-    <CollectionNav active={status} owned={owned} wishlist={wishlist} loans={loans} />
+    <CollectionNav active={status} owned={owned} wishlist={wishlist} />
 
     {error && <div class="coll-error">{error}</div>}
 
@@ -340,7 +339,6 @@ const loans = items.filter((i) => i.on_loan).length;
         <span class="coll-cover">${i.cover ? `<img src="${i.cover}" alt="" loading="lazy" decoding="async" />` : `<span class="coll-nocover">${esc(i.title)}</span>`}
           <span class="coll-fmt coll-fmt-${formatClass(i.format)}">${esc(formatLabel(i.format))}</span>
           ${status === "owned" ? `<img class="coll-w" src="${seen}" alt="${i.seen ? "Seen" : "Not seen"}" />` : ""}
-          ${i.on_loan ? `<span class="coll-loan">On loan</span>` : ""}
           ${i.is_set ? `<span class="coll-set">${esc(setSize(k))}</span>` : ""}
         </span>
         <span class="coll-card-title">${esc(i.title)}</span>
@@ -356,7 +354,7 @@ const loans = items.filter((i) => i.on_loan).length;
         ? `<button type="button" class="coll-expand${open ? " open" : ""}" data-expand="${i.id}" aria-label="${open ? "Hide" : "Show"} the films in this set">▸</button>`
         : "";
       const self = `<tr data-id="${i.id}" class="${[i.id === state.selected && "selected", kid && "kid", i.is_set && "set"].filter(Boolean).join(" ")}">
-        <td class="t">${toggle}${esc(i.title)}${i.is_set ? ` <span class="coll-set-inline">${esc(setSize(k))}</span>` : ""}${i.on_loan ? ` <span class="coll-loan-inline">On loan</span>` : ""}</td>
+        <td class="t">${toggle}${esc(i.title)}${i.is_set ? ` <span class="coll-set-inline">${esc(setSize(k))}</span>` : ""}</td>
         <td>${esc(i.release_year)}</td>
         <td><span class="coll-fmt-inline coll-fmt-${formatClass(i.format)}">${esc(formatLabel(i.format))}</span></td>
         <td class="dim">${esc(i.edition)}</td>
@@ -420,7 +418,6 @@ const loans = items.filter((i) => i.on_loan).length;
     function detailHtml(d: PhysicalDetail) {
       const s = d.specs;
       const filmHref = d.tmdb_id ? (d.tmdb_kind === "tv" ? `/show/${d.tmdb_id}` : `/media/movie/${d.tmdb_id}`) : null;
-      const activeLoan = d.loans.find((l) => !l.returned_on);
       // Multi-disc releases list what's on each disc, so "On the disc" would repeat it.
       const discs = discsHtml(d);
       const people = (role: string) => (s.crew || []).filter((c: any) => c.role === role).map((c: any) => esc(c.name)).join(", ");
@@ -466,19 +463,9 @@ const loans = items.filter((i) => i.on_loan).length;
             ${s.plot ? `<p class="cd-plot-label">Plot</p><p class="cd-plot">${esc(s.plot)}</p>` : ""}
         <div class="cd-actions">
           <a class="cd-btn" href="/collection/${d.id}/edit">Edit</a>
-          ${d.status === "owned" && !p ? (activeLoan
-            ? `<button type="button" class="cd-btn" data-return="${activeLoan.id}">Mark returned</button>`
-            : `<button type="button" class="cd-btn" data-lend="${d.id}">Lend</button>`) : ""}
           ${d.is_set ? `<a class="cd-btn ghost" href="/collection/add?set=${encodeURIComponent(d.title)}">Add a film</a>` : ""}
           ${filmHref ? `<a class="cd-btn ghost" href="${filmHref}">${d.tmdb_kind === "tv" ? "Show page" : "Film page"} →</a>` : ""}
         </div>
-        ${p?.on_loan ? `<p class="cd-loan-note">Out on loan with the set</p>` : ""}
-        ${activeLoan ? `<p class="cd-loan-note">Lent to <b>${esc(activeLoan.loaned_to)}</b> on ${esc(fmtDate(activeLoan.loan_date))}${activeLoan.due_date ? `, due ${esc(fmtDate(activeLoan.due_date))}` : ""}</p>` : ""}
-        <form class="cd-lend" hidden>
-          <input name="loaned_to" placeholder="Who's borrowing it?" required />
-          <input name="due_date" type="date" title="Due back" />
-          <button type="submit" class="cd-btn">Lend</button>
-        </form>
           </div>
         </div>
 
@@ -530,7 +517,6 @@ const loans = items.filter((i) => i.on_loan).length;
         ${section("Cast", (s.cast || []).length ? `<ul class="cd-cast">${s.cast.slice(0, 24).map((c: any) => `<li><b>${esc(c.name)}</b>${c.character ? `<span>${esc(c.character)}</span>` : ""}</li>`).join("")}</ul>` : "", false)}
         ${p ? section("Also in this set", d.contents.filter((x) => x.id !== d.id).length ? films(d.contents.filter((x) => x.id !== d.id)) : "") : ""}
         ${section("Your other editions", d.other_editions.length ? `<ul class="cd-others">${d.other_editions.map((o) => `<li><button type="button" data-id="${o.id}">${esc(o.format || "")} · ${esc(o.edition || "Edition")}${o.status === "wishlist" ? " (wish list)" : ""}</button></li>`).join("")}</ul>` : "")}
-        ${section("Loans", d.loans.length ? `<ul class="cd-loans">${d.loans.map((l) => `<li><b>${esc(l.loaned_to)}</b> ${esc(fmtDate(l.loan_date))}${l.returned_on ? ` – ${esc(fmtDate(l.returned_on))}` : " – still out"}</li>`).join("")}</ul>` : "", false)}
         </div>
         ${(s.links || []).length ? `<p class="cd-links">${s.links.map((l: any) => `<a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.description || "Link")}</a>`).join("")}</p>` : ""}
       `;
@@ -609,28 +595,6 @@ const loans = items.filter((i) => i.on_loan).length;
       if (t.closest(".cd-close")) return select(null);
       const jump = t.closest<HTMLElement>(".cd-mini [data-id], .cd-others [data-id], .cd-partof");
       if (jump) return select(Number(jump.dataset.id), true);
-      const lend = t.closest<HTMLElement>("[data-lend]");
-      if (lend) { detail.querySelector<HTMLFormElement>(".cd-lend")!.hidden = false; detail.querySelector<HTMLInputElement>(".cd-lend input")!.focus(); return; }
-      const ret = t.closest<HTMLElement>("[data-return]");
-      if (ret) {
-        await fetch(`/api/proxy/physical/loans/${ret.dataset.return}/return`, { method: "POST" });
-        const item = all.find((i) => i.id === state.selected); if (item) item.on_loan = false;
-        render(); select(state.selected);
-      }
-    });
-    detail.addEventListener("submit", async (e) => {
-      const form = (e.target as HTMLElement).closest<HTMLFormElement>(".cd-lend");
-      if (!form) return;
-      e.preventDefault();
-      const fd = new FormData(form);
-      const res = await fetch(`/api/proxy/physical/items/${state.selected}/loans`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ loaned_to: fd.get("loaned_to"), due_date: fd.get("due_date") || null }),
-      });
-      if (res.ok) {
-        const item = all.find((i) => i.id === state.selected); if (item) item.on_loan = true;
-        render(); select(state.selected);
-      }
     });
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape" && detail.classList.contains("open") && window.matchMedia("(max-width: 767px)").matches) select(null);
@@ -719,7 +683,6 @@ const loans = items.filter((i) => i.on_loan).length;
   .coll-fmt-three-d { background: #0d9488; color: #fff; }
   .coll-fmt-dvd { background: #3f3f46; color: #fff; }
   .coll-w { position: absolute; right: 5px; bottom: 5px; width: 20px; height: 20px; filter: drop-shadow(0 1px 3px rgba(0, 0, 0, .9)); }
-  .coll-loan { position: absolute; left: 0; right: 0; bottom: 0; padding: 3px; background: rgba(245, 158, 11, .92); color: #1c1917; font-size: 10px; font-weight: 900; letter-spacing: .08em; text-align: center; text-transform: uppercase; }
   .coll-card-title { min-height: 2.5em; font-size: 12.5px; font-weight: 800; color: #f4f4f5; line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .coll-card-sub { margin-top: -3px; font-size: 11px; color: #71717a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .coll-more { display: block; margin: 20px auto 0; padding: 9px 18px; border-radius: 999px; border: 1px solid #27272a; color: #d4d4d8; font-size: 13px; font-weight: 800; }
@@ -739,7 +702,6 @@ const loans = items.filter((i) => i.on_loan).length;
   .coll-list tbody tr:hover td { background: #121214; }
   .coll-list tr.selected td { background: rgba(229, 9, 20, .12); }
   .coll-fmt-inline { display: inline-block; padding: 0 6px; border-radius: 4px; font-size: 10px; font-weight: 900; }
-  .coll-loan-inline { margin-left: 6px; padding: 0 6px; border-radius: 4px; background: rgba(245, 158, 11, .2); color: #fbbf24; font-size: 10px; font-weight: 800; }
 
   /* Detail panel */
   .coll-detail { grid-column: 1 / -1; position: relative; min-height: 260px; overflow: hidden; border-radius: 18px; background: #0a0a0a; border: 1px solid #1c1c1f; padding: 24px; isolation: isolate; }
@@ -777,9 +739,6 @@ const loans = items.filter((i) => i.on_loan).length;
   .coll-detail .cd-btn { display: inline-flex; align-items: center; padding: 7px 14px; border-radius: 999px; background: #e50914; color: #fff; font-size: 12.5px; font-weight: 800; text-decoration: none; }
   .coll-detail .cd-btn:hover { background: #f40612; }
   .coll-detail .cd-btn.ghost { background: transparent; border: 1px solid #3f3f46; color: #e4e4e7; }
-  .coll-detail .cd-loan-note { margin: 6px 0; padding: 8px 10px; border-radius: 10px; background: rgba(245, 158, 11, .12); color: #fcd34d; font-size: 12.5px; }
-  .coll-detail .cd-lend { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
-  .coll-detail .cd-lend input { flex: 1 1 140px; padding: 7px 10px; border-radius: 10px; background: #0f0f11; border: 1px solid #27272a; color: #f4f4f5; font-size: 13px; }
   .coll-detail .cd-tagline { margin-bottom: 12px; color: #d4d4d8; font-size: 13px; font-style: italic; }
   .coll-detail .cd-plot { margin-top: 8px; color: #a1a1aa; font-size: 13px; line-height: 1.55; }
   .coll-detail .cd-section { margin-top: 14px; border-top: 1px solid #1c1c1f; padding-top: 10px; }
@@ -807,7 +766,7 @@ const loans = items.filter((i) => i.on_loan).length;
   .coll-detail .cd-mini { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; }
   .coll-detail .cd-mini button { text-align: left; color: #d4d4d8; font-size: 11.5px; font-weight: 700; }
   .coll-detail .cd-mini img { width: 100%; aspect-ratio: 27 / 34; object-fit: cover; border-radius: 6px; margin-bottom: 4px; }
-  .coll-detail .cd-others button, .coll-detail .cd-loans li { color: #d4d4d8; font-size: 12.5px; text-align: left; }
+  .coll-detail .cd-others button { color: #d4d4d8; font-size: 12.5px; text-align: left; }
   .coll-detail .cd-others button:hover { color: #fff; text-decoration: underline; }
   .coll-detail .cd-links { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; font-size: 12px; }
   .coll-detail .cd-links a { color: #a1a1aa; text-decoration: underline; }

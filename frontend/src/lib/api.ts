@@ -1038,17 +1038,7 @@ export interface PhysicalSummary {
   position?: number;
   tags?: string[];
   date_added?: string;
-  on_loan?: boolean;
   cover?: string;
-}
-
-export interface PhysicalLoan {
-  id: number;
-  loaned_to: string;
-  loan_date: string;
-  due_date: string | null;
-  returned_on: string | null;
-  notes: string | null;
 }
 
 export interface PhysicalDetail extends PhysicalSummary {
@@ -1074,10 +1064,9 @@ export interface PhysicalDetail extends PhysicalSummary {
   parent: {
     id: number; title: string; cover: string | null; format: string | null; edition: string | null; barcode: string | null;
     location: string | null; purchase_date: string | null; purchase_price: number | null; store: string | null;
-    condition: string | null; distributor: string | null; on_loan: boolean;
+    condition: string | null; distributor: string | null;
   } | null;
   other_editions: { id: number; format: string | null; edition: string | null; status: string }[];
-  loans: PhysicalLoan[];
 }
 
 export interface PhysicalStats {
@@ -1414,10 +1403,6 @@ export const api = {
     create: (fields: Record<string, unknown>, token?: string) => post<{ id: number }>("/physical/items", fields, token),
     update: (id: number, fields: Record<string, unknown>, token?: string) => patch<{ id: number }>(`/physical/items/${id}`, fields, token),
     remove: (id: number, token?: string) => del<{ deleted: number }>(`/physical/items/${id}`, token),
-    lend: (id: number, fields: { loaned_to: string; loan_date?: string; due_date?: string; notes?: string }, token?: string) =>
-      post<{ id: number }>(`/physical/items/${id}/loans`, fields, token),
-    returnLoan: (loanId: number, token?: string) => post<{ returned_on: string }>(`/physical/loans/${loanId}/return`, undefined, token),
-    loans: (token?: string) => get<{ loans: (PhysicalLoan & { item_id: number; title: string; format: string | null; cover: string | null; overdue: boolean })[] }>("/physical/loans", undefined, token),
     stats: (token?: string) => get<PhysicalStats>("/physical/stats", undefined, token),
     options: (token?: string) => get<Record<string, string[]>>("/physical/options", undefined, token),
     lookup: (params: { barcode?: string; q?: string; tmdb_id?: number; kind?: "movie" | "tv" }, token?: string) =>

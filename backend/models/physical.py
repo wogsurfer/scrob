@@ -1,10 +1,9 @@
 """The user's physical disc collection: one row per release they own or want
-(a particular edition of a film or series on Blu-ray, 4K UHD, DVD...), and
-loans tracking who has which disc.
+(a particular edition of a film or series on Blu-ray, 4K UHD, DVD...).
 
 A box set or a disc with several films (a double feature) is a release of
 its own, marked is_set: it holds the shelf details (barcode, price,
-location, loans). The films on it are releases inside it (parent_id),
+location). The films on it are releases inside it (parent_id),
 holding each film's own details.
 
 Fields that are sorted, filtered or grouped by are columns; the long tail of
@@ -88,21 +87,7 @@ class PhysicalItem(Base):
 
     parent   : Mapped[Optional["PhysicalItem"]] = relationship(remote_side="PhysicalItem.id", back_populates="contents")
     contents : Mapped[list["PhysicalItem"]]     = relationship(back_populates="parent", order_by="PhysicalItem.position")
-    loans   : Mapped[list["PhysicalLoan"]]       = relationship(back_populates="item", cascade="all, delete-orphan")
 
-
-class PhysicalLoan(Base):
-    __tablename__ = "physical_loans"
-
-    id          : Mapped[int]            = mapped_column(Integer, primary_key=True)
-    item_id     : Mapped[int]            = mapped_column(ForeignKey("physical_items.id", ondelete="CASCADE"), nullable=False, index=True)
-    loaned_to   : Mapped[str]            = mapped_column(String(255), nullable=False)
-    loan_date   : Mapped[date]           = mapped_column(Date, nullable=False)
-    due_date    : Mapped[Optional[date]] = mapped_column(Date)
-    returned_on : Mapped[Optional[date]] = mapped_column(Date)
-    notes       : Mapped[Optional[str]]  = mapped_column(Text)
-
-    item : Mapped["PhysicalItem"] = relationship(back_populates="loans")
 
 
 class PhysicalPickValue(Base):
