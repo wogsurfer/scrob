@@ -1,7 +1,7 @@
 {
-  "name": "Scrob",
-  "short_name": "Scrob",
-  "description": "Self-hosted media tracking — your personal Letterboxd + Trakt",
+  "name": "Watchd",
+  "short_name": "Watchd",
+  "description": "Self-hosted film and TV tracking",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
@@ -11,19 +11,19 @@
   "background_color": "#09090b",
   "icons": [
     {
-      "src": "/web-app-manifest-192x192.png",
+      "src": "/web-app-manifest-192x192.png?v=watchd",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "/web-app-manifest-512x512.png",
+      "src": "/web-app-manifest-512x512.png?v=watchd",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "/apple-touch-icon.png",
+      "src": "/apple-touch-icon.png?v=watchd",
       "sizes": "180x180",
       "type": "image/png",
       "purpose": "any"
@@ -31,18 +31,18 @@
   ],
   "screenshots": [
     {
-      "src": "/web-app-manifest-512x512.png",
+      "src": "/web-app-manifest-512x512.png?v=watchd",
       "sizes": "512x512",
       "type": "image/png",
       "form_factor": "narrow",
-      "label": "Scrob — Media Tracker"
+      "label": "Watchd — Media Tracker"
     },
     {
-      "src": "/web-app-manifest-512x512.png",
+      "src": "/web-app-manifest-512x512.png?v=watchd",
       "sizes": "512x512",
       "type": "image/png",
       "form_factor": "wide",
-      "label": "Scrob — Media Tracker"
+      "label": "Watchd — Media Tracker"
     }
   ],
   "categories": ["entertainment", "lifestyle"]
