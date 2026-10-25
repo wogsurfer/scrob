@@ -22,6 +22,11 @@ ARR_DIR = Path("/host/arr") if IN_DOCKER else Path(r"C:\ProgramData")
 UNPACKERR_CONF = Path("/host/unpackerr/unpackerr.conf") if IN_DOCKER else Path(r"C:\ProgramData\unpackerr\unpackerr.conf")
 UNPACKERR_LOG = Path("/host/unpackerr-logs/unpackerr.log") if IN_DOCKER else Path.home() / ".unpackerr" / "unpackerr.log"
 DOWNLOADS = Path("/host/downloads") if IN_DOCKER else Path(r"D:\Downloads")
+BAZARR_CONF = Path("/host/bazarr/config.yaml") if IN_DOCKER else Path(r"C:\ProgramData\bazarr\data\config\config.yaml")
+BAZARR_PORT, CLEANUPARR_PORT = 6767, 11011
+# CBS shows carry this Sonarr tag, which turns on the release profile that
+# blocks CAKES (their CBS releases have audio description mixed in).
+CBS_TAG = "cbs"
 
 # (name, folder under ARR_DIR, default port, API version)
 APPS = (("Sonarr", "Sonarr", 8989, "v3"), ("Radarr", "Radarr", 7878, "v3"), ("Prowlarr", "Prowlarr", 9696, "v1"))
@@ -144,7 +149,8 @@ def unpacked_leftovers(downloads: Path, older_than: timedelta, now: float | None
     now = now or time.time()
     found = []
     for category in (downloads.iterdir() if downloads.is_dir() else []):
-        if not category.is_dir():
+        # "_orphaned" is where Cleanuparr parks files no torrent owns.
+        if not category.is_dir() or category.name.startswith("_"):
             continue
         for item in category.iterdir():
             if not item.is_dir():
@@ -234,6 +240,49 @@ def _unpackerr_check(app_keys: dict[str, str]) -> dict:
     return check("unpackerr", "Unpackerr", level, summary, details)
 
 
+async def _helper_checks(client: httpx.AsyncClient, sonarr_key: str | None) -> list[dict]:
+    """Bazarr (subtitles) and Cleanuparr (download clean-up) answering, and
+    every CBS show still protected from audio-description releases."""
+    out = []
+    try:
+        key = re.search(r"^auth:\n(?:  .*\n)*?  apikey: (\S+)", BAZARR_CONF.read_text(encoding="utf-8"), re.M).group(1).strip("'\"")
+        headers = {"X-API-KEY": key}
+        status = (await client.get(f"http://{HOST}:{BAZARR_PORT}/api/system/status", headers=headers)).raise_for_status().json()
+        health = (await client.get(f"http://{HOST}:{BAZARR_PORT}/api/system/health", headers=headers)).raise_for_status().json()
+        problems = [f"{h.get('object', '')}: {h.get('issue', '')}".strip(": ") for h in health.get("data", [])]
+        out.append(check("bazarr", "Bazarr", WARN if problems else OK,
+                         f"{len(problems)} problem{'s' * (len(problems) != 1)}" if problems else f"Version {status['data'].get('bazarr_version', '?')}",
+                         problems))
+    except (OSError, AttributeError):
+        out.append(check("bazarr", "Bazarr", WARN, "Couldn't read its settings file", [str(BAZARR_CONF)]))
+    except Exception as exc:  # noqa: BLE001
+        out.append(check("bazarr", "Bazarr", ERROR, "Not answering", [f"{type(exc).__name__}: {exc}"[:200]]))
+    try:
+        r = await client.get(f"http://{HOST}:{CLEANUPARR_PORT}/health")
+        ok = r.status_code == 200 and "healthy" in r.text.lower()
+        out.append(check("cleanuparr", "Cleanuparr", OK if ok else WARN, "Running" if ok else f"Unhealthy ({r.status_code})"))
+    except Exception as exc:  # noqa: BLE001
+        out.append(check("cleanuparr", "Cleanuparr", ERROR, "Not answering", [f"{type(exc).__name__}: {exc}"[:200]]))
+    if sonarr_key:
+        try:
+            _, port = arr_config("Sonarr")
+            base, headers = f"http://{HOST}:{port or 8989}/api/v3", {"X-Api-Key": sonarr_key}
+            tag = next((t["id"] for t in (await client.get(f"{base}/tag", headers=headers)).json() if t["label"] == CBS_TAG), None)
+            series = (await client.get(f"{base}/series", headers=headers)).json()
+            cbs = [s for s in series if (s.get("network") or "").upper() == "CBS"]
+            missing = [s["title"] for s in cbs if tag not in (s.get("tags") or [])]
+            out.append(check(
+                "cbs", "CBS audio description", WARN if missing or tag is None else OK,
+                f"{len(cbs)} CBS show{'s' * (len(cbs) != 1)} protected" if not missing and tag is not None
+                else f"{len(missing)} CBS show{'s' * (len(missing) != 1)} not protected",
+                [f"Add the '{CBS_TAG}' tag to {t} in Sonarr, so CAKES releases (audio description mixed in) are skipped" for t in missing]
+                or ([f"Sonarr has no '{CBS_TAG}' tag any more"] if tag is None else []),
+            ))
+        except Exception:  # noqa: BLE001 - Sonarr's own check already reports it unreachable
+            pass
+    return out
+
+
 def _downloads_check() -> list[dict]:
     out = []
     if not DOWNLOADS.is_dir():
@@ -261,7 +310,9 @@ async def pipeline_health(force: bool = False) -> dict:
         return _cache["result"]
     async with httpx.AsyncClient(timeout=8) as client:
         checks, keys = await _arr_checks(client)
+        helpers = await _helper_checks(client, keys.get("sonarr"))
     checks.append(_unpackerr_check(keys))
+    checks += helpers
     checks += _downloads_check()
     result = {
         "status": worst(c["status"] for c in checks),
