@@ -120,7 +120,7 @@ function formatDuration(minutes: number) {
 
       </div>
 
-      <div class="stat">
+      <div class="stat stat-link" onclick="if(!event.target.closest('a'))location.href='/collection'">
 
         <div class="stat-icon">
             <svg xmlns="http://www.w3.org/2000/svg"
@@ -146,11 +146,11 @@ function formatDuration(minutes: number) {
         <div class="stat-text">
 
           <div class="line1">
-            <strong>{stats.library.shows.toLocaleString()}</strong> TV shows
+            <a href="/collection"><strong>{stats.library.movies.toLocaleString()}</strong> films on disc</a>
           </div>
 
           <div class="line2">
-            <strong>{stats.library.movies.toLocaleString()}</strong> movies in library
+            <a href="/collection?group=kind&folder=TV"><strong>{stats.library.shows.toLocaleString()}</strong> TV series on disc</a>
           </div>
 
         </div>
@@ -289,6 +289,9 @@ function formatDuration(minutes: number) {
     backdrop-filter:blur(18px);
 
 }
+
+.stat-link{ cursor:pointer; }
+.stat-link:hover .stat-icon{ color:#fff; }
 
 .stat{
 

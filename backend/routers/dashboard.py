@@ -14,6 +14,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta, UTC
 from core.genres import normalise_genre
 from models.emby_library_stats import EmbyLibraryStats
+from models.physical import PhysicalItem
 from routers.media import enrich_with_state
 from routers.watchlist import WATCHLIST_MEDIA_COLUMNS, watchlist_imdb_ratings
 
@@ -112,9 +113,13 @@ async def dashboard_stats(
 
     movie_plays, movies_watched, movie_minutes = movies.one()
 
-    library = await db.scalar(
-    select(EmbyLibraryStats)
-)
+    # The physical disc collection: films and TV series owned on disc.
+    owned = await db.execute(
+        select(PhysicalItem.is_tv, func.count(PhysicalItem.id))
+        .where(PhysicalItem.user_id == current_user.id, PhysicalItem.status == "owned")
+        .group_by(PhysicalItem.is_tv)
+    )
+    owned_counts = dict(owned.all())
 
     return {
         "tv": {
@@ -129,8 +134,8 @@ async def dashboard_stats(
             "movies": movies_watched,
         },
         "library": {
-            "shows": library.shows if library else 0,
-            "movies": library.movies if library else 0,
+            "shows": owned_counts.get(True, 0),
+            "movies": owned_counts.get(False, 0),
         },
     }
 

@@ -1215,58 +1215,10 @@ async def _ensure_collection_entry(
     quality: dict = None,
     connection_id: int | None = None,
 ) -> None:
-    """Ensures a Collection + CollectionFile entry exists for the user, creating or updating as needed."""
-    from sqlalchemy.dialects.postgresql import insert as pg_insert
-
-    if not quality:
-        quality = {}
-
-    # 1. Upsert the Collection row (one per user+media)
-    coll_stmt = pg_insert(Collection).values(user_id=user_id, media_id=media_id)
-    coll_stmt = coll_stmt.on_conflict_do_nothing(constraint="uq_collection_user_media")
-    await db.execute(coll_stmt)
-    await db.flush()
-
-    # Fetch the canonical collection id
-    coll_result = await db.execute(
-        select(Collection.id).where(Collection.user_id == user_id, Collection.media_id == media_id)
-    )
-    collection_id = coll_result.scalar_one()
-
-    # 2. Upsert the CollectionFile row (one per collection+source+source_id)
-    update_dict: dict = {}
-    if connection_id is not None:          update_dict["connection_id"]       = connection_id
-    if quality.get("resolution"):         update_dict["resolution"]         = quality["resolution"]
-    if quality.get("video_codec"):        update_dict["video_codec"]        = quality["video_codec"]
-    if quality.get("audio_codec"):        update_dict["audio_codec"]        = quality["audio_codec"]
-    if quality.get("audio_channels"):     update_dict["audio_channels"]     = quality["audio_channels"]
-    if quality.get("audio_languages"):    update_dict["audio_languages"]    = quality["audio_languages"]
-    if quality.get("subtitle_languages"): update_dict["subtitle_languages"] = quality["subtitle_languages"]
-    if quality.get("file_path"):          update_dict["file_path"]          = quality["file_path"]
-
-    file_stmt = pg_insert(CollectionFile).values(
-        collection_id=collection_id,
-        source=source,
-        source_id=source_id,
-        connection_id=connection_id,
-        resolution=quality.get("resolution"),
-        video_codec=quality.get("video_codec"),
-        audio_codec=quality.get("audio_codec"),
-        audio_channels=quality.get("audio_channels"),
-        audio_languages=quality.get("audio_languages", []),
-        subtitle_languages=quality.get("subtitle_languages", []),
-        file_path=quality.get("file_path"),
-    )
-    if update_dict:
-        file_stmt = file_stmt.on_conflict_do_update(
-            constraint="uq_collection_file_source",
-            set_=update_dict,
-        )
-    else:
-        file_stmt = file_stmt.on_conflict_do_nothing(constraint="uq_collection_file_source")
-
-    await db.execute(file_stmt)
-    await db.flush()
+    """Formerly added the media server's file to the user's collection. The
+    collection is now the user's physical discs (see core/physical.py), so
+    media server libraries don't add to it."""
+    return
 
 
 async def find_or_create_media_plex(data: dict, db: AsyncSession, api_key: str = None, conn: MediaServerConnection | None = None) -> Media | None:

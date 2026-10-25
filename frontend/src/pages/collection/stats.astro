@@ -1,0 +1,113 @@
+---
+// Statistics for the physical collection: sizes, formats, where discs came
+// from, purchases over time and how much of it has been watched.
+import Base from "../../layouts/Base.astro";
+import CollectionNav from "../../components/CollectionNav.astro";
+import { api, type PhysicalStats } from "../../lib/api";
+export const prerender = false;
+
+const { token } = Astro.locals;
+let stats: PhysicalStats | null = null;
+try {
+  stats = await api.physical.stats(token);
+} catch {}
+
+type Row = { name: string; count: number };
+const lists: { title: string; rows: Row[]; folder: string }[] = stats
+  ? [
+      { title: "Formats", rows: stats.formats, folder: "format" },
+      { title: "Packaging", rows: stats.packages, folder: "package" },
+      { title: "Distributors", rows: stats.distributors, folder: "distributor" },
+      { title: "Stores", rows: stats.stores, folder: "store" },
+      { title: "Genres", rows: stats.genres, folder: "genres" },
+      { title: "Directors", rows: stats.directors, folder: "director" },
+      { title: "Regions", rows: stats.regions, folder: "regions" },
+      { title: "Condition", rows: stats.conditions, folder: "condition" },
+      { title: "Release decade", rows: stats.decades, folder: "decade" },
+    ]
+  : [];
+const maxYear = Math.max(1, ...(stats?.by_purchase_year ?? []).map((y) => y.count));
+const hours = stats ? Math.round(stats.runtime_minutes / 60) : 0;
+const seenPct = stats && stats.owned ? Math.round((stats.seen / stats.owned) * 100) : 0;
+---
+
+<Base title="Collection statistics">
+  <CollectionNav active="stats" owned={stats?.owned} wishlist={stats?.wishlist} />
+
+  {!stats && <p class="st-empty">Couldn't load the statistics.</p>}
+
+  {stats && (
+    <>
+      <div class="st-tiles">
+        <div class="st-tile"><b>{stats.owned.toLocaleString()}</b><span>releases</span></div>
+        <div class="st-tile"><b>{stats.discs.toLocaleString()}</b><span>discs</span></div>
+        <div class="st-tile"><b>{stats.films.toLocaleString()}</b><span>films</span></div>
+        <div class="st-tile"><b>{stats.tv.toLocaleString()}</b><span>TV sets</span></div>
+        <div class="st-tile"><b>{hours.toLocaleString()}</b><span>hours of film</span></div>
+        <div class="st-tile"><b>{seenPct}%</b><span>seen · {stats.unseen} still to watch</span></div>
+        <div class="st-tile"><b>{stats.wishlist.toLocaleString()}</b><span>on the wish list</span></div>
+        {stats.spent != null && <div class="st-tile"><b>{stats.spent.toLocaleString(undefined, { maximumFractionDigits: 0 })}</b><span>spent ({stats.priced_count} priced)</span></div>}
+      </div>
+
+      {stats.by_purchase_year.length > 0 && (
+        <section class="st-card st-years">
+          <h2>Bought each year</h2>
+          <div class="st-bars">
+            {stats.by_purchase_year.map((y) => (
+              <div class="st-bar" title={`${y.year}: ${y.count} discs${y.spent ? `, ${y.spent.toFixed(2)} spent` : ""}`}>
+                <span class="st-bar-n">{y.count}</span>
+                <span class="st-bar-fill" style={`height:${(y.count / maxYear) * 100}%`}></span>
+                <span class="st-bar-y">{String(y.year).slice(2)}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <div class="st-grid">
+        {lists.filter((l) => l.rows.length).map((l) => {
+          const max = Math.max(...l.rows.map((r) => r.count));
+          return (
+            <section class="st-card">
+              <h2>{l.title}</h2>
+              <ul class="st-rows">
+                {l.rows.map((r) => (
+                  <li>
+                    <span class="st-name" title={r.name}>{r.name}</span>
+                    <span class="st-track"><span style={`width:${(r.count / max) * 100}%`}></span></span>
+                    <b>{r.count}</b>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          );
+        })}
+      </div>
+    </>
+  )}
+</Base>
+
+<style>
+  .st-empty { color: #71717a; }
+  .st-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; margin-bottom: 16px; }
+  .st-tile { padding: 16px; border-radius: 16px; background: #0a0a0a; border: 1px solid #1c1c1f; }
+  .st-tile b { display: block; color: #f4f4f5; font-size: 28px; font-weight: 900; letter-spacing: -.03em; }
+  .st-tile span { color: #a1a1aa; font-size: 12.5px; font-weight: 700; }
+  .st-card { padding: 18px; border-radius: 18px; background: #0a0a0a; border: 1px solid #1c1c1f; }
+  .st-card h2 { margin-bottom: 12px; color: #f87171; font-size: 12px; font-weight: 900; letter-spacing: .14em; text-transform: uppercase; }
+  .st-years { margin-bottom: 16px; }
+  .st-bars { display: flex; align-items: flex-end; gap: 6px; height: 180px; }
+  .st-bar { position: relative; flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; min-width: 0; }
+  .st-bar-fill { width: 100%; max-width: 38px; border-radius: 6px 6px 2px 2px; background: linear-gradient(#ff3b45, #b00610); }
+  .st-bar-n { margin-bottom: 3px; color: #d4d4d8; font-size: 11px; font-weight: 800; }
+  .st-bar-y { margin-top: 5px; color: #71717a; font-size: 11px; font-weight: 700; }
+  .st-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
+  .st-rows { display: flex; flex-direction: column; gap: 6px; }
+  .st-rows li { display: grid; grid-template-columns: minmax(0, 150px) 1fr 40px; align-items: center; gap: 10px; font-size: 12.5px; }
+  .st-name { color: #d4d4d8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .st-track { height: 8px; border-radius: 999px; background: #18181b; overflow: hidden; }
+  .st-track span { display: block; height: 100%; border-radius: 999px; background: #e50914; }
+  .st-rows b { color: #a1a1aa; text-align: right; }
+  :global(html.light) .st-tile, :global(html.light) .st-card { background: #fafafa; border-color: #e4e4e7; }
+  :global(html.light) .st-tile b { color: #18181b; }
+</style>

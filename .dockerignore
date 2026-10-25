@@ -28,3 +28,4 @@ frontend/.astro/
 backend/data/
 *.zip
 docker-compose.watchd.yaml
+backups/

@@ -1,0 +1,718 @@
+---
+// The physical disc collection, laid out like Collectorz: folders down the
+// side, covers or a list in the middle, and the selected release's details on
+// the right. The whole collection is sent once and filtered in the browser.
+import Base from "../../layouts/Base.astro";
+import CollectionNav from "../../components/CollectionNav.astro";
+import { api, type PhysicalSummary } from "../../lib/api";
+import watchdIconWhite from "../../assets/watchd-icon-white.png";
+import watchdIconRed from "../../assets/watchd-icon-red.png";
+export const prerender = false;
+
+const { token } = Astro.locals;
+Astro.response.headers.set("Cache-Control", "private, no-cache");
+
+let items: PhysicalSummary[] = [];
+let error = "";
+try {
+  items = (await api.physical.items(token)).items;
+} catch (e: unknown) {
+  error = e instanceof Error ? e.message : "Couldn't load the collection";
+}
+
+const status = Astro.url.searchParams.get("status") === "wishlist" ? "wishlist" : "owned";
+const owned = items.filter((i) => i.status === "owned").length;
+const wishlist = items.filter((i) => i.status === "wishlist").length;
+const loans = items.filter((i) => i.on_loan).length;
+---
+
+<Base title={status === "wishlist" ? "Wish List" : "Collection"}>
+  <div class="coll" data-status={status}>
+    <CollectionNav active={status} owned={owned} wishlist={wishlist} loans={loans} />
+
+    {error && <div class="coll-error">{error}</div>}
+
+    {!error && items.length === 0 && (
+      <div class="coll-empty">
+        <p class="coll-empty-title">No discs yet</p>
+        <p>Add your first disc, or import your Collectorz export.</p>
+      </div>
+    )}
+
+    {items.length > 0 && (
+      <>
+        <div class="coll-toolbar">
+          <div class="coll-search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" stroke-linecap="round" /></svg>
+            <input id="coll-q" type="search" placeholder="Search title, edition, barcode, director…" autocomplete="off" />
+          </div>
+          <div class="coll-letters" id="coll-letters" role="group" aria-label="First letter">
+            {["All", "#", ..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"].map((l) => <button type="button" data-letter={l}>{l}</button>)}
+          </div>
+          <div class="coll-controls">
+            <label class="coll-select">
+              <span>Sort</span>
+              <select id="coll-sort">
+                <option value="title">Title</option>
+                <option value="release_year">Release year</option>
+                <option value="purchase_date">Purchase date</option>
+                <option value="date_added">Date added</option>
+                <option value="disc_release_date">Disc release</option>
+                <option value="my_rating">My rating</option>
+                <option value="imdb_rating">IMDb rating</option>
+                <option value="runtime">Running time</option>
+                <option value="distributor">Distributor</option>
+                <option value="format">Format</option>
+                <option value="index_no">Index</option>
+              </select>
+            </label>
+            <button type="button" id="coll-dir" class="coll-icon-btn" title="Reverse order" aria-label="Reverse order">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M7 4v16M7 20l-3-3M7 20l3-3M17 20V4M17 4l-3 3M17 4l3 3" stroke-linecap="round" stroke-linejoin="round" /></svg>
+            </button>
+            <div class="coll-views" role="group" aria-label="View">
+              <button type="button" data-view="grid" title="Covers" aria-label="Covers">
+                <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1.5" /><rect x="14" y="3" width="7" height="9" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></svg>
+              </button>
+              <button type="button" data-view="list" title="List" aria-label="List">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" stroke-linecap="round" /></svg>
+              </button>
+            </div>
+            <input id="coll-size" type="range" min="110" max="240" step="10" value="150" title="Cover size" aria-label="Cover size" />
+          </div>
+        </div>
+
+        <div class="coll-body">
+          <aside class="coll-folders">
+            <label class="coll-select coll-group">
+              <span>Folders</span>
+              <select id="coll-group">
+                <option value="">None</option>
+                <option value="format">Format</option>
+                <option value="package">Packaging</option>
+                <option value="distributor">Distributor</option>
+                <option value="store">Store</option>
+                <option value="genres">Genre</option>
+                <option value="director">Director</option>
+                <option value="regions">Region</option>
+                <option value="edition">Edition</option>
+                <option value="box_set">Box set</option>
+                <option value="series">Series</option>
+                <option value="tags">Tags</option>
+                <option value="audience_rating">Age rating</option>
+                <option value="condition">Condition</option>
+                <option value="location">Location</option>
+                <option value="purchase_year">Purchase year</option>
+                <option value="decade">Release decade</option>
+                <option value="seen">Seen</option>
+                <option value="kind">Film or TV</option>
+              </select>
+            </label>
+            <ul id="coll-folder-list"></ul>
+          </aside>
+
+          <main class="coll-main">
+            <p class="coll-count" id="coll-count"></p>
+            <div id="coll-grid" class="coll-grid"></div>
+            <div id="coll-list" class="coll-list" hidden>
+              <table>
+                <thead>
+                  <tr>
+                    <th data-sort="title">Title</th>
+                    <th data-sort="release_year">Year</th>
+                    <th data-sort="format">Format</th>
+                    <th>Edition</th>
+                    <th data-sort="distributor">Distributor</th>
+                    <th data-sort="purchase_date">Purchased</th>
+                    <th>Store</th>
+                    <th data-sort="my_rating">Rating</th>
+                    <th>Seen</th>
+                  </tr>
+                </thead>
+                <tbody id="coll-rows"></tbody>
+              </table>
+            </div>
+            <button type="button" id="coll-more" class="coll-more" hidden>Show more</button>
+          </main>
+
+          <aside class="coll-detail" id="coll-detail" aria-live="polite">
+            <div class="coll-detail-empty">Pick a disc to see its details</div>
+          </aside>
+        </div>
+      </>
+    )}
+  </div>
+
+  <script type="application/json" id="coll-data" set:html={JSON.stringify(items).replace(/</g, "\\u003c")}></script>
+  <div id="coll-icons" data-white={watchdIconWhite.src} data-red={watchdIconRed.src} hidden></div>
+</Base>
+
+<script>
+  import type { PhysicalSummary, PhysicalDetail } from "../../lib/api";
+
+  const root = document.querySelector<HTMLElement>(".coll");
+  const dataEl = document.getElementById("coll-data");
+  if (root && dataEl && document.getElementById("coll-grid")) {
+    const all: PhysicalSummary[] = JSON.parse(dataEl.textContent || "[]");
+    const icons = document.getElementById("coll-icons")!.dataset;
+    const status = root.dataset.status || "owned";
+    const PAGE = 240;
+
+    const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+    const q = $<HTMLInputElement>("coll-q");
+    const sortSel = $<HTMLSelectElement>("coll-sort");
+    const groupSel = $<HTMLSelectElement>("coll-group");
+    const sizeInput = $<HTMLInputElement>("coll-size");
+    const grid = $<HTMLDivElement>("coll-grid");
+    const list = $<HTMLDivElement>("coll-list");
+    const rows = $<HTMLTableSectionElement>("coll-rows");
+    const folderList = $<HTMLUListElement>("coll-folder-list");
+    const countEl = $<HTMLParagraphElement>("coll-count");
+    const moreBtn = $<HTMLButtonElement>("coll-more");
+    const detail = $<HTMLElement>("coll-detail");
+
+    // Per-viewer preferences.
+    const saved = (() => { try { return JSON.parse(localStorage.getItem("collection-view") || "{}"); } catch { return {}; } })();
+    const state = {
+      q: "",
+      letter: "All",
+      sort: saved.sort || "title",
+      dir: saved.dir || 1,
+      view: saved.view || "grid",
+      size: saved.size || 150,
+      // A link can open a folder: ?group=kind&folder=TV.
+      group: new URL(location.href).searchParams.get("group") ?? saved.group ?? "format",
+      folder: new URL(location.href).searchParams.get("folder") as string | null,
+      shown: PAGE,
+      selected: Number(new URL(location.href).searchParams.get("item")) || null,
+    };
+    const save = () => {
+      try { localStorage.setItem("collection-view", JSON.stringify({ sort: state.sort, dir: state.dir, view: state.view, size: state.size, group: state.group })); } catch {}
+    };
+
+    const esc = (v: unknown) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+    const fmtDate = (s?: string | null) => (s ? new Date(`${s.slice(0, 10)}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "");
+    const ageRating = (r?: string | null) => {
+      if (!r) return "";
+      const m = /^(MPAA|BBFC|FSK|ACB|CHVRS|OFLC|KMRB)(.+)$/.exec(r);
+      return m ? (m[1] === "MPAA" ? m[2] : `${m[1]} ${m[2]}`) : r;
+    };
+    const formatClass = (f?: string) => (f || "").toLowerCase().includes("4k") ? "uhd" : (f || "").includes("3D") ? "three-d" : (f || "").toLowerCase().includes("dvd") ? "dvd" : "bd";
+    const formatLabel = (f?: string) => (f === "4K UHD" ? "4K" : f === "Blu-ray 3D" ? "3D" : f || "");
+
+    // Folder values for an item under the chosen grouping (some have several).
+    const folderValues = (i: PhysicalSummary, group: string): string[] => {
+      switch (group) {
+        case "genres": return i.genres?.length ? i.genres : ["(none)"];
+        case "regions": return i.regions?.length ? i.regions : ["(none)"];
+        case "tags": return i.tags?.length ? i.tags : ["(none)"];
+        case "director": return i.director ? i.director.split("; ") : ["(none)"];
+        case "audience_rating": return [ageRating(i.audience_rating) || "(none)"];
+        case "purchase_year": return [i.purchase_date ? i.purchase_date.slice(0, 4) : "(none)"];
+        case "decade": return [i.release_year ? `${Math.floor(i.release_year / 10) * 10}s` : "(none)"];
+        case "seen": return [i.seen ? "Seen" : "Not seen"];
+        case "kind": return [i.is_tv ? "TV" : "Film"];
+        default: {
+          const v = (i as Record<string, unknown>)[group];
+          return [v ? String(v) : "(none)"];
+        }
+      }
+    };
+
+    // Titles sort and file without a leading article or punctuation
+    // ("The 'Burbs" under B, "¡Three Amigos!" under T, "(500) Days..." under #).
+    const sortKey = (i: PhysicalSummary) =>
+      (i.sort_title || i.title).replace(/^(the|a|an)\s+/i, "").replace(/^[^\p{L}\p{N}]+/u, "").toLowerCase();
+    const firstLetter = (i: PhysicalSummary) => {
+      const c = sortKey(i).normalize("NFD").charAt(0).toUpperCase();
+      return /[A-Z]/.test(c) ? c : "#";
+    };
+
+    const inStatus = all.filter((i) => i.status === status);
+
+    function matches(i: PhysicalSummary, skipFolder = false) {
+      if (state.letter !== "All" && firstLetter(i) !== state.letter) return false;
+      if (!skipFolder && state.group && state.folder != null && !folderValues(i, state.group).includes(state.folder)) return false;
+      if (state.q) {
+        const hay = [i.title, i.title_extension, i.edition, i.barcode, i.director, i.distributor, i.box_set, i.series, i.store, ...(i.tags || [])]
+          .filter(Boolean).join(" ").toLowerCase();
+        if (!state.q.toLowerCase().split(/\s+/).every((w) => hay.includes(w))) return false;
+      }
+      return true;
+    }
+
+    function sorted(items: PhysicalSummary[]) {
+      const k = state.sort;
+      return [...items].sort((a, b) => {
+        let x: any, y: any;
+        if (k === "title") { x = sortKey(a); y = sortKey(b); }
+        else { x = (a as any)[k]; y = (b as any)[k]; }
+        if (x == null && y == null) return sortKey(a).localeCompare(sortKey(b));
+        if (x == null) return 1;
+        if (y == null) return -1;
+        const c = typeof x === "number" ? x - y : String(x).localeCompare(String(y));
+        return (c || sortKey(a).localeCompare(sortKey(b))) * state.dir;
+      });
+    }
+
+    function renderFolders() {
+      folderList.innerHTML = "";
+      if (!state.group) return;
+      const counts = new Map<string, number>();
+      for (const i of inStatus) if (matches(i, true)) for (const v of folderValues(i, state.group)) counts.set(v, (counts.get(v) || 0) + 1);
+      const numeric = ["purchase_year", "decade"].includes(state.group);
+      const entries = [...counts].sort((a, b) =>
+        a[0] === "(none)" ? 1 : b[0] === "(none)" ? -1 : numeric ? b[0].localeCompare(a[0]) : a[0].localeCompare(b[0]),
+      );
+      const total = inStatus.filter((i) => matches(i, true)).length;
+      const li = (label: string, count: number, value: string | null) =>
+        `<li><button type="button" class="${state.folder === value ? "active" : ""}" data-folder="${value === null ? "" : esc(value)}" data-all="${value === null}"><span>${esc(label)}</span><b>${count}</b></button></li>`;
+      folderList.innerHTML = li(status === "wishlist" ? "[Whole wish list]" : "[Whole collection]", total, null) + entries.map(([v, c]) => li(v, c, v)).join("");
+    }
+
+    function card(i: PhysicalSummary) {
+      const seen = i.seen ? icons.red : icons.white;
+      return `<button type="button" class="coll-card${i.id === state.selected ? " selected" : ""}" data-id="${i.id}" title="${esc(i.title)}${i.edition ? ` · ${esc(i.edition)}` : ""}">
+        <span class="coll-cover">${i.cover ? `<img src="${i.cover}" alt="" loading="lazy" decoding="async" />` : `<span class="coll-nocover">${esc(i.title)}</span>`}
+          <span class="coll-fmt coll-fmt-${formatClass(i.format)}">${esc(formatLabel(i.format))}</span>
+          ${status === "owned" ? `<img class="coll-w" src="${seen}" alt="${i.seen ? "Seen" : "Not seen"}" />` : ""}
+          ${i.on_loan ? `<span class="coll-loan">On loan</span>` : ""}
+        </span>
+        <span class="coll-card-title">${esc(i.title)}</span>
+        <span class="coll-card-sub">${[i.release_year, i.edition].filter(Boolean).map(esc).join(" · ")}</span>
+      </button>`;
+    }
+
+    function row(i: PhysicalSummary) {
+      return `<tr data-id="${i.id}" class="${i.id === state.selected ? "selected" : ""}">
+        <td class="t">${esc(i.title)}${i.on_loan ? ` <span class="coll-loan-inline">On loan</span>` : ""}</td>
+        <td>${esc(i.release_year)}</td>
+        <td><span class="coll-fmt-inline coll-fmt-${formatClass(i.format)}">${esc(formatLabel(i.format))}</span></td>
+        <td class="dim">${esc(i.edition)}</td>
+        <td class="dim">${esc(i.distributor)}</td>
+        <td>${esc(fmtDate(i.purchase_date))}</td>
+        <td class="dim">${esc(i.store)}</td>
+        <td>${i.my_rating ? `${i.my_rating}/10` : ""}</td>
+        <td>${i.seen ? "Yes" : ""}</td>
+      </tr>`;
+    }
+
+    function render() {
+      const visible = sorted(inStatus.filter((i) => matches(i)));
+      const page = visible.slice(0, state.shown);
+      countEl.textContent = `${visible.length.toLocaleString()} ${visible.length === 1 ? "disc" : "discs"}${state.folder != null ? ` in ${state.folder}` : ""}`;
+      grid.hidden = state.view !== "grid";
+      list.hidden = state.view !== "list";
+      grid.style.setProperty("--cover", `${state.size}px`);
+      if (state.view === "grid") grid.innerHTML = page.map(card).join("");
+      else rows.innerHTML = page.map(row).join("");
+      moreBtn.hidden = visible.length <= state.shown;
+      moreBtn.textContent = `Show more (${(visible.length - state.shown).toLocaleString()} left)`;
+      document.querySelectorAll<HTMLButtonElement>("#coll-letters button").forEach((b) => b.classList.toggle("active", b.dataset.letter === state.letter));
+      document.querySelectorAll<HTMLButtonElement>(".coll-views button").forEach((b) => b.classList.toggle("active", b.dataset.view === state.view));
+      document.querySelectorAll<HTMLElement>("#coll-list th[data-sort]").forEach((th) => th.dataset.active = th.dataset.sort === state.sort ? (state.dir > 0 ? "asc" : "desc") : "");
+      renderFolders();
+    }
+
+    // ── Detail panel ─────────────────────────────────────────────────────
+    const chips = (values?: string[]) => (values?.length ? `<div class="cd-chips">${values.map((v) => `<span>${esc(v)}</span>`).join("")}</div>` : "");
+    const fact = (label: string, value: unknown) => (value === null || value === undefined || value === "" ? "" : `<div class="cd-fact"><dt>${esc(label)}</dt><dd>${value}</dd></div>`);
+    const section = (title: string, body: string, open = true) => (body ? `<details class="cd-section"${open ? " open" : ""}><summary>${esc(title)}</summary>${body}</details>` : "");
+
+    function stars(n?: number) {
+      if (!n) return "";
+      return `<span class="cd-stars" title="${n}/10">${Array.from({ length: 10 }, (_, k) => `<i class="${k < n ? "on" : ""}"></i>`).join("")}</span>`;
+    }
+
+    function discsHtml(d: PhysicalDetail) {
+      const discs = d.specs.discs || [];
+      if (discs.length <= 1 && !discs.some((x: any) => x.episodes?.length)) return "";
+      return discs.map((x: any) => `<div class="cd-disc">
+        <p class="cd-disc-head"><b>${esc(x.title || "Disc")}</b>${x.format ? ` <span class="coll-fmt-inline coll-fmt-${formatClass(x.format)}">${esc(formatLabel(x.format))}</span>` : ""}</p>
+        ${x.features?.length ? `<p class="cd-dim">${x.features.map(esc).join(" · ")}</p>` : ""}
+        ${x.episodes?.length ? `<ol class="cd-episodes">${x.episodes.map((e: any) => `<li>${esc(e.title)}${e.runtime ? ` <span class="cd-dim">${e.runtime} min</span>` : ""}</li>`).join("")}</ol>` : ""}
+        ${x.extra_features ? `<pre class="cd-pre">${esc(x.extra_features)}</pre>` : ""}
+      </div>`).join("");
+    }
+
+    function detailHtml(d: PhysicalDetail) {
+      const s = d.specs;
+      const filmHref = d.tmdb_id ? (d.tmdb_kind === "tv" ? `/show/${d.tmdb_id}` : `/media/movie/${d.tmdb_id}`) : null;
+      const activeLoan = d.loans.find((l) => !l.returned_on);
+      const people = (role: string) => (s.crew || []).filter((c: any) => c.role === role).map((c: any) => esc(c.name)).join(", ");
+      return `
+        ${d.backdrop ? `<div class="cd-backdrop" style="background-image:url('${esc(d.backdrop)}')"></div>` : ""}
+        <button type="button" class="cd-close" aria-label="Close">×</button>
+        <div class="cd-top">
+          <button type="button" class="cd-cover" ${d.cover_back ? `data-front="${esc(d.cover_full)}" data-back="${esc(d.cover_back)}" title="Show the back"` : ""}>
+            ${d.cover_full ? `<img src="${esc(d.cover_full)}" alt="Cover of ${esc(d.title)}" />` : `<span class="coll-nocover">${esc(d.title)}</span>`}
+          </button>
+          <div class="cd-head">
+            <h2>${esc(d.title)}${s.title_extension ? ` <span>${esc(s.title_extension)}</span>` : ""}</h2>
+            <p class="cd-sub">${[d.release_year, s.studios?.slice(0, 2).join(" / ")].filter(Boolean).map(esc).join(" · ")}</p>
+            ${d.edition ? `<p class="cd-edition">${esc(d.edition)}</p>` : ""}
+            <div class="cd-badges">
+              ${d.format ? `<span class="cd-badge coll-fmt-${formatClass(d.format)}">${esc(d.format)}</span>` : ""}
+              ${(d.regions || []).map((r) => `<span class="cd-badge cd-region">${esc(r.replace("Region ", ""))}</span>`).join("")}
+              ${d.audience_rating ? `<span class="cd-badge cd-age">${esc(ageRating(d.audience_rating))}</span>` : ""}
+              ${d.status === "wishlist" ? `<span class="cd-badge cd-wish">Wish list</span>` : ""}
+            </div>
+            <div class="cd-ratings">
+              ${d.imdb_rating ? `<span class="cd-imdb">IMDb <b>${d.imdb_rating}</b>${s.imdb_votes ? ` <i>${Number(s.imdb_votes).toLocaleString()}</i>` : ""}</span>` : ""}
+              ${stars(d.my_rating)}
+            </div>
+            <p class="cd-seen ${d.seen ? "on" : ""}">
+              <img src="${d.seen ? icons.red : icons.white}" alt="" />
+              ${d.plays ? `Watched ${d.plays === 1 ? "once" : `${d.plays} times`} in Watchd` : d.seen ? "Seen" : "Not seen yet"}
+            </p>
+          </div>
+          <div class="cd-story">
+            ${s.tagline ? `<p class="cd-tagline">“${esc(s.tagline)}”</p>` : ""}
+            ${s.plot ? `<p class="cd-plot-label">Plot</p><p class="cd-plot">${esc(s.plot)}</p>` : ""}
+        <div class="cd-actions">
+          <a class="cd-btn" href="/collection/${d.id}/edit">Edit</a>
+          ${d.status === "owned" ? (activeLoan
+            ? `<button type="button" class="cd-btn" data-return="${activeLoan.id}">Mark returned</button>`
+            : `<button type="button" class="cd-btn" data-lend="${d.id}">Lend</button>`) : ""}
+          ${filmHref ? `<a class="cd-btn ghost" href="${filmHref}">${d.tmdb_kind === "tv" ? "Show page" : "Film page"} →</a>` : ""}
+        </div>
+        ${activeLoan ? `<p class="cd-loan-note">Lent to <b>${esc(activeLoan.loaned_to)}</b> on ${esc(fmtDate(activeLoan.loan_date))}${activeLoan.due_date ? `, due ${esc(fmtDate(activeLoan.due_date))}` : ""}</p>` : ""}
+        <form class="cd-lend" hidden>
+          <input name="loaned_to" placeholder="Who's borrowing it?" required />
+          <input name="due_date" type="date" title="Due back" />
+          <button type="submit" class="cd-btn">Lend</button>
+        </form>
+          </div>
+        </div>
+
+        <div class="cd-sections">
+        ${section("Edition", `<dl class="cd-facts">
+          ${fact("Distributor", esc(d.distributor))}
+          ${fact("Barcode", d.barcode ? `<span class="cd-mono">${esc(d.barcode)}</span>` : "")}
+          ${fact("Disc release", esc(fmtDate(d.disc_release_date)))}
+          ${fact("Discs", d.disc_count)}
+          ${fact("Packaging", esc(d.package))}
+          ${fact("Running time", d.runtime ? `${d.runtime} min` : "")}
+          ${fact("Layers", esc(s.layers))}
+          ${fact("Colour", s.color && s.color !== "Color" ? esc(s.color) : "")}
+          ${fact("HDR", esc(s.hdr))}
+          ${fact("Box set", d.box_set ? esc(d.box_set) : "")}
+          ${fact("Series", esc(d.series))}
+        </dl>`)}
+        ${section("Picture and sound", `
+          ${s.ratios?.length ? `<p class="cd-label">Aspect ratio</p>${chips(s.ratios)}` : ""}
+          ${s.audio?.length ? `<p class="cd-label">Audio</p>${chips(s.audio)}` : ""}
+          ${s.subtitles?.length ? `<p class="cd-label">Subtitles</p>${chips(s.subtitles)}` : ""}
+          ${s.features?.length ? `<p class="cd-label">On the disc</p>${chips(s.features)}` : ""}
+          ${s.extras?.length ? `<p class="cd-label">In the box</p>${chips(s.extras)}` : ""}
+        `.trim())}
+        ${section("Discs", discsHtml(d), false)}
+        ${section("Extra features", s.extra_features ? `<pre class="cd-pre">${esc(s.extra_features)}</pre>` : "", false)}
+        ${section("Purchase", `<dl class="cd-facts">
+          ${fact("Purchased", esc(fmtDate(d.purchase_date)))}
+          ${fact("Store", esc(d.store))}
+          ${fact("Price", d.purchase_price != null ? esc(d.purchase_price.toFixed(2)) : "")}
+          ${fact("Value", d.current_value != null ? esc(d.current_value.toFixed(2)) : "")}
+          ${fact("Condition", esc(d.condition))}
+          ${fact("Location", esc(d.location))}
+          ${fact("Index", d.index_no)}
+          ${fact("Owner", esc(d.owner))}
+          ${fact("Added", esc(fmtDate(d.date_added)))}
+          ${fact("Seen in cinema", esc(s.seen_in_cinema))}
+        </dl>${d.notes ? `<p class="cd-notes">${esc(d.notes)}</p>` : ""}${d.tags?.length ? chips(d.tags.map((t) => `#${t}`)) : ""}`)}
+        ${section("Film", `<dl class="cd-facts">
+          ${fact("Director", people("Director"))}
+          ${fact("Writer", people("Writer"))}
+          ${fact("Music", people("Composer") || people("Musician"))}
+          ${fact("Genre", esc((d.genres || []).join(", ")))}
+          ${fact("Country", esc(s.country))}
+          ${fact("Language", esc(s.language))}
+          ${fact("Adaptation of", esc(s.adaptation_of))}
+          ${fact("Based on", esc(s.adapted_titles))}
+        </dl>`)}
+        ${section("Cast", (s.cast || []).length ? `<ul class="cd-cast">${s.cast.slice(0, 24).map((c: any) => `<li><b>${esc(c.name)}</b>${c.character ? `<span>${esc(c.character)}</span>` : ""}</li>`).join("")}</ul>` : "", false)}
+        ${section("In this box set", d.box_set_items.length ? `<div class="cd-mini">${d.box_set_items.map((b) => `<button type="button" data-id="${b.id}">${b.cover ? `<img src="${b.cover}" alt="" loading="lazy" />` : ""}<span>${esc(b.title)}${b.release_year ? ` (${b.release_year})` : ""}</span></button>`).join("")}</div>` : "")}
+        ${section("Your other editions", d.other_editions.length ? `<ul class="cd-others">${d.other_editions.map((o) => `<li><button type="button" data-id="${o.id}">${esc(o.format || "")} · ${esc(o.edition || "Edition")}${o.status === "wishlist" ? " (wish list)" : ""}</button></li>`).join("")}</ul>` : "")}
+        ${section("Loans", d.loans.length ? `<ul class="cd-loans">${d.loans.map((l) => `<li><b>${esc(l.loaned_to)}</b> ${esc(fmtDate(l.loan_date))}${l.returned_on ? ` – ${esc(fmtDate(l.returned_on))}` : " – still out"}</li>`).join("")}</ul>` : "", false)}
+        </div>
+        ${(s.links || []).length ? `<p class="cd-links">${s.links.map((l: any) => `<a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.description || "Link")}</a>`).join("")}</p>` : ""}
+      `;
+    }
+
+    let detailToken = 0;
+    async function select(id: number | null, scroll = false) {
+      state.selected = id;
+      const url = new URL(location.href);
+      if (id) url.searchParams.set("item", String(id)); else url.searchParams.delete("item");
+      history.replaceState(null, "", url);
+      document.querySelectorAll(".coll-card.selected, #coll-rows tr.selected").forEach((e) => e.classList.remove("selected"));
+      if (!id) { detail.classList.remove("open"); return; }
+      document.querySelectorAll(`[data-id="${id}"]`).forEach((e) => e.closest(".coll-card, tr")?.classList.add("selected"));
+      const mine = ++detailToken;
+      detail.classList.add("open", "loading");
+      try {
+        const res = await fetch(`/api/proxy/physical/items/${id}`);
+        if (!res.ok) throw new Error();
+        const d: PhysicalDetail = await res.json();
+        if (mine !== detailToken) return;
+        detail.innerHTML = detailHtml(d);
+        detail.scrollTop = 0;
+        if (scroll) document.querySelector(`.coll-card[data-id="${id}"], #coll-rows tr[data-id="${id}"]`)?.scrollIntoView({ block: "nearest" });
+      } catch {
+        if (mine === detailToken) detail.innerHTML = `<div class="coll-detail-empty">Couldn't load this disc</div>`;
+      } finally {
+        if (mine === detailToken) detail.classList.remove("loading");
+      }
+    }
+
+    // ── Events ───────────────────────────────────────────────────────────
+    const rerender = () => { state.shown = PAGE; render(); };
+    let typing: number | undefined;
+    q.addEventListener("input", () => { clearTimeout(typing); typing = window.setTimeout(() => { state.q = q.value.trim(); rerender(); }, 120); });
+    $("coll-letters").addEventListener("click", (e) => {
+      const b = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-letter]");
+      if (b) { state.letter = b.dataset.letter!; rerender(); }
+    });
+    sortSel.addEventListener("change", () => { state.sort = sortSel.value; state.dir = ["purchase_date", "date_added", "my_rating", "imdb_rating", "disc_release_date"].includes(state.sort) ? -1 : 1; save(); rerender(); });
+    $("coll-dir").addEventListener("click", () => { state.dir *= -1; save(); rerender(); });
+    document.querySelector(".coll-views")!.addEventListener("click", (e) => {
+      const b = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-view]");
+      if (b) { state.view = b.dataset.view!; save(); render(); }
+    });
+    sizeInput.addEventListener("input", () => { state.size = Number(sizeInput.value); grid.style.setProperty("--cover", `${state.size}px`); save(); });
+    groupSel.addEventListener("change", () => { state.group = groupSel.value; state.folder = null; save(); rerender(); });
+    folderList.addEventListener("click", (e) => {
+      const b = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-folder]");
+      if (b) { state.folder = b.dataset.all === "true" ? null : b.dataset.folder!; rerender(); }
+    });
+    moreBtn.addEventListener("click", () => { state.shown += PAGE; render(); });
+    document.querySelector("#coll-list thead")!.addEventListener("click", (e) => {
+      const th = (e.target as HTMLElement).closest<HTMLElement>("th[data-sort]");
+      if (!th) return;
+      if (state.sort === th.dataset.sort) state.dir *= -1; else { state.sort = th.dataset.sort!; state.dir = 1; sortSel.value = state.sort; }
+      save(); rerender();
+    });
+    const pick = (e: Event) => {
+      const el = (e.target as HTMLElement).closest<HTMLElement>("[data-id]");
+      if (el) select(Number(el.dataset.id));
+    };
+    grid.addEventListener("click", pick);
+    rows.addEventListener("click", pick);
+
+    detail.addEventListener("click", async (e) => {
+      const t = e.target as HTMLElement;
+      if (t.closest(".cd-close")) return select(null);
+      const cover = t.closest<HTMLElement>(".cd-cover[data-back]");
+      if (cover) {
+        const img = cover.querySelector("img")!;
+        img.src = img.src.endsWith(cover.dataset.back!) ? cover.dataset.front! : cover.dataset.back!;
+        return;
+      }
+      const jump = t.closest<HTMLElement>(".cd-mini [data-id], .cd-others [data-id]");
+      if (jump) return select(Number(jump.dataset.id), true);
+      const lend = t.closest<HTMLElement>("[data-lend]");
+      if (lend) { detail.querySelector<HTMLFormElement>(".cd-lend")!.hidden = false; detail.querySelector<HTMLInputElement>(".cd-lend input")!.focus(); return; }
+      const ret = t.closest<HTMLElement>("[data-return]");
+      if (ret) {
+        await fetch(`/api/proxy/physical/loans/${ret.dataset.return}/return`, { method: "POST" });
+        const item = all.find((i) => i.id === state.selected); if (item) item.on_loan = false;
+        render(); select(state.selected);
+      }
+    });
+    detail.addEventListener("submit", async (e) => {
+      const form = (e.target as HTMLElement).closest<HTMLFormElement>(".cd-lend");
+      if (!form) return;
+      e.preventDefault();
+      const fd = new FormData(form);
+      const res = await fetch(`/api/proxy/physical/items/${state.selected}/loans`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ loaned_to: fd.get("loaned_to"), due_date: fd.get("due_date") || null }),
+      });
+      if (res.ok) {
+        const item = all.find((i) => i.id === state.selected); if (item) item.on_loan = true;
+        render(); select(state.selected);
+      }
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && detail.classList.contains("open") && window.matchMedia("(max-width: 767px)").matches) select(null);
+    });
+
+    sortSel.value = state.sort;
+    groupSel.value = state.group;
+    sizeInput.value = String(state.size);
+    render();
+    if (state.selected) select(state.selected, true);
+  }
+</script>
+
+<style is:global>
+  .coll-error { padding: 16px; border: 1px solid rgba(239, 68, 68, .4); border-radius: 12px; color: #fca5a5; }
+  .coll-empty { padding: 48px 16px; text-align: center; color: #71717a; border: 1px dashed #27272a; border-radius: 16px; }
+  .coll-empty-title { color: #e4e4e7; font-weight: 800; font-size: 18px; margin-bottom: 4px; }
+
+  /* Toolbar */
+  .coll-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-bottom: 14px; }
+  .coll-search { position: relative; flex: 1 1 260px; max-width: 380px; }
+  .coll-search svg { position: absolute; left: 12px; top: 50%; width: 16px; height: 16px; transform: translateY(-50%); color: #71717a; }
+  .coll-search input { width: 100%; padding: 9px 12px 9px 36px; border-radius: 12px; background: #0f0f11; border: 1px solid #27272a; color: #f4f4f5; font-size: 14px; }
+  .coll-search input:focus { outline: none; border-color: #52525b; }
+  .coll-letters { display: flex; flex-wrap: wrap; gap: 2px; }
+  .coll-letters button { min-width: 24px; padding: 4px 5px; border-radius: 6px; color: #a1a1aa; font-size: 12px; font-weight: 800; }
+  .coll-letters button:hover { color: #fff; background: #18181b; }
+  .coll-letters button.active { color: #fff; background: #e50914; }
+  .coll-controls { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+  .coll-select { display: inline-flex; align-items: center; gap: 8px; color: #71717a; font-size: 11px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+  .coll-select select { padding: 7px 10px; border-radius: 10px; background: #0f0f11; border: 1px solid #27272a; color: #e4e4e7; font-size: 13px; font-weight: 700; letter-spacing: 0; text-transform: none; }
+  .coll-icon-btn, .coll-views button { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; border: 1px solid #27272a; color: #a1a1aa; }
+  .coll-icon-btn svg, .coll-views svg { width: 17px; height: 17px; }
+  .coll-icon-btn:hover, .coll-views button:hover { color: #fff; border-color: #3f3f46; }
+  .coll-views { display: flex; gap: 4px; }
+  .coll-views button.active { color: #fff; background: #27272a; border-color: #3f3f46; }
+  #coll-size { width: 90px; accent-color: #e50914; }
+
+  /* Three columns: folders, covers, details. */
+  /* Folders and covers on top, each scrolling on its own; the selected
+     disc's details across the full width underneath. */
+  .coll-body { --top: clamp(320px, 52vh, 620px); display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 16px; align-items: start; }
+  .coll-folders { height: var(--top); overflow-y: auto; padding: 12px; border-radius: 16px; background: #0a0a0a; border: 1px solid #1c1c1f; }
+  .coll-group { display: flex; flex-direction: column; align-items: stretch; gap: 6px; margin-bottom: 10px; }
+  #coll-folder-list { display: flex; flex-direction: column; gap: 1px; }
+  #coll-folder-list button { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px; border-radius: 8px; color: #d4d4d8; font-size: 13px; font-weight: 600; text-align: left; }
+  #coll-folder-list button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #coll-folder-list button b { flex: none; padding: 0 7px; border-radius: 999px; background: #18181b; color: #a1a1aa; font-size: 11px; line-height: 18px; }
+  #coll-folder-list button:hover { background: #141416; }
+  #coll-folder-list button.active { background: rgba(229, 9, 20, .14); color: #fff; }
+  #coll-folder-list button.active b { background: #e50914; color: #fff; }
+
+  .coll-main { height: var(--top); overflow-y: auto; padding-right: 6px; scrollbar-width: thin; }
+  .coll-count { margin-bottom: 10px; color: #71717a; font-size: 13px; font-weight: 700; }
+  .coll-grid { --cover: 150px; display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--cover), 1fr)); gap: 14px 12px; }
+  .coll-card { display: flex; flex-direction: column; gap: 6px; min-width: 0; text-align: left; color: inherit; }
+  .coll-cover { position: relative; display: block; aspect-ratio: 27 / 34; border-radius: 10px; overflow: hidden; background: #18181b; border: 2px solid transparent; transition: border-color .15s, transform .15s; }
+  .coll-cover > img:first-child { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .coll-card:hover .coll-cover { transform: translateY(-2px); border-color: #3f3f46; }
+  .coll-card.selected .coll-cover { border-color: #e50914; }
+  .coll-nocover { display: grid; place-items: center; height: 100%; padding: 10px; color: #a1a1aa; font-size: 13px; font-weight: 800; text-align: center; }
+  .coll-fmt { position: absolute; left: 6px; top: 6px; padding: 1px 6px; border-radius: 4px; font-size: 9px; font-weight: 900; letter-spacing: .06em; box-shadow: 0 1px 3px rgba(0, 0, 0, .6); }
+  .coll-fmt-uhd { background: #000; color: #fff; border: 1px solid #52525b; }
+  .coll-fmt-bd { background: #0a5cc2; color: #fff; }
+  .coll-fmt-three-d { background: #0d9488; color: #fff; }
+  .coll-fmt-dvd { background: #3f3f46; color: #fff; }
+  .coll-w { position: absolute; right: 5px; bottom: 5px; width: 20px; height: 20px; filter: drop-shadow(0 1px 3px rgba(0, 0, 0, .9)); }
+  .coll-loan { position: absolute; left: 0; right: 0; bottom: 0; padding: 3px; background: rgba(245, 158, 11, .92); color: #1c1917; font-size: 10px; font-weight: 900; letter-spacing: .08em; text-align: center; text-transform: uppercase; }
+  .coll-card-title { font-size: 12.5px; font-weight: 800; color: #f4f4f5; line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .coll-card-sub { margin-top: -3px; font-size: 11px; color: #71717a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .coll-more { display: block; margin: 20px auto 0; padding: 9px 18px; border-radius: 999px; border: 1px solid #27272a; color: #d4d4d8; font-size: 13px; font-weight: 800; }
+  .coll-more:hover { border-color: #52525b; color: #fff; }
+
+  .coll-list { overflow-x: auto; border-radius: 14px; border: 1px solid #1c1c1f; }
+  .coll-list table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .coll-list th { position: sticky; top: 0; padding: 9px 10px; background: #0f0f11; color: #71717a; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-align: left; text-transform: uppercase; white-space: nowrap; }
+  .coll-list th[data-sort] { cursor: pointer; }
+  .coll-list th[data-sort]:hover { color: #e4e4e7; }
+  .coll-list th[data-active="asc"]::after { content: " ▲"; color: #e50914; }
+  .coll-list th[data-active="desc"]::after { content: " ▼"; color: #e50914; }
+  .coll-list td { padding: 7px 10px; border-top: 1px solid #18181b; color: #d4d4d8; white-space: nowrap; max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+  .coll-list td.t { font-weight: 700; color: #f4f4f5; }
+  .coll-list td.dim { color: #a1a1aa; }
+  .coll-list tr { cursor: pointer; }
+  .coll-list tbody tr:hover td { background: #121214; }
+  .coll-list tr.selected td { background: rgba(229, 9, 20, .12); }
+  .coll-fmt-inline { display: inline-block; padding: 0 6px; border-radius: 4px; font-size: 10px; font-weight: 900; }
+  .coll-loan-inline { margin-left: 6px; padding: 0 6px; border-radius: 4px; background: rgba(245, 158, 11, .2); color: #fbbf24; font-size: 10px; font-weight: 800; }
+
+  /* Detail panel */
+  .coll-detail { grid-column: 1 / -1; position: relative; min-height: 260px; overflow: hidden; border-radius: 18px; background: #0a0a0a; border: 1px solid #1c1c1f; padding: 24px; isolation: isolate; }
+  .coll-detail.loading { opacity: .6; }
+  .coll-detail-empty { padding: 60px 10px; color: #52525b; font-weight: 700; text-align: center; }
+  .coll-detail .cd-backdrop { position: absolute; inset: 0; background-size: cover; background-position: center 20%; opacity: .3; z-index: -1; mask-image: linear-gradient(90deg, rgba(0,0,0,.5), #000 45%, rgba(0,0,0,.35)), linear-gradient(#000 40%, transparent 95%); mask-composite: intersect; }
+  .coll-detail .cd-close { display: none; position: absolute; right: 12px; top: 10px; width: 32px; height: 32px; border-radius: 999px; background: rgba(0, 0, 0, .6); color: #fff; font-size: 22px; line-height: 1; }
+  .coll-detail .cd-top { display: grid; grid-template-columns: 200px minmax(0, 1fr) minmax(0, 1.1fr); gap: 24px; align-items: start; }
+  .coll-detail .cd-story { min-width: 0; }
+  .coll-detail .cd-plot-label { color: #f87171; font-size: 12px; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; }
+  .coll-detail .cd-sections { columns: 3 300px; column-gap: 28px; margin-top: 12px; }
+  .coll-detail .cd-sections .cd-section { break-inside: avoid; }
+  .coll-detail .cd-cover { flex: none; width: 200px; aspect-ratio: 27 / 34; border-radius: 10px; overflow: hidden; background: #18181b; box-shadow: 0 10px 30px rgba(0, 0, 0, .6); }
+  .coll-detail .cd-cover img { width: 100%; height: 100%; object-fit: cover; }
+  .coll-detail .cd-cover[data-back] { cursor: pointer; }
+  .coll-detail .cd-head { min-width: 0; }
+  .coll-detail .cd-head h2 { font-size: 28px; font-weight: 900; line-height: 1.1; letter-spacing: -.02em; color: #f87171; }
+  .coll-detail .cd-head h2 span { color: #a1a1aa; font-size: 14px; font-weight: 700; }
+  .coll-detail .cd-sub { margin-top: 4px; color: #a1a1aa; font-size: 12.5px; }
+  .coll-detail .cd-edition { margin-top: 6px; color: #e4e4e7; font-size: 13px; font-weight: 700; }
+  .coll-detail .cd-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+  .coll-detail .cd-badge { padding: 1px 7px; border-radius: 5px; font-size: 10.5px; font-weight: 900; }
+  .coll-detail .cd-region { background: #27272a; color: #e4e4e7; }
+  .coll-detail .cd-age { background: #f4f4f5; color: #09090b; }
+  .coll-detail .cd-wish { background: rgba(236, 72, 153, .2); color: #f9a8d4; }
+  .coll-detail .cd-ratings { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+  .coll-detail .cd-imdb { padding: 2px 7px; border-radius: 5px; background: #f5c518; color: #000; font-size: 11px; font-weight: 900; }
+  .coll-detail .cd-imdb i { font-style: normal; font-weight: 600; opacity: .7; }
+  .coll-detail .cd-stars { display: inline-flex; gap: 2px; }
+  .coll-detail .cd-stars i { width: 9px; height: 9px; clip-path: polygon(50% 0, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%); background: #3f3f46; }
+  .coll-detail .cd-stars i.on { background: #fbbf24; }
+  .coll-detail .cd-seen { display: flex; align-items: center; gap: 6px; margin-top: 10px; color: #a1a1aa; font-size: 12.5px; font-weight: 700; }
+  .coll-detail .cd-seen img { width: 18px; height: 18px; }
+  .coll-detail .cd-seen.on { color: #fca5a5; }
+  .coll-detail .cd-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 16px 0 6px; }
+  .coll-detail .cd-btn { display: inline-flex; align-items: center; padding: 7px 14px; border-radius: 999px; background: #e50914; color: #fff; font-size: 12.5px; font-weight: 800; text-decoration: none; }
+  .coll-detail .cd-btn:hover { background: #f40612; }
+  .coll-detail .cd-btn.ghost { background: transparent; border: 1px solid #3f3f46; color: #e4e4e7; }
+  .coll-detail .cd-loan-note { margin: 6px 0; padding: 8px 10px; border-radius: 10px; background: rgba(245, 158, 11, .12); color: #fcd34d; font-size: 12.5px; }
+  .coll-detail .cd-lend { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+  .coll-detail .cd-lend input { flex: 1 1 140px; padding: 7px 10px; border-radius: 10px; background: #0f0f11; border: 1px solid #27272a; color: #f4f4f5; font-size: 13px; }
+  .coll-detail .cd-tagline { margin-bottom: 12px; color: #d4d4d8; font-size: 13px; font-style: italic; }
+  .coll-detail .cd-plot { margin-top: 8px; color: #a1a1aa; font-size: 13px; line-height: 1.55; }
+  .coll-detail .cd-section { margin-top: 14px; border-top: 1px solid #1c1c1f; padding-top: 10px; }
+  .coll-detail .cd-section summary { cursor: pointer; color: #f87171; font-size: 12px; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; list-style: none; }
+  .coll-detail .cd-section summary::after { content: " +"; color: #52525b; }
+  .coll-detail .cd-section[open] summary::after { content: " –"; }
+  .coll-detail .cd-section > :not(summary) { margin-top: 8px; }
+  .coll-detail .cd-facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; font-size: 12.5px; }
+  .coll-detail .cd-fact { display: contents; }
+  .coll-detail .cd-fact dt { color: #71717a; font-weight: 700; }
+  .coll-detail .cd-fact dd { color: #e4e4e7; min-width: 0; overflow-wrap: anywhere; }
+  .coll-detail .cd-mono { font-family: ui-monospace, monospace; letter-spacing: .04em; }
+  .coll-detail .cd-label { margin-top: 10px; color: #71717a; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+  .coll-detail .cd-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+  .coll-detail .cd-chips span { padding: 2px 8px; border-radius: 999px; background: #18181b; border: 1px solid #27272a; color: #d4d4d8; font-size: 11.5px; }
+  .coll-detail .cd-pre { white-space: pre-wrap; font: inherit; color: #a1a1aa; font-size: 12.5px; line-height: 1.55; }
+  .coll-detail .cd-disc { padding: 8px 0; border-bottom: 1px solid #141416; }
+  .coll-detail .cd-disc-head { color: #e4e4e7; font-size: 13px; }
+  .coll-detail .cd-dim { color: #71717a; font-size: 12px; }
+  .coll-detail .cd-episodes { margin: 6px 0 0 18px; list-style: decimal; color: #d4d4d8; font-size: 12.5px; }
+  .coll-detail .cd-notes { margin-top: 8px; color: #d4d4d8; font-size: 12.5px; white-space: pre-wrap; }
+  .coll-detail .cd-cast { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; font-size: 12.5px; }
+  .coll-detail .cd-cast b { display: block; color: #e4e4e7; }
+  .coll-detail .cd-cast span { color: #71717a; font-size: 11.5px; }
+  .coll-detail .cd-mini { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .coll-detail .cd-mini button { text-align: left; color: #d4d4d8; font-size: 11.5px; font-weight: 700; }
+  .coll-detail .cd-mini img { width: 100%; aspect-ratio: 27 / 34; object-fit: cover; border-radius: 6px; margin-bottom: 4px; }
+  .coll-detail .cd-others button, .coll-detail .cd-loans li { color: #d4d4d8; font-size: 12.5px; text-align: left; }
+  .coll-detail .cd-others button:hover { color: #fff; text-decoration: underline; }
+  .coll-detail .cd-links { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; font-size: 12px; }
+  .coll-detail .cd-links a { color: #a1a1aa; text-decoration: underline; }
+
+  /* Narrower screens: the details open over the page. */
+  @media (max-width: 1100px) {
+    .coll-detail .cd-top { grid-template-columns: 160px minmax(0, 1fr); }
+    .coll-detail .cd-cover { width: 160px; }
+    .coll-detail .cd-story { grid-column: 1 / -1; }
+  }
+  @media (max-width: 767px) {
+    .coll-body { --top: auto; }
+    .coll-main { height: auto; overflow: visible; }
+    .coll-detail { grid-column: auto; position: fixed; inset: 70px 12px 12px auto; width: min(440px, calc(100vw - 24px)); max-height: none; z-index: 60; transform: translateX(calc(100% + 24px)); transition: transform .2s ease; box-shadow: 0 20px 60px rgba(0, 0, 0, .7); }
+    .coll-detail.open { transform: none; }
+    .coll-detail .cd-close { display: block; }
+    .coll-body { grid-template-columns: minmax(0, 1fr); }
+    .coll-folders { height: auto; max-height: 220px; }
+    .coll-letters { display: none; }
+    .coll-controls { margin-left: 0; }
+    .coll-detail { inset: 60px 0 0 0; width: 100%; overflow-y: auto; border-radius: 18px 18px 0 0; }
+    .coll-detail .cd-top { grid-template-columns: 120px minmax(0, 1fr); gap: 14px; }
+    .coll-detail .cd-cover { width: 120px; }
+  }
+
+  html.light .coll-folders, html.light .coll-detail { background: #fafafa; border-color: #e4e4e7; }
+  html.light .coll-card-title { color: #18181b; }
+</style>

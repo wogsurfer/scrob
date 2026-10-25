@@ -1,0 +1,182 @@
+---
+// Adding a disc: find it by barcode (typed or scanned with the camera) or by
+// title, pick the film or series it's of, then fill in the edition on the
+// form. TMDB supplies the film's details when it's saved.
+import Base from "../../layouts/Base.astro";
+import CollectionNav from "../../components/CollectionNav.astro";
+import PhysicalForm from "../../components/PhysicalForm.astro";
+import { api } from "../../lib/api";
+export const prerender = false;
+
+const { token } = Astro.locals;
+const p = Astro.url.searchParams;
+const picked = p.has("title");
+let options: Record<string, string[]> = {};
+try {
+  options = await api.physical.options(token);
+} catch {}
+
+const tmdbId = Number(p.get("tmdb")) || undefined;
+const kind = p.get("kind") === "tv" ? "tv" : "movie";
+const prefill = picked
+  ? {
+      title: p.get("title") ?? "",
+      release_year: Number(p.get("year")) || undefined,
+      tmdb_id: tmdbId,
+      is_tv: kind === "tv",
+      barcode: p.get("barcode") ?? undefined,
+      status: p.get("status") === "wishlist" ? "wishlist" : "owned",
+      format: p.get("format") ?? undefined,
+      specs: { tmdb_kind: kind },
+    }
+  : null;
+const coverUrl = p.get("cover");
+---
+
+<Base title="Add disc">
+  <CollectionNav active="add" />
+
+  {!picked && (
+    <div class="add">
+      <form id="add-find" class="add-find">
+        <label>Barcode
+          <div class="add-row">
+            <input name="barcode" inputmode="numeric" placeholder="Scan or type the UPC/EAN" autocomplete="off" />
+            <button type="button" id="add-scan" class="add-scan" hidden>Scan with camera</button>
+          </div>
+        </label>
+        <label>or title<input name="q" placeholder="Film or series title" autocomplete="off" /></label>
+        <button type="submit" class="add-go">Find</button>
+      </form>
+      <video id="add-video" class="add-video" playsinline muted hidden></video>
+      <p id="add-status" class="add-status"></p>
+      <div id="add-product" class="add-product" hidden></div>
+      <div id="add-results" class="add-results"></div>
+      <p class="add-manual">Can't find it? <a href="/collection/add?title=">Fill in the form yourself</a>.</p>
+    </div>
+  )}
+
+  {picked && <PhysicalForm item={prefill as any} options={options} coverUrl={coverUrl} />}
+</Base>
+
+<script>
+  const form = document.getElementById("add-find") as HTMLFormElement | null;
+  if (form) {
+    const status = document.getElementById("add-status")!;
+    const results = document.getElementById("add-results")!;
+    const productEl = document.getElementById("add-product")!;
+    const esc = (v: unknown) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+    let productImage: string | null = null;
+
+    async function find(barcode: string, q: string) {
+      status.textContent = barcode ? "Looking up the barcode…" : "Searching…";
+      results.innerHTML = "";
+      productEl.hidden = true;
+      const params = new URLSearchParams();
+      if (barcode) params.set("barcode", barcode);
+      if (q) params.set("q", q);
+      const res = await fetch(`/api/proxy/physical/lookup?${params}`);
+      if (!res.ok) { status.textContent = "The lookup didn't work. Try the title instead."; return; }
+      const data = await res.json();
+      const product = data.product;
+      productImage = product?.images?.find((u: string) => u.startsWith("https://")) ?? null;
+      if (product?.already) {
+        productEl.hidden = false;
+        productEl.innerHTML = `<p class="add-already">You already have this barcode: <a href="/collection?item=${product.already.id}">${esc(product.already.title)}</a>${product.already.status === "wishlist" ? " (wish list)" : ""}.</p>`;
+      }
+      if (product?.title) {
+        productEl.hidden = false;
+        productEl.innerHTML += `<div class="add-prod">${productImage ? `<img src="${esc(productImage)}" alt="" />` : ""}<div><p class="add-prod-title">${esc(product.title)}</p>${product.brand ? `<p class="add-dim">${esc(product.brand)}</p>` : ""}</div></div>`;
+      } else if (barcode && !product?.already) {
+        status.textContent = "That barcode isn't in the free barcode database. Search by title instead.";
+      }
+      if (!data.results.length) { if (!barcode || product?.title) status.textContent = "No matches on TMDB."; return; }
+      status.textContent = data.query ? `Matches for “${data.query}”. Pick the film or series:` : "Pick the film or series:";
+      const fmt = /4k|uhd/i.test(product?.title ?? "") ? "4K UHD" : /3d/i.test(product?.title ?? "") ? "Blu-ray 3D" : /blu-?ray/i.test(product?.title ?? "") ? "Blu-ray" : /dvd/i.test(product?.title ?? "") ? "DVD" : "";
+      results.innerHTML = data.results.map((r: any) => {
+        const link = new URLSearchParams({ title: r.title, tmdb: String(r.tmdb_id), kind: r.kind, ...(r.year ? { year: r.year } : {}), ...(barcode ? { barcode } : {}), ...(fmt ? { format: fmt } : {}) });
+        const cover = productImage || (r.poster ? r.poster.replace("/w185/", "/w500/") : "");
+        if (cover) link.set("cover", cover);
+        return `<a class="add-result" href="/collection/add?${link}">
+          ${r.poster ? `<img src="${esc(r.poster)}" alt="" loading="lazy" />` : `<span class="add-noposter"></span>`}
+          <span><b>${esc(r.title)}</b><i>${[r.year, r.kind === "tv" ? "TV series" : "Film"].filter(Boolean).map(esc).join(" · ")}</i></span>
+        </a>`;
+      }).join("");
+    }
+
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const fd = new FormData(form);
+      const barcode = String(fd.get("barcode") || "").replace(/\D/g, "");
+      const q = String(fd.get("q") || "").trim();
+      if (barcode || q) find(barcode, q);
+    });
+
+    // Camera scanning where the browser can read barcodes (Chrome on Android).
+    const Detector = (window as any).BarcodeDetector;
+    const scanBtn = document.getElementById("add-scan") as HTMLButtonElement;
+    if (Detector && navigator.mediaDevices?.getUserMedia) {
+      scanBtn.hidden = false;
+      scanBtn.addEventListener("click", async () => {
+        const video = document.getElementById("add-video") as HTMLVideoElement;
+        let stream: MediaStream;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+        } catch {
+          status.textContent = "The camera isn't available.";
+          return;
+        }
+        video.srcObject = stream;
+        video.hidden = false;
+        await video.play();
+        const detector = new Detector({ formats: ["ean_13", "upc_a", "ean_8", "upc_e"] });
+        status.textContent = "Point the camera at the barcode…";
+        const stop = () => { stream.getTracks().forEach((t) => t.stop()); video.hidden = true; };
+        const tick = async () => {
+          if (video.hidden) return;
+          try {
+            const codes = await detector.detect(video);
+            if (codes.length) {
+              stop();
+              const code = codes[0].rawValue;
+              form.querySelector<HTMLInputElement>('input[name="barcode"]')!.value = code;
+              find(code, "");
+              return;
+            }
+          } catch {}
+          requestAnimationFrame(tick);
+        };
+        tick();
+      });
+    }
+  }
+</script>
+
+<style is:global>
+  .add { max-width: 820px; }
+  .add-find { display: grid; grid-template-columns: 1fr 1fr auto; align-items: end; gap: 12px; padding: 18px; border-radius: 18px; background: #0a0a0a; border: 1px solid #1c1c1f; }
+  .add-find label { display: flex; flex-direction: column; gap: 6px; color: #a1a1aa; font-size: 12px; font-weight: 700; }
+  .add-find input { width: 100%; padding: 10px 12px; border-radius: 10px; background: #111113; border: 1px solid #27272a; color: #f4f4f5; font-size: 15px; }
+  .add-find input:focus { outline: none; border-color: #e50914; }
+  .add-row { display: flex; gap: 6px; }
+  .add-scan { flex: none; padding: 0 12px; border-radius: 10px; border: 1px solid #3f3f46; color: #e4e4e7; font-size: 12px; font-weight: 800; }
+  .add-go { padding: 11px 22px; border-radius: 999px; background: #e50914; color: #fff; font-weight: 900; }
+  .add-video { width: 100%; max-width: 420px; margin-top: 12px; border-radius: 14px; }
+  .add-status { margin: 14px 0 8px; color: #a1a1aa; font-size: 14px; font-weight: 600; }
+  .add-product { margin-bottom: 12px; }
+  .add-prod { display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 14px; background: #111113; border: 1px solid #27272a; }
+  .add-prod img { width: 56px; height: 70px; object-fit: contain; background: #fff; border-radius: 6px; }
+  .add-prod-title { color: #f4f4f5; font-weight: 800; font-size: 14px; }
+  .add-dim { color: #71717a; font-size: 12px; }
+  .add-already { margin-bottom: 8px; color: #fcd34d; font-size: 14px; }
+  .add-already a { text-decoration: underline; }
+  .add-results { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; }
+  .add-result { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 12px; background: #0f0f11; border: 1px solid #1c1c1f; text-decoration: none; }
+  .add-result:hover { border-color: #e50914; }
+  .add-result img, .add-noposter { flex: none; width: 46px; aspect-ratio: 2 / 3; border-radius: 6px; object-fit: cover; background: #27272a; }
+  .add-result b { display: block; color: #f4f4f5; font-size: 14px; }
+  .add-result i { color: #71717a; font-size: 12px; font-style: normal; }
+  .add-manual { margin-top: 18px; color: #71717a; font-size: 13px; }
+  .add-manual a { color: #d4d4d8; text-decoration: underline; }
+  @media (max-width: 640px) { .add-find { grid-template-columns: 1fr; } }
+</style>

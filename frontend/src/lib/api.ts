@@ -991,6 +991,98 @@ export interface WatchlistMovie {
 }
 
 // API calls
+// ── Physical collection ──────────────────────────────────────────────────────
+
+/** A release in the physical collection, as the browser lists it. Empty
+ * fields are left out of the list response. */
+export interface PhysicalSummary {
+  id: number;
+  status: "owned" | "wishlist" | string;
+  title: string;
+  sort_title?: string;
+  title_extension?: string;
+  is_tv?: boolean;
+  series?: string;
+  tmdb_id?: number;
+  tmdb_kind?: "movie" | "tv";
+  release_year?: number;
+  format?: string;
+  edition?: string;
+  distributor?: string;
+  barcode?: string;
+  package?: string;
+  disc_count?: number;
+  disc_release_date?: string;
+  runtime?: number;
+  purchase_date?: string;
+  purchase_price?: number;
+  store?: string;
+  condition?: string;
+  location?: string;
+  index_no?: number;
+  my_rating?: number;
+  seen?: boolean;
+  plays?: number;
+  genres?: string[];
+  regions?: string[];
+  audience_rating?: string;
+  imdb_rating?: number;
+  director?: string;
+  box_set?: string;
+  box_set_id?: number;
+  tags?: string[];
+  date_added?: string;
+  on_loan?: boolean;
+  cover?: string;
+}
+
+export interface PhysicalLoan {
+  id: number;
+  loaned_to: string;
+  loan_date: string;
+  due_date: string | null;
+  returned_on: string | null;
+  notes: string | null;
+}
+
+export interface PhysicalDetail extends PhysicalSummary {
+  specs: Record<string, any>;
+  current_value: number | null;
+  owner: string | null;
+  notes: string | null;
+  viewing_date: string | null;
+  seen_it: boolean;
+  cover_full: string | null;
+  cover_back: string | null;
+  backdrop: string | null;
+  box_set_items: { id: number; title: string; release_year: number | null; cover: string | null }[];
+  other_editions: { id: number; format: string | null; edition: string | null; status: string }[];
+  loans: PhysicalLoan[];
+}
+
+export interface PhysicalStats {
+  owned: number;
+  wishlist: number;
+  discs: number;
+  films: number;
+  tv: number;
+  seen: number;
+  unseen: number;
+  runtime_minutes: number;
+  spent: number | null;
+  priced_count: number;
+  formats: { name: string; count: number }[];
+  packages: { name: string; count: number }[];
+  distributors: { name: string; count: number }[];
+  stores: { name: string; count: number }[];
+  conditions: { name: string; count: number }[];
+  regions: { name: string; count: number }[];
+  genres: { name: string; count: number }[];
+  directors: { name: string; count: number }[];
+  decades: { name: string; count: number }[];
+  by_purchase_year: { year: number; count: number; spent: number }[];
+}
+
 export const api = {
   auth: {
     login: (body: FormData) =>
@@ -1292,6 +1384,26 @@ export const api = {
   watchlist: {
     getAll: (token: string) =>
       get<WatchlistMovie[]>("/watchlist", undefined, token),
+  },
+
+  physical: {
+    items: (token?: string) => get<{ items: PhysicalSummary[] }>("/physical/items", undefined, token),
+    item: (id: number, token?: string) => get<PhysicalDetail>(`/physical/items/${id}`, undefined, token),
+    create: (fields: Record<string, unknown>, token?: string) => post<{ id: number }>("/physical/items", fields, token),
+    update: (id: number, fields: Record<string, unknown>, token?: string) => patch<{ id: number }>(`/physical/items/${id}`, fields, token),
+    remove: (id: number, token?: string) => del<{ deleted: number }>(`/physical/items/${id}`, token),
+    lend: (id: number, fields: { loaned_to: string; loan_date?: string; due_date?: string; notes?: string }, token?: string) =>
+      post<{ id: number }>(`/physical/items/${id}/loans`, fields, token),
+    returnLoan: (loanId: number, token?: string) => post<{ returned_on: string }>(`/physical/loans/${loanId}/return`, undefined, token),
+    loans: (token?: string) => get<{ loans: (PhysicalLoan & { item_id: number; title: string; format: string | null; cover: string | null; overdue: boolean })[] }>("/physical/loans", undefined, token),
+    stats: (token?: string) => get<PhysicalStats>("/physical/stats", undefined, token),
+    options: (token?: string) => get<Record<string, string[]>>("/physical/options", undefined, token),
+    lookup: (params: { barcode?: string; q?: string }, token?: string) =>
+      get<{
+        product: { title?: string; brand?: string; images?: string[]; already?: { id: number; title: string; status: string } } | null;
+        query: string | null;
+        results: { kind: "movie" | "tv"; tmdb_id: number; title: string; year: string | null; poster: string | null }[];
+      }>("/physical/lookup", params, token),
   },
 
   calendar: {

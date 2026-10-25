@@ -102,3 +102,4 @@ history_issues.csv
 backups/
 backend/data/tvdb_award_index.json
 backend/data/cache/
+backend/data/physical/

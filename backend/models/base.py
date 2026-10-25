@@ -25,6 +25,8 @@ class CollectionSource(str, enum.Enum):
     mdblist  = "mdblist"
     manual   = "manual"
     tmdb     = "tmdb"
+    # Mirrored from the user's physical discs.
+    physical = "physical"
 
 class PrivacyLevel(str, enum.Enum):
     public       = "public"

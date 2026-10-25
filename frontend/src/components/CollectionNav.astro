@@ -1,0 +1,53 @@
+---
+// The physical collection's page header: title, counts and the tabs between
+// the collection, wish list, loans and statistics.
+interface Props {
+  active: "owned" | "wishlist" | "loans" | "stats" | "add";
+  owned?: number;
+  wishlist?: number;
+  loans?: number;
+}
+
+const { active, owned, wishlist, loans } = Astro.props;
+const tabs = [
+  { key: "owned", label: "Collection", href: "/collection", count: owned },
+  { key: "wishlist", label: "Wish List", href: "/collection?status=wishlist", count: wishlist },
+  { key: "loans", label: "Loans", href: "/collection/loans", count: loans },
+  { key: "stats", label: "Statistics", href: "/collection/stats" },
+];
+---
+
+<header class="coll-head">
+  <div class="coll-title">
+    <h1 class="text-3xl font-black text-zinc-100 tracking-tighter uppercase">Collection</h1>
+    <p>Your discs: every edition, where it came from and who has it</p>
+  </div>
+  <nav class="coll-tabs" aria-label="Collection sections">
+    {tabs.map((t) => (
+      <a href={t.href} data-tab={t.key} class:list={["coll-tab", { active: active === t.key }]}>
+        {t.label}
+        {t.count != null && t.count > 0 && <span class="coll-tab-count">{t.count.toLocaleString()}</span>}
+      </a>
+    ))}
+    <a href="/collection/add" class:list={["coll-add", { active: active === "add" }]}>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke-linecap="round" /></svg>
+      Add disc
+    </a>
+  </nav>
+</header>
+
+<style>
+  .coll-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px 24px; margin-bottom: 1.75rem; }
+  .coll-title p { margin-top: 4px; color: #a1a1aa; font-size: 14px; }
+  .coll-tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .coll-tab { display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px; border: 1px solid #27272a; color: #a1a1aa; font-size: 13px; font-weight: 800; text-decoration: none; transition: color .15s, border-color .15s, background .15s; }
+  .coll-tab:hover { color: #f4f4f5; border-color: #3f3f46; }
+  .coll-tab.active { color: #fff; background: #e50914; border-color: #e50914; }
+  .coll-tab-count { padding: 0 7px; border-radius: 999px; background: rgba(255, 255, 255, .1); font-size: 11px; line-height: 18px; }
+  .coll-tab.active .coll-tab-count { background: rgba(0, 0, 0, .25); }
+  .coll-add { display: inline-flex; align-items: center; gap: 6px; margin-left: 6px; padding: 8px 14px; border-radius: 999px; background: #f4f4f5; color: #09090b; font-size: 13px; font-weight: 900; text-decoration: none; }
+  .coll-add svg { width: 14px; height: 14px; }
+  .coll-add:hover, .coll-add.active { background: #fff; }
+  :global(html.light) .coll-tab { border-color: #d4d4d8; color: #52525b; }
+  :global(html.light) .coll-add { background: #18181b; color: #fff; }
+</style>

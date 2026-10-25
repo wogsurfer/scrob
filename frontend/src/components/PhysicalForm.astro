@@ -1,0 +1,248 @@
+---
+// The add/edit form for a release in the physical collection, with every
+// Collectorz field. Pick-list fields suggest the values already used; list
+// fields (audio, subtitles...) take one value per line.
+import type { PhysicalDetail } from "../lib/api";
+
+interface Props {
+  item?: Partial<PhysicalDetail> | null;
+  options: Record<string, string[]>;
+  /** Suggested cover for a new release (a TMDB poster or shop photo). */
+  coverUrl?: string | null;
+}
+
+const { item, options, coverUrl } = Astro.props;
+const s: Record<string, any> = item?.specs ?? {};
+const v = (x: unknown) => (x == null ? "" : String(x));
+const lines = (x?: string[]) => (x ?? []).join("\n");
+const isEdit = !!item?.id;
+const lists: { key: string; label: string; hint: string }[] = [
+  { key: "regions", label: "Regions", hint: "Region A" },
+  { key: "ratios", label: "Aspect ratios", hint: "Widescreen (2.39:1)" },
+  { key: "audio", label: "Audio tracks", hint: "DTS-HD Master Audio 5.1 [English]" },
+  { key: "subtitles", label: "Subtitles", hint: "English (SDH)" },
+  { key: "features", label: "On the disc", hint: "Feature Film" },
+  { key: "extras", label: "In the box", hint: "Booklet" },
+];
+---
+
+<form id="phys-form" class="pf" data-id={item?.id ?? ""} novalidate>
+  <datalist id="pf-format">{(options.format ?? []).map((o) => <option value={o} />)}</datalist>
+  {["package", "distributor", "store", "condition", "location", "owner", "series", "box_set", "audience_rating"].map((k) => (
+    <datalist id={`pf-${k}`}>{(options[k] ?? []).map((o) => <option value={o} />)}</datalist>
+  ))}
+
+  <section class="pf-card">
+    <h2>Main</h2>
+    <div class="pf-grid">
+      <label class="pf-wide">Title<input name="title" required value={v(item?.title)} /></label>
+      <label>Sort title<input name="sort_title" value={v(item?.sort_title !== item?.title ? item?.sort_title : "")} placeholder="Leave blank to sort by title" /></label>
+      <label>Release year<input name="release_year" type="number" min="1880" max="2100" value={v(item?.release_year)} /></label>
+      <label>Status
+        <select name="status">
+          <option value="owned" selected={(item?.status ?? "owned") === "owned"}>In collection</option>
+          <option value="wishlist" selected={item?.status === "wishlist"}>Wish list</option>
+          <option value="ordered" selected={item?.status === "ordered"}>On order</option>
+          <option value="for_sale" selected={item?.status === "for_sale"}>For sale</option>
+          <option value="sold" selected={item?.status === "sold"}>Sold</option>
+        </select>
+      </label>
+      <label>TMDB id<input name="tmdb_id" type="number" value={v(item?.tmdb_id)} /></label>
+      <label>TMDB type
+        <select name="specs.tmdb_kind">
+          <option value="movie" selected={(s.tmdb_kind ?? "movie") === "movie"}>Film</option>
+          <option value="tv" selected={s.tmdb_kind === "tv"}>TV series</option>
+        </select>
+      </label>
+      <label class="pf-check"><input type="checkbox" name="is_tv" checked={!!item?.is_tv} /> TV series release</label>
+      <label>Series<input name="series" list="pf-series" value={v(item?.series)} /></label>
+      <label>Box set<input name="box_set" list="pf-box_set" value={v(item?.box_set)} /></label>
+      <label>Title extension<input name="specs.title_extension" value={v(s.title_extension)} /></label>
+      <label>Original title<input name="specs.original_title" value={v(s.original_title)} /></label>
+      <label class="pf-full">Tagline<input name="specs.tagline" value={v(s.tagline)} /></label>
+      <label class="pf-full">Plot<textarea name="specs.plot" rows="3">{v(s.plot)}</textarea></label>
+    </div>
+  </section>
+
+  <section class="pf-card">
+    <h2>Edition</h2>
+    <div class="pf-grid">
+      <label>Format<input name="format" list="pf-format" value={v(item?.format)} /></label>
+      <label class="pf-wide">Edition<input name="edition" value={v(item?.edition)} placeholder="2 Disc: 4K Ultra HD + Blu-ray + Digital Code" /></label>
+      <label>Distributor<input name="distributor" list="pf-distributor" value={v(item?.distributor)} /></label>
+      <label>Barcode<input name="barcode" inputmode="numeric" value={v(item?.barcode)} /></label>
+      <label>Packaging<input name="package" list="pf-package" value={v(item?.package)} /></label>
+      <label>Discs<input name="disc_count" type="number" min="1" value={v(item?.disc_count)} /></label>
+      <label>Disc release date<input name="disc_release_date" type="date" value={v(item?.disc_release_date)} /></label>
+      <label>Running time (min)<input name="runtime" type="number" min="1" value={v(item?.runtime)} /></label>
+      <label>Age rating<input name="specs.audience_rating" list="pf-audience_rating" value={v(s.audience_rating)} /></label>
+      <label>Layers<input name="specs.layers" value={v(s.layers)} placeholder="Single Side, Dual Layer" /></label>
+      <label>HDR<input name="specs.hdr" value={v(s.hdr)} placeholder="HDR10, Dolby Vision" /></label>
+      <label>Colour<input name="specs.color" value={v(s.color)} placeholder="Color" /></label>
+    </div>
+  </section>
+
+  <section class="pf-card">
+    <h2>Picture, sound and extras</h2>
+    <p class="pf-hint">One per line.</p>
+    <div class="pf-grid pf-lists">
+      {lists.map((l) => (
+        <label>{l.label}<textarea name={`list.${l.key}`} rows="4" placeholder={l.hint}>{lines(s[l.key])}</textarea></label>
+      ))}
+      <label class="pf-full">Extra features<textarea name="specs.extra_features" rows="6">{v(s.extra_features)}</textarea></label>
+    </div>
+  </section>
+
+  <section class="pf-card">
+    <h2>Personal</h2>
+    <div class="pf-grid">
+      <label>Purchase date<input name="purchase_date" type="date" value={v(item?.purchase_date)} /></label>
+      <label>Price paid<input name="purchase_price" type="number" step="0.01" min="0" value={v(item?.purchase_price)} /></label>
+      <label>Current value<input name="current_value" type="number" step="0.01" min="0" value={v(item?.current_value)} /></label>
+      <label>Store<input name="store" list="pf-store" value={v(item?.store)} /></label>
+      <label>Condition<input name="condition" list="pf-condition" value={v(item?.condition)} /></label>
+      <label>Location<input name="location" list="pf-location" value={v(item?.location)} /></label>
+      <label>Owner<input name="owner" list="pf-owner" value={v(item?.owner)} /></label>
+      <label>Index<input name="index_no" type="number" min="0" value={v(item?.index_no)} /></label>
+      <label>My rating (out of 10)<input name="my_rating" type="number" min="1" max="10" value={v(item?.my_rating)} /></label>
+      <label>Seen in cinema
+        <select name="specs.seen_in_cinema">
+          {["", "Yes", "No", "Not Applicable"].map((o) => <option value={o} selected={(s.seen_in_cinema ?? "") === o}>{o || "—"}</option>)}
+        </select>
+      </label>
+      <label class="pf-check"><input type="checkbox" name="seen_it" checked={!!item?.seen_it} /> Seen (besides Watchd history)</label>
+      <label>Tags<input name="tags" value={(item?.tags ?? []).join(", ")} placeholder="mcu, phase4" /></label>
+      <label class="pf-full">Notes<textarea name="notes" rows="3">{v(item?.notes)}</textarea></label>
+    </div>
+  </section>
+
+  <section class="pf-card">
+    <h2>Covers</h2>
+    <div class="pf-covers">
+      <div class="pf-cover">
+        <img id="pf-front-preview" src={item?.cover_full ?? coverUrl ?? ""} alt="" hidden={!(item?.cover_full || coverUrl)} />
+        <label>Front cover<input type="file" name="cover_front" accept="image/*" /></label>
+        {!isEdit && coverUrl && <input type="hidden" name="cover_url" value={coverUrl} />}
+      </div>
+      <div class="pf-cover">
+        <img id="pf-back-preview" src={item?.cover_back ?? ""} alt="" hidden={!item?.cover_back} />
+        <label>Back cover<input type="file" name="cover_back" accept="image/*" /></label>
+      </div>
+    </div>
+  </section>
+
+  <div class="pf-actions">
+    <button type="submit" class="pf-save">{isEdit ? "Save changes" : "Add to collection"}</button>
+    <a class="pf-cancel" href={isEdit ? `/collection?item=${item?.id}` : "/collection"}>Cancel</a>
+    {isEdit && <button type="button" class="pf-delete" id="pf-delete">Delete disc</button>}
+    <p class="pf-error" id="pf-error" hidden></p>
+  </div>
+</form>
+
+<script>
+  const form = document.getElementById("phys-form") as HTMLFormElement | null;
+  if (form) {
+    const id = form.dataset.id;
+    const errorEl = document.getElementById("pf-error")!;
+    const showError = (msg: string) => { errorEl.textContent = msg; errorEl.hidden = false; };
+
+    // Previews for picked cover files.
+    for (const side of ["front", "back"]) {
+      form.querySelector<HTMLInputElement>(`input[name="cover_${side}"]`)!.addEventListener("change", (e) => {
+        const file = (e.target as HTMLInputElement).files?.[0];
+        const img = document.getElementById(`pf-${side}-preview`) as HTMLImageElement;
+        if (file) { img.src = URL.createObjectURL(file); img.hidden = false; }
+      });
+    }
+
+    const numberFields = ["release_year", "tmdb_id", "disc_count", "runtime", "index_no", "my_rating"];
+    const decimalFields = ["purchase_price", "current_value"];
+
+    function collect() {
+      const fd = new FormData(form!);
+      const body: Record<string, any> = { specs: {} };
+      for (const [name, raw] of fd.entries()) {
+        if (raw instanceof File || name === "cover_url") continue;
+        const value = String(raw).trim();
+        if (name.startsWith("specs.")) body.specs[name.slice(6)] = value || null;
+        else if (name.startsWith("list.")) body.specs[name.slice(5)] = value ? value.split("\n").map((x) => x.trim()).filter(Boolean) : null;
+        else if (name === "tags") body.tags = value ? value.split(",").map((x) => x.trim()).filter(Boolean) : [];
+        else if (numberFields.includes(name)) body[name] = value ? parseInt(value, 10) : null;
+        else if (decimalFields.includes(name)) body[name] = value ? parseFloat(value) : null;
+        else body[name] = value || null;
+      }
+      body.is_tv = form!.querySelector<HTMLInputElement>('input[name="is_tv"]')!.checked;
+      body.seen_it = form!.querySelector<HTMLInputElement>('input[name="seen_it"]')!.checked;
+      const coverUrl = form!.querySelector<HTMLInputElement>('input[name="cover_url"]');
+      if (coverUrl && !form!.querySelector<HTMLInputElement>('input[name="cover_front"]')!.files?.length) body.cover_url = coverUrl.value;
+      return body;
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      errorEl.hidden = true;
+      const body = collect();
+      if (!body.title) return showError("A title is needed.");
+      const save = form.querySelector<HTMLButtonElement>(".pf-save")!;
+      save.disabled = true;
+      try {
+        const res = await fetch(id ? `/api/proxy/physical/items/${id}` : "/api/proxy/physical/items", {
+          method: id ? "PATCH" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || "Couldn't save");
+        const saved = await res.json();
+        for (const side of ["front", "back"]) {
+          const file = form.querySelector<HTMLInputElement>(`input[name="cover_${side}"]`)!.files?.[0];
+          if (!file) continue;
+          const up = new FormData();
+          up.append("file", file);
+          const r = await fetch(`/api/proxy/physical/items/${saved.id}/cover?side=${side}`, { method: "POST", body: up });
+          if (!r.ok) throw new Error(`Saved, but the ${side} cover didn't upload`);
+        }
+        location.href = `/collection?${body.status === "wishlist" ? "status=wishlist&" : ""}item=${saved.id}`;
+      } catch (err) {
+        showError(err instanceof Error ? err.message : "Couldn't save");
+        save.disabled = false;
+      }
+    });
+
+    document.getElementById("pf-delete")?.addEventListener("click", async () => {
+      if (!confirm("Delete this disc from your collection? This can't be undone.")) return;
+      const res = await fetch(`/api/proxy/physical/items/${id}`, { method: "DELETE" });
+      if (res.ok) location.href = "/collection";
+      else showError("Couldn't delete it");
+    });
+  }
+</script>
+
+<style>
+  .pf { display: flex; flex-direction: column; gap: 16px; max-width: 980px; }
+  .pf-card { padding: 18px; border-radius: 18px; background: #0a0a0a; border: 1px solid #1c1c1f; }
+  .pf-card h2 { margin-bottom: 12px; color: #f87171; font-size: 12px; font-weight: 900; letter-spacing: .14em; text-transform: uppercase; }
+  .pf-hint { margin: -6px 0 10px; color: #71717a; font-size: 12px; }
+  .pf-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px 14px; }
+  .pf-grid label { display: flex; flex-direction: column; gap: 5px; color: #a1a1aa; font-size: 12px; font-weight: 700; }
+  .pf-wide { grid-column: span 2; }
+  .pf-full { grid-column: 1 / -1; }
+  .pf input:not([type="checkbox"]):not([type="file"]), .pf select, .pf textarea { width: 100%; padding: 8px 10px; border-radius: 10px; background: #111113; border: 1px solid #27272a; color: #f4f4f5; font-size: 14px; font-weight: 500; }
+  .pf textarea { resize: vertical; font-family: inherit; line-height: 1.45; }
+  .pf input:focus, .pf select:focus, .pf textarea:focus { outline: none; border-color: #e50914; }
+  .pf-grid label.pf-check { flex-direction: row; align-items: center; gap: 8px; align-self: end; padding-bottom: 9px; color: #d4d4d8; }
+  .pf-check input { width: 16px; height: 16px; accent-color: #e50914; }
+  .pf-covers { display: flex; flex-wrap: wrap; gap: 20px; }
+  .pf-cover { display: flex; flex-direction: column; gap: 8px; width: 200px; }
+  .pf-cover img { width: 100%; aspect-ratio: 27 / 34; object-fit: cover; border-radius: 10px; background: #18181b; }
+  .pf-cover label { display: flex; flex-direction: column; gap: 5px; color: #a1a1aa; font-size: 12px; font-weight: 700; }
+  .pf-cover input { color: #a1a1aa; font-size: 12px; }
+  .pf-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding-bottom: 30px; }
+  .pf-save { padding: 10px 22px; border-radius: 999px; background: #e50914; color: #fff; font-weight: 900; font-size: 14px; }
+  .pf-save:disabled { opacity: .6; }
+  .pf-cancel { padding: 10px 16px; color: #a1a1aa; font-weight: 800; font-size: 14px; }
+  .pf-delete { margin-left: auto; padding: 9px 16px; border-radius: 999px; border: 1px solid rgba(239, 68, 68, .5); color: #f87171; font-weight: 800; font-size: 13px; }
+  .pf-error { width: 100%; color: #fca5a5; font-size: 13px; font-weight: 700; }
+  @media (max-width: 640px) { .pf-wide { grid-column: auto; } }
+  :global(html.light) .pf-card { background: #fafafa; border-color: #e4e4e7; }
+  :global(html.light) .pf input:not([type="checkbox"]):not([type="file"]), :global(html.light) .pf select, :global(html.light) .pf textarea { background: #fff; border-color: #d4d4d8; color: #18181b; }
+</style>

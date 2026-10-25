@@ -1,0 +1,91 @@
+---
+// Discs lent out: who has what, since when, and when it's due back.
+import Base from "../../layouts/Base.astro";
+import CollectionNav from "../../components/CollectionNav.astro";
+import { api } from "../../lib/api";
+export const prerender = false;
+
+const { token } = Astro.locals;
+let loans: Awaited<ReturnType<typeof api.physical.loans>>["loans"] = [];
+try {
+  loans = (await api.physical.loans(token)).loans;
+} catch {}
+
+const out = loans.filter((l) => !l.returned_on);
+const back = loans.filter((l) => l.returned_on);
+const fmt = (s?: string | null) => (s ? new Date(`${s}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "");
+const days = (s: string) => Math.max(0, Math.round((Date.now() - new Date(`${s}T00:00:00`).getTime()) / 86400000));
+---
+
+<Base title="Loans">
+  <CollectionNav active="loans" loans={out.length} />
+
+  <section class="ln">
+    <h2>Out on loan <span>{out.length}</span></h2>
+    {out.length === 0 && <p class="ln-empty">Nothing's out. Lend a disc from its details in the collection.</p>}
+    <div class="ln-list">
+      {out.map((l) => (
+        <div class:list={["ln-card", { overdue: l.overdue }]}>
+          <a href={`/collection?item=${l.item_id}`} class="ln-cover">{l.cover ? <img src={l.cover} alt="" loading="lazy" /> : <span>{l.title}</span>}</a>
+          <div class="ln-info">
+            <a href={`/collection?item=${l.item_id}`} class="ln-title">{l.title}</a>
+            <p class="ln-who">{l.loaned_to}</p>
+            <p class="ln-when">Since {fmt(l.loan_date)} · {days(l.loan_date)} days{l.due_date && <> · due {fmt(l.due_date)}</>}</p>
+            {l.overdue && <p class="ln-flag">Overdue</p>}
+            {l.notes && <p class="ln-notes">{l.notes}</p>}
+            <button type="button" class="ln-return" data-loan={l.id}>Mark returned</button>
+          </div>
+        </div>
+      ))}
+    </div>
+  </section>
+
+  {back.length > 0 && (
+    <section class="ln">
+      <h2>Returned <span>{back.length}</span></h2>
+      <table class="ln-table">
+        <tbody>
+          {back.map((l) => (
+            <tr>
+              <td><a href={`/collection?item=${l.item_id}`}>{l.title}</a></td>
+              <td>{l.loaned_to}</td>
+              <td>{fmt(l.loan_date)} – {fmt(l.returned_on)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  )}
+</Base>
+
+<script>
+  document.querySelectorAll<HTMLButtonElement>(".ln-return").forEach((b) =>
+    b.addEventListener("click", async () => {
+      b.disabled = true;
+      const res = await fetch(`/api/proxy/physical/loans/${b.dataset.loan}/return`, { method: "POST" });
+      if (res.ok) location.reload();
+      else b.disabled = false;
+    }),
+  );
+</script>
+
+<style>
+  .ln + .ln { margin-top: 3rem; }
+  .ln h2 { margin-bottom: 14px; color: #f4f4f5; font-size: 20px; font-weight: 900; letter-spacing: -.02em; text-transform: uppercase; }
+  .ln h2 span { color: #71717a; font-size: 14px; }
+  .ln-empty { padding: 36px 16px; border: 1px dashed #27272a; border-radius: 16px; color: #71717a; text-align: center; }
+  .ln-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+  .ln-card { display: flex; gap: 14px; padding: 12px; border-radius: 16px; background: #0a0a0a; border: 1px solid #1c1c1f; }
+  .ln-card.overdue { border-color: rgba(239, 68, 68, .55); }
+  .ln-cover { flex: none; width: 84px; aspect-ratio: 27 / 34; border-radius: 8px; overflow: hidden; background: #18181b; }
+  .ln-cover img { width: 100%; height: 100%; object-fit: cover; }
+  .ln-title { color: #f4f4f5; font-weight: 900; font-size: 15px; }
+  .ln-who { margin-top: 4px; color: #fcd34d; font-weight: 800; }
+  .ln-when { margin-top: 2px; color: #a1a1aa; font-size: 12.5px; }
+  .ln-flag { margin-top: 4px; color: #f87171; font-size: 11px; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; }
+  .ln-notes { margin-top: 4px; color: #d4d4d8; font-size: 12.5px; }
+  .ln-return { margin-top: 10px; padding: 6px 12px; border-radius: 999px; background: #e50914; color: #fff; font-size: 12px; font-weight: 800; }
+  .ln-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .ln-table td { padding: 8px 10px; border-top: 1px solid #18181b; color: #d4d4d8; }
+  .ln-table a { color: #f4f4f5; font-weight: 700; }
+</style>

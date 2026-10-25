@@ -1402,6 +1402,9 @@ async def sync_items(
     connection_id: int | None = None,
 ) -> list[dict]:  # returns warnings
     print(f"  Syncing {len(items)} {media_type.value}s from {source.value}...")
+    # The collection is the user's physical discs (see core/physical.py):
+    # media server libraries no longer add to it.
+    sync_collection = False
 
     # ── Phase 1: Pre-load existing data (replaces all N+1 queries) ────────────
 

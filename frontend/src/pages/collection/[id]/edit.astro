@@ -1,0 +1,29 @@
+---
+import Base from "../../../layouts/Base.astro";
+import CollectionNav from "../../../components/CollectionNav.astro";
+import PhysicalForm from "../../../components/PhysicalForm.astro";
+import { api, type PhysicalDetail } from "../../../lib/api";
+export const prerender = false;
+
+const { token } = Astro.locals;
+const id = Number(Astro.params.id);
+let item: PhysicalDetail | null = null;
+let options: Record<string, string[]> = {};
+try {
+  [item, options] = await Promise.all([api.physical.item(id, token), api.physical.options(token)]);
+} catch {
+  return Astro.redirect("/collection");
+}
+---
+
+<Base title={`Edit ${item.title}`}>
+  <CollectionNav active={item.status === "wishlist" ? "wishlist" : "owned"} />
+  <h2 class="edit-title">Editing <span>{item.title}</span>{item.edition && <em>{item.edition}</em>}</h2>
+  <PhysicalForm item={item} options={options} />
+</Base>
+
+<style>
+  .edit-title { margin-bottom: 16px; color: #a1a1aa; font-size: 15px; font-weight: 700; }
+  .edit-title span { color: #f4f4f5; font-weight: 900; }
+  .edit-title em { margin-left: 8px; color: #71717a; font-style: normal; font-weight: 600; }
+</style>

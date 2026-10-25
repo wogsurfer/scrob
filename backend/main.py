@@ -27,6 +27,7 @@ from routers import (
     admin,
     compat,
     soundtrack,
+    physical,
     watchlist,
 )
 
@@ -421,6 +422,7 @@ app.include_router(sync.router, prefix="/sync", tags=["sync"])
 app.include_router(shows.router, prefix="/shows", tags=["shows"])
 app.include_router(awards.router, prefix="/awards", tags=["awards"])
 app.include_router(soundtrack.router, prefix="/soundtrack", tags=["soundtrack"])
+app.include_router(physical.router, prefix="/physical", tags=["physical"])
 app.include_router(lists.router, prefix="/lists", tags=["lists"])
 app.include_router(profile.router, prefix="/profile", tags=["profile"])
 app.include_router(trakt.router, prefix="/trakt", tags=["trakt"])
