@@ -1,6 +1,11 @@
 # Watchd as always-on containers: the database and the app (backend and
 # frontend together), both restarting on their own whenever Docker starts.
 #
+# A third service backs everything up every night into ./backups (see
+# backup.sh). Docker can't write to Google Drive's virtual drive, so a
+# Windows scheduled task copies that folder to Google Drive (see
+# scripts/sync-backups-to-drive.cmd).
+#
 # Start or update after code changes:
 #   docker compose -f docker-compose.watchd.yaml up -d --build
 #
@@ -42,6 +47,28 @@ services:
     volumes:
       # Caches and imports, shared with the dev servers.
       - ./backend/data:/app/backend/data
+    depends_on:
+      db:
+        condition: service_healthy
+
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      PGHOST: db
+      PGPORT: "5432"
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: ${POSTGRES_DB}
+      TZ: Europe/Malta
+      KEEP_DAYS: "14"
+      BACKUP_HOUR: "3"
+    volumes:
+      - ./backup.sh:/backup.sh:ro
+      - ./backend/data:/data:ro
+      - ./.env:/config/.env:ro
+      - ./backups:/out
+    entrypoint: ["/bin/sh", "/backup.sh"]
     depends_on:
       db:
         condition: service_healthy
