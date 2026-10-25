@@ -587,6 +587,7 @@ const wishlist = items.filter((i) => i.status === "wishlist" && !i.parent_id).le
           ${fact("Owner", esc(d.owner))}
           ${fact("Added", esc(fmtDate(d.date_added)))}
           ${fact("Seen in cinema", esc(s.seen_in_cinema))}
+          ${fact("Viewing date", esc(fmtDate(d.viewing_date)))}
         </dl>${d.notes ? `<p class="cd-notes">${esc(d.notes)}</p>` : ""}${d.tags?.length ? chips(d.tags.map((t) => `#${t}`)) : ""}`)}
         ${d.is_set ? "" : section("Film", `<dl class="cd-facts">
           ${fact("Director", people("Director"))}

@@ -125,6 +125,7 @@ const lists: { key: string; label: string; hint: string }[] = [
           {["", "Yes", "No", "Not Applicable"].map((o) => <option value={o} selected={(s.seen_in_cinema ?? "") === o}>{o || "—"}</option>)}
         </select>
       </label>
+      <label>Viewing date<input name="viewing_date" type="date" value={v(item?.viewing_date)} /></label>
       <label class="pf-check"><input type="checkbox" name="seen_it" checked={!!item?.seen_it} /> Seen (besides Watchd history)</label>
       <label>Tags<input name="tags" value={(item?.tags ?? []).join(", ")} placeholder="mcu, phase4" /></label>
       <label class="pf-full">Notes<textarea name="notes" rows="3">{v(item?.notes)}</textarea></label>
