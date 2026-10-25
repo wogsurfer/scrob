@@ -2617,7 +2617,7 @@ async def get_episode_detail(
                 "character": c.get("character"),
                 "profile_path": tmdb.poster_url(c.get("profile_path")),
             }
-            for c in ep_data.get("guest_stars", [])[:6]
+            for c in ep_data.get("guest_stars", [])
         ]
 
         crew = [
