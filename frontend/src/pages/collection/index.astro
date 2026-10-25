@@ -319,7 +319,7 @@ const loans = items.filter((i) => i.on_loan).length;
     }
 
     // ── Detail panel ─────────────────────────────────────────────────────
-    const chips = (values?: string[]) => (values?.length ? `<div class="cd-chips">${values.map((v) => `<span>${esc(v)}</span>`).join("")}</div>` : "");
+    const chips = (values?: string[]) => (values?.length ? `<div class="cd-chips">${[...new Set(values)].map((v) => `<span>${esc(v)}</span>`).join("")}</div>` : "");
     const fact = (label: string, value: unknown) => (value === null || value === undefined || value === "" ? "" : `<div class="cd-fact"><dt>${esc(label)}</dt><dd>${value}</dd></div>`);
     const section = (title: string, body: string, open = true) => (body ? `<details class="cd-section"${open ? " open" : ""}><summary>${esc(title)}</summary>${body}</details>` : "");
 
@@ -353,6 +353,8 @@ const loans = items.filter((i) => i.on_loan).length;
       const s = d.specs;
       const filmHref = d.tmdb_id ? (d.tmdb_kind === "tv" ? `/show/${d.tmdb_id}` : `/media/movie/${d.tmdb_id}`) : null;
       const activeLoan = d.loans.find((l) => !l.returned_on);
+      // Multi-disc releases list what's on each disc, so "On the disc" would repeat it.
+      const discs = discsHtml(d);
       const people = (role: string) => (s.crew || []).filter((c: any) => c.role === role).map((c: any) => esc(c.name)).join(", ");
       return `
         ${d.backdrop ? `<div class="cd-backdrop" style="background-image:url('${esc(d.backdrop)}')"></div>` : ""}
@@ -417,10 +419,10 @@ const loans = items.filter((i) => i.on_loan).length;
           ${s.ratios?.length ? `<p class="cd-label">Aspect ratio</p>${chips(s.ratios)}` : ""}
           ${s.audio?.length ? `<p class="cd-label">Audio</p>${chips(s.audio)}` : ""}
           ${s.subtitles?.length ? `<p class="cd-label">Subtitles</p>${chips(s.subtitles)}` : ""}
-          ${s.features?.length ? `<p class="cd-label">On the disc</p>${chips(s.features)}` : ""}
+          ${s.features?.length && !discs ? `<p class="cd-label">On the disc</p>${chips(s.features)}` : ""}
           ${s.extras?.length ? `<p class="cd-label">In the box</p>${chips(s.extras)}` : ""}
         `.trim())}
-        ${section("Discs", discsHtml(d), false)}
+        ${section("Discs", discs, false)}
         ${section("Extra features", s.extra_features ? `<pre class="cd-pre">${esc(s.extra_features)}</pre>` : "", false)}
         ${section("Purchase", `<dl class="cd-facts">
           ${fact("Purchased", esc(fmtDate(d.purchase_date)))}
