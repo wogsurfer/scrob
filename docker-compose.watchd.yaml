@@ -52,7 +52,7 @@ services:
         condition: service_healthy
 
   backup:
-    image: postgres:16-alpine
+    build: ./backup
     restart: unless-stopped
     environment:
       PGHOST: db
@@ -64,11 +64,10 @@ services:
       KEEP_DAYS: "14"
       BACKUP_HOUR: "3"
     volumes:
-      - ./backup.sh:/backup.sh:ro
       - ./backend/data:/data:ro
       - ./.env:/config/.env:ro
+      - ./backup.key:/config/backup.key:ro
       - ./backups:/out
-    entrypoint: ["/bin/sh", "/backup.sh"]
     depends_on:
       db:
         condition: service_healthy

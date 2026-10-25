@@ -20,6 +20,7 @@ docker-compose-test-db.yaml
 # Local installs and build output: the image installs and builds its own
 **/node_modules/
 **/.venv/
+**/.venv-win/
 **/__pycache__/
 frontend/dist/
 frontend/.astro/
@@ -29,4 +30,5 @@ backend/data/
 *.zip
 docker-compose.watchd.yaml
 backups/
-backup.sh
+backup/
+backup.key

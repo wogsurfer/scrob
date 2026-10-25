@@ -7,6 +7,7 @@ import CollectionNav from "../../components/CollectionNav.astro";
 import { api, type PhysicalSummary } from "../../lib/api";
 import watchdIconWhite from "../../assets/watchd-icon-white.png";
 import watchdIconRed from "../../assets/watchd-icon-red.png";
+import "../../styles/collection.css";
 export const prerender = false;
 
 const { token } = Astro.locals;
@@ -152,28 +153,19 @@ const wishlist = items.filter((i) => i.status === "wishlist" && !i.parent_id).le
 
 <script>
   import type { PhysicalSummary, PhysicalDetail } from "../../lib/api";
-  import badges from "../../lib/badges.json";
+  import { DEFAULT_COLS, makeColumns } from "../../lib/collection/columns";
+  import { esc, fmtDate, formatIcon, ratingIcon, regionIcon } from "../../lib/collection/format";
+  import {
+    ageRating, folderOf as shelfFolderOf, formatClass, formatLabel, hits as shelfHits, matches as shelfMatches,
+    prepareSets, setSize, sortItems,
+  } from "../../lib/collection/shelf";
 
   const root = document.querySelector<HTMLElement>(".coll");
   const dataEl = document.getElementById("coll-data");
   if (root && dataEl && document.getElementById("coll-grid")) {
     const all: PhysicalSummary[] = JSON.parse(dataEl.textContent || "[]");
-
-    // Box sets and multi-film discs are one entry on the shelf, with their
-    // films inside; a set counts as seen once all its films are.
-    const kidsOf = new Map<number, PhysicalSummary[]>();
-    for (const i of all) if (i.parent_id) kidsOf.set(i.parent_id, [...(kidsOf.get(i.parent_id) ?? []), i]);
-    for (const k of kidsOf.values()) k.sort((a, b) => (a.position ?? 1e9) - (b.position ?? 1e9));
-    const kids = (i: PhysicalSummary) => kidsOf.get(i.id) ?? [];
-    for (const i of all) {
-      if (!i.is_set) continue;
-      const k = kids(i);
-      i.seen = k.length > 0 && k.every((x) => x.seen);
-      const years = k.map((x) => x.release_year).filter((y): y is number => !!y);
-      if (!i.release_year && years.length) i.release_year = Math.min(...years);
-    }
-    const setSize = (k: PhysicalSummary[]) =>
-      `${k.length} ${k.every((x) => x.is_tv) ? (k.length === 1 ? "season" : "seasons") : k.some((x) => x.is_tv) ? (k.length === 1 ? "title" : "titles") : (k.length === 1 ? "film" : "films")}`;
+    // Box sets hold their films; `kids` looks a set's films up.
+    const kids = prepareSets(all);
     const icons = document.getElementById("coll-icons")!.dataset;
     const status = root.dataset.status || "owned";
 
@@ -192,80 +184,9 @@ const wishlist = items.filter((i) => i.status === "wishlist" && !i.parent_id).le
     // Per-viewer preferences.
     const saved = (() => { try { return JSON.parse(localStorage.getItem("collection-view") || "{}"); } catch { return {}; } })();
 
-    // ── List view columns ───────────────────────────────────────────────
-    // Every column the list view can show (the ones Collectorz has, plus
-    // Watchd's own), in groups for the chooser. `sort` is the value it
-    // sorts by; `cell` what it shows.
-    type Col = { label: string; group: string; sort?: (i: PhysicalSummary) => unknown; cell?: (i: PhysicalSummary) => string; dim?: boolean };
-    // Your Collectorz icons for formats, regions and age ratings, with a
-    // text badge for anything that has none.
-    const badgeImg = (src: string | undefined, label: string, cls: string) =>
-      src ? `<img class="${cls}" src="${src}" alt="${esc(label)}" title="${esc(label)}" />` : "";
-    const formatIcon = (f?: string, cls = "cd-icon") => badgeImg(f ? (badges.format as Record<string, string>)[f] : undefined, f || "", cls);
-    const regionIcon = (r: string, cls = "cd-icon") => badgeImg((badges.region as Record<string, string>)[r], r, cls);
-    const ratingIcon = (r?: string, cls = "cd-icon") =>
-      badgeImg(r ? (badges.rating as Record<string, string>)[r.replace(/[^A-Za-z0-9]/g, "").toUpperCase()] : undefined, ageRating(r), cls);
-    const list2 = (v?: string[]) => (v?.length ? v.join(", ") : "");
-    const money = (v?: number | null) => (v != null ? v.toFixed(2) : "");
-    const COLS: Record<string, Col> = {
-      title: { label: "Title", group: "Film" },
-      original_title: { label: "Original title", group: "Film", dim: true },
-      release_year: { label: "Year", group: "Film" },
-      director: { label: "Director", group: "Film", dim: true },
-      writer: { label: "Writer", group: "Film", dim: true },
-      producer: { label: "Producer", group: "Film", dim: true },
-      composer: { label: "Composer", group: "Film", dim: true },
-      cinematography: { label: "Cinematography", group: "Film", dim: true },
-      actors: { label: "Cast", group: "Film", dim: true, sort: (i) => list2(i.actors), cell: (i) => esc(list2(i.actors)) },
-      genres: { label: "Genre", group: "Film", dim: true, sort: (i) => list2(i.genres), cell: (i) => esc(list2(i.genres)) },
-      studios: { label: "Studio", group: "Film", dim: true, sort: (i) => list2(i.studios), cell: (i) => esc(list2(i.studios)) },
-      country: { label: "Country", group: "Film", dim: true },
-      language: { label: "Language", group: "Film", dim: true },
-      runtime: { label: "Running time", group: "Film", cell: (i) => (i.runtime ? `${i.runtime} min` : "") },
-      audience_rating: { label: "Age rating", group: "Film", cell: (i) => ratingIcon(i.audience_rating, "coll-icon") || esc(ageRating(i.audience_rating)) },
-      imdb_rating: { label: "IMDb rating", group: "Film" },
-      imdb_votes: { label: "IMDb votes", group: "Film", cell: (i) => (i.imdb_votes ? i.imdb_votes.toLocaleString() : "") },
-      adaptation_of: { label: "Adaptation of", group: "Film", dim: true },
-      series: { label: "Series", group: "Film", dim: true },
-      franchise: { label: "Franchise", group: "Film", dim: true },
-      kind: { label: "Film or TV", group: "Film", sort: (i) => (i.is_tv ? "TV" : "Film"), cell: (i) => (i.is_tv ? "TV" : "Film") },
-      format: { label: "Format", group: "Edition", cell: (i) => (i.format ? formatIcon(i.format, "coll-icon") || `<span class="coll-fmt-inline coll-fmt-${formatClass(i.format)}">${esc(formatLabel(i.format))}</span>` : "") },
-      edition: { label: "Edition", group: "Edition", dim: true },
-      distributor: { label: "Distributor", group: "Edition", dim: true },
-      barcode: { label: "Barcode", group: "Edition", dim: true },
-      package: { label: "Packaging", group: "Edition", dim: true },
-      disc_count: { label: "Discs", group: "Edition" },
-      disc_release_date: { label: "Disc release", group: "Edition", cell: (i) => esc(fmtDate(i.disc_release_date)) },
-      regions: { label: "Region", group: "Edition", sort: (i) => list2(i.regions), cell: (i) => (i.regions || []).map((r) => regionIcon(r, "coll-icon") || esc(r.replace("Region ", ""))).join(" ") },
-      ratios: { label: "Aspect ratio", group: "Edition", dim: true, sort: (i) => list2(i.ratios), cell: (i) => esc(list2(i.ratios)) },
-      audio: { label: "Audio", group: "Edition", dim: true, sort: (i) => list2(i.audio), cell: (i) => esc(list2(i.audio)) },
-      subtitles: { label: "Subtitles", group: "Edition", dim: true, sort: (i) => list2(i.subtitles), cell: (i) => esc(list2(i.subtitles)) },
-      layers: { label: "Layers", group: "Edition", dim: true },
-      hdr: { label: "HDR", group: "Edition", dim: true },
-      color: { label: "Colour", group: "Edition", dim: true },
-      extras: { label: "In the box", group: "Edition", dim: true, sort: (i) => list2(i.extras), cell: (i) => esc(list2(i.extras)) },
-      in_set: { label: "Box set", group: "Edition", dim: true, sort: (i) => setTitle(i), cell: (i) => esc(setTitle(i)) },
-      status: { label: "Collection status", group: "Personal", cell: (i) => (i.status === "wishlist" ? "Wish list" : i.status === "owned" ? "In collection" : esc(i.status)) },
-      purchase_date: { label: "Purchased", group: "Personal", cell: (i) => esc(fmtDate(i.purchase_date)) },
-      purchase_price: { label: "Price", group: "Personal", cell: (i) => money(i.purchase_price) },
-      current_value: { label: "Value", group: "Personal", cell: (i) => money(i.current_value) },
-      store: { label: "Store", group: "Personal", dim: true },
-      condition: { label: "Condition", group: "Personal", dim: true },
-      location: { label: "Location", group: "Personal", dim: true },
-      owner: { label: "Owner", group: "Personal", dim: true },
-      index_no: { label: "Index", group: "Personal" },
-      my_rating: { label: "My rating", group: "Personal", cell: (i) => (i.my_rating ? `${i.my_rating}/10` : "") },
-      seen: { label: "Seen", group: "Personal", sort: (i) => (i.seen ? 1 : 0), cell: (i) => (i.seen ? "Yes" : "") },
-      plays: { label: "Plays", group: "Personal", cell: (i) => (i.plays ? String(i.plays) : "") },
-      viewing_date: { label: "Viewing date", group: "Personal", cell: (i) => esc(fmtDate(i.viewing_date)) },
-      seen_in_cinema: { label: "Seen in cinema", group: "Personal", dim: true },
-      tags: { label: "Tags", group: "Personal", dim: true, sort: (i) => list2(i.tags), cell: (i) => esc((i.tags || []).map((t) => `#${t}`).join(" ")) },
-      notes: { label: "Notes", group: "Personal", dim: true },
-      date_added: { label: "Added", group: "Personal", cell: (i) => esc(fmtDate(i.date_added)) },
-      updated_at: { label: "Modified", group: "Personal", cell: (i) => esc(fmtDate(i.updated_at)) },
-    };
-    const DEFAULT_COLS = ["title", "release_year", "format", "edition", "distributor", "purchase_date", "store", "my_rating", "seen"];
+    // List view columns.
     const setTitle = (i: PhysicalSummary) => (i.is_set ? i.title : i.parent_id ? all.find((x) => x.id === i.parent_id)?.title ?? "" : "");
+    const COLS = makeColumns(setTitle);
     let cols: string[] = (Array.isArray(saved.cols) ? saved.cols : DEFAULT_COLS).filter((k: string) => k in COLS);
     if (!cols.includes("title")) cols.unshift("title");
     const state = {
@@ -278,8 +199,8 @@ const wishlist = items.filter((i) => i.status === "wishlist" && !i.parent_id).le
       // A link can open a folder: ?group=kind&folder=TV.
       group: new URL(location.href).searchParams.get("group") ?? saved.group ?? "format",
       folder: new URL(location.href).searchParams.get("folder") as string | null,
-      // Sets opened in the list view.
       foldersHidden: !!saved.foldersHidden,
+      // Sets opened in the list view.
       expanded: new Set<number>(),
       // Sets closed by hand, even where a search or folder would open them.
       collapsed: new Set<number>(),
@@ -294,112 +215,12 @@ const wishlist = items.filter((i) => i.status === "wishlist" && !i.parent_id).le
       try { localStorage.setItem("collection-view", JSON.stringify({ sort: state.sort, dir: state.dir, view: state.view, size: state.size, group: state.group, cols, foldersHidden: state.foldersHidden })); } catch {}
     };
 
-    const esc = (v: unknown) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
-    const fmtDate = (s?: string | null) => (s ? new Date(`${s.slice(0, 10)}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "");
-    const ageRating = (r?: string | null) => {
-      if (!r) return "";
-      const m = /^(MPAA|BBFC|FSK|ACB|CHVRS|OFLC|KMRB)(.+)$/.exec(r);
-      return m ? (m[1] === "MPAA" ? m[2] : `${m[1]} ${m[2]}`) : r;
-    };
-    const formatClass = (f?: string) => (f || "").toLowerCase().includes("4k") ? "uhd" : (f || "").includes("3D") ? "three-d" : (f || "").toLowerCase().includes("dvd") ? "dvd" : "bd";
-    const formatLabel = (f?: string) => (f === "4K UHD" ? "4K" : f === "Blu-ray 3D" ? "3D" : f || "");
-
-    // Folder values for an item under the chosen grouping (some have several).
-    const folderValues = (i: PhysicalSummary, group: string): string[] => {
-      switch (group) {
-        case "genres": return i.genres?.length ? i.genres : ["(none)"];
-        case "regions": return i.regions?.length ? i.regions : ["(none)"];
-        case "tags": return i.tags?.length ? i.tags : ["(none)"];
-        case "director": return i.director ? i.director.split("; ") : ["(none)"];
-        case "audience_rating": return [ageRating(i.audience_rating) || "(none)"];
-        case "purchase_year": return [i.purchase_date ? i.purchase_date.slice(0, 4) : "(none)"];
-        case "decade": return [i.release_year ? `${Math.floor(i.release_year / 10) * 10}s` : "(none)"];
-        case "seen": return [i.seen ? "Seen" : "Not seen"];
-        case "kind": return [i.is_tv ? "TV" : "Film"];
-        case "in_set": return [i.is_set ? i.title : "(none)"];
-        case "franchise": return [i.franchise || "(none)"];
-        default: {
-          const v = (i as Record<string, unknown>)[group];
-          return [v ? String(v) : "(none)"];
-        }
-      }
-    };
-
-    // Titles sort and file as on the shelf: without a leading article, with
-    // "&" read as "and". Ones starting with punctuation ("The 'Burbs",
-    // "(500) Days...") go first, in the # pile; a Spanish "¡" or "¿" is part
-    // of the word, so "¡Three Amigos!" files under T. A box set files where
-    // its first film does, unless it has a sort title of its own.
-    const titleParts = (i: PhysicalSummary) => {
-      const t = (i.sort_title || i.title).replace(/&/g, " and ").replace(/^(the|a|an)\s+/i, "").replace(/^[¡¿]+/, "")
-        .replace(/\s+/g, " ").trim().toLowerCase();
-      const punct = /^[^\p{L}\p{N}]/u.test(t) ? t.charCodeAt(0) : null;
-      return { punct, text: t.replace(/^[^\p{L}\p{N}]+/u, "") };
-    };
-    const shelfItem = (i: PhysicalSummary) => (i.is_set && !i.own_sort && kids(i).length ? kids(i)[0] : i);
-    const sortKey = (i: PhysicalSummary) => {
-      const { punct, text } = titleParts(shelfItem(i));
-      return punct == null ? `1 ${text}` : `0 ${String(punct).padStart(5, "0")} ${text}`;
-    };
-    // Numbers in order: 2 before 10.
-    const byText = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
-    const firstLetter = (i: PhysicalSummary) => {
-      const { punct, text } = titleParts(shelfItem(i));
-      const c = text.normalize("NFD").charAt(0).toUpperCase();
-      return punct == null && /[A-Z]/.test(c) ? c : "#";
-    };
-
     const inStatus = all.filter((i) => i.status === status && !i.parent_id);
-
-    // A set is in every folder its films are in (and its own).
-    const folderOf = (i: PhysicalSummary, group: string): string[] => {
-      if (!i.is_set || group === "seen" || group === "in_set") return folderValues(i, group);
-      const values = new Set([i, ...kids(i)].flatMap((x) => folderValues(x, group)).filter((v) => v !== "(none)"));
-      return values.size ? [...values] : ["(none)"];
-    };
-    const qMatch = (i: PhysicalSummary) => {
-      if (!state.q) return true;
-      const hay = [i.title, i.title_extension, i.edition, i.barcode, i.director, i.distributor, i.series, i.store, ...(i.tags || [])]
-        .filter(Boolean).join(" ").toLowerCase();
-      return state.q.toLowerCase().split(/\s+/).every((w) => hay.includes(w));
-    };
-
-    function matches(i: PhysicalSummary, skipFolder = false) {
-      if (state.letter !== "All" && firstLetter(i) !== state.letter) return false;
-      if (!skipFolder && state.group && state.folder != null && !folderOf(i, state.group).includes(state.folder)) return false;
-      if (state.q && !qMatch(i) && !(i.is_set && kids(i).some(qMatch))) return false;
-      return true;
-    }
-
-    // The films in a set that brought it into a search or folder, when
-    // that's only some of them.
-    function hits(i: PhysicalSummary): PhysicalSummary[] {
-      if (!i.is_set || (!state.q && state.folder == null)) return [];
-      // Found by its own name: the whole set's the answer.
-      if (state.q && state.folder == null && qMatch(i)) return [];
-      const k = kids(i);
-      const h = k.filter((x) => qMatch(x) && (!state.group || state.folder == null || folderValues(x, state.group).includes(state.folder)));
-      return h.length < k.length ? h : [];
-    }
-
-    function sorted(items: PhysicalSummary[]) {
-      const k = state.sort;
-      return [...items].sort((a, b) => {
-        let x: any, y: any;
-        const by = COLS[k]?.sort;
-        if (k === "title") { x = sortKey(a); y = sortKey(b); }
-        else if (by) { x = by(a) || null; y = by(b) || null; }
-        else { x = (a as any)[k]; y = (b as any)[k]; }
-        if (x === "") x = null;
-        if (y === "") y = null;
-        if (x == null && y == null) return byText(sortKey(a), sortKey(b));
-        // Blanks count as the lowest value: first going up, last going down.
-        if (x == null) return -state.dir;
-        if (y == null) return state.dir;
-        const c = typeof x === "number" ? x - y : byText(String(x), String(y));
-        return (c || byText(sortKey(a), sortKey(b))) * state.dir;
-      });
-    }
+    // The shelf rules (lib/collection/shelf.ts) with this page's filters.
+    const folderOf = (i: PhysicalSummary, group: string) => shelfFolderOf(i, group, kids);
+    const matches = (i: PhysicalSummary, skipFolder = false) => shelfMatches(i, state, kids, skipFolder);
+    const hits = (i: PhysicalSummary) => shelfHits(i, state, kids);
+    const sorted = (items: PhysicalSummary[]) => sortItems(items, state.sort, state.dir, kids, COLS[state.sort]?.sort);
 
     function renderFolders() {
       folderList.innerHTML = "";
@@ -800,246 +621,3 @@ const wishlist = items.filter((i) => i.status === "wishlist" && !i.parent_id).le
     if (state.selected) select(state.selected, true);
   }
 </script>
-
-<style is:global>
-  /* Format, region and age-rating icons */
-  .cd-icon { height: 28px; width: auto; border-radius: 3px; }
-  .coll-icon { height: 18px; width: auto; vertical-align: middle; border-radius: 2px; }
-
-  /* Moving columns by dragging their headers */
-  .coll-list th[draggable="true"] { cursor: grab; user-select: none; }
-  .coll-list th.dragging { opacity: .4; }
-  .coll-list th.drop-before { box-shadow: inset 3px 0 0 #e50914; }
-  .coll-list th.drop-after { box-shadow: inset -3px 0 0 #e50914; }
-
-  /* List view columns chooser */
-  .coll-cols-wrap { position: relative; }
-  .coll-cols-btn { height: 34px; padding: 0 12px; border-radius: 10px; border: 1px solid #27272a; color: #e4e4e7; font-size: 12px; font-weight: 800; }
-  .coll-cols-btn:hover, .coll-cols-btn[aria-expanded="true"] { border-color: #52525b; background: #18181b; }
-  .coll-cols { position: absolute; right: 0; top: calc(100% + 6px); z-index: 40; width: 280px; padding: 12px; border-radius: 14px; background: #111113; border: 1px solid #3f3f46; box-shadow: 0 16px 40px rgba(0, 0, 0, .6); }
-  .coll-cols-head { display: flex; justify-content: space-between; align-items: center; color: #f4f4f5; font-size: 14px; }
-  .coll-cols-head button { color: #f87171; font-size: 12px; font-weight: 800; }
-  .coll-cols-hint { margin: 2px 0 8px; color: #71717a; font-size: 11.5px; }
-  #coll-cols-find { width: 100%; margin-bottom: 8px; padding: 7px 10px; border-radius: 9px; background: #0a0a0a; border: 1px solid #27272a; color: #f4f4f5; font-size: 13px; }
-  #coll-cols-find:focus { outline: none; border-color: #e50914; }
-  #coll-cols-list { max-height: 360px; overflow-y: auto; }
-  #coll-cols-list li { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 3px 6px; border-radius: 7px; }
-  #coll-cols-list li:hover { background: #18181b; }
-  #coll-cols-list li.on label { color: #fff; font-weight: 700; }
-  #coll-cols-list label { display: flex; align-items: center; gap: 8px; flex: 1; color: #a1a1aa; font-size: 13px; cursor: pointer; }
-  #coll-cols-list input { accent-color: #e50914; }
-  .coll-cols-group { margin-top: 8px; color: #e50914 !important; font-size: 10px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
-  .coll-cols-group:hover { background: none !important; }
-  .coll-cols-move { display: flex; gap: 2px; }
-  .coll-cols-move button { width: 22px; height: 20px; border-radius: 5px; color: #a1a1aa; font-size: 9px; }
-  .coll-cols-move button:hover:not(:disabled) { color: #fff; background: #27272a; }
-  .coll-cols-move button:disabled { opacity: .25; }
-  html.light .coll-cols { background: #fff; border-color: #d4d4d8; }
-  html.light #coll-cols-list li.on label, html.light .coll-cols-head { color: #18181b; }
-
-  /* Box sets and multi-film discs */
-  .coll-set { position: absolute; left: 6px; bottom: 6px; padding: 2px 8px; border-radius: 999px; background: rgba(9, 9, 11, .85); border: 1px solid #3f3f46; color: #f4f4f5; font-size: 10px; font-weight: 900; letter-spacing: .03em; backdrop-filter: blur(4px); }
-  .coll-card.is-set .coll-cover { box-shadow: 4px 4px 0 -1px #27272a, 8px 8px 0 -2px #1c1c1f; }
-  .coll-card-sub.hit { color: #f87171; }
-  .coll-expand { display: inline-grid; place-items: center; width: 18px; height: 18px; margin-right: 6px; border-radius: 5px; color: #a1a1aa; font-size: 11px; transition: transform .15s; }
-  .coll-expand:hover { color: #fff; background: #27272a; }
-  .coll-expand.open { transform: rotate(90deg); }
-  .coll-set-inline { margin-left: 6px; padding: 0 6px; border-radius: 999px; border: 1px solid #3f3f46; color: #a1a1aa; font-size: 10px; font-weight: 800; }
-  #coll-rows tr.kid td { background: #0c0c0e; }
-  #coll-rows tr.kid td.t { padding-left: 38px; color: #d4d4d8; }
-  .cd-partof { display: inline-block; margin: 2px 0 6px; padding: 3px 10px; border-radius: 999px; border: 1px solid #3f3f46; color: #a1a1aa; font-size: 12px; font-weight: 700; }
-  .cd-partof b { color: #f4f4f5; }
-  .cd-partof:hover { border-color: #e50914; }
-  .cd-setbadge { background: #27272a; color: #f4f4f5; }
-  .cd-mini button { position: relative; }
-  .cd-mini-w { position: absolute; top: 6px; right: 6px; width: 18px !important; height: 18px !important; aspect-ratio: auto !important; object-fit: contain !important; border-radius: 0 !important; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .8)); }
-  .cd-mini-none { display: grid; place-items: center; aspect-ratio: 2 / 3; padding: 6px; border-radius: 8px; background: #18181b; color: #71717a; font-size: 11px; text-align: center; }
-  .cd-set-films { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)) !important; }
-  html.light #coll-rows tr.kid td { background: #f4f4f5; }
-  html.light :where(.coll-list) td:first-child { background: #fff; box-shadow: inset -1px 0 0 #e4e4e7; }
-
-  .coll-error { padding: 16px; border: 1px solid rgba(239, 68, 68, .4); border-radius: 12px; color: #fca5a5; }
-  .coll-empty { padding: 48px 16px; text-align: center; color: #71717a; border: 1px dashed #27272a; border-radius: 16px; }
-  .coll-empty-title { color: #e4e4e7; font-weight: 800; font-size: 18px; margin-bottom: 4px; }
-
-  /* Toolbar */
-  .coll-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-bottom: 14px; }
-  .coll-search { position: relative; flex: 1 1 260px; max-width: 380px; }
-  .coll-search svg { position: absolute; left: 12px; top: 50%; width: 16px; height: 16px; transform: translateY(-50%); color: #71717a; }
-  .coll-search input { width: 100%; padding: 9px 12px 9px 36px; border-radius: 12px; background: #0f0f11; border: 1px solid #27272a; color: #f4f4f5; font-size: 14px; }
-  .coll-search input:focus { outline: none; border-color: #52525b; }
-  .coll-letters { display: flex; flex-wrap: wrap; gap: 2px; }
-  .coll-letters button { min-width: 24px; padding: 4px 5px; border-radius: 6px; color: #a1a1aa; font-size: 12px; font-weight: 800; }
-  .coll-letters button:hover { color: #fff; background: #18181b; }
-  .coll-letters button.active { color: #fff; background: #e50914; }
-  .coll-controls { display: flex; align-items: center; gap: 8px; margin-left: auto; }
-  .coll-select { display: inline-flex; align-items: center; gap: 8px; color: #71717a; font-size: 11px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
-  .coll-select select { padding: 7px 10px; border-radius: 10px; background: #0f0f11; border: 1px solid #27272a; color: #e4e4e7; font-size: 13px; font-weight: 700; letter-spacing: 0; text-transform: none; }
-  .coll-icon-btn, .coll-views button { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; border: 1px solid #27272a; color: #a1a1aa; }
-  .coll-icon-btn svg, .coll-views svg { width: 17px; height: 17px; }
-  .coll-icon-btn:hover, .coll-views button:hover { color: #fff; border-color: #3f3f46; }
-  .coll-views { display: flex; gap: 4px; }
-  .coll-views button.active { color: #fff; background: #27272a; border-color: #3f3f46; }
-  #coll-size { width: 90px; accent-color: #e50914; }
-
-  /* Three columns: folders, covers, details. */
-  /* Folders and covers on top, each scrolling on its own; the selected
-     disc's details across the full width underneath. */
-  .coll-body { --top: clamp(320px, 52vh, 620px); display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 16px; align-items: start; }
-  .coll-folders { height: var(--top); overflow-y: auto; padding: 12px; border-radius: 16px; background: #0a0a0a; border: 1px solid #1c1c1f; }
-  .coll-group { display: flex; flex-direction: column; align-items: stretch; gap: 6px; margin-bottom: 10px; }
-  .coll-folders { position: relative; }
-  .coll-folders-toggle { position: absolute; top: 9px; right: 9px; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 7px; color: #71717a; z-index: 1; }
-  .coll-folders-toggle:hover { color: #fff; background: #27272a; }
-  .coll-folders-toggle svg { width: 15px; height: 15px; transition: transform .15s; }
-  .coll-folders-tab { display: none; }
-  .coll-body.folders-hidden { grid-template-columns: 42px minmax(0, 1fr); }
-  .coll-body.folders-hidden .coll-folders { padding: 0; overflow: hidden; cursor: pointer; }
-  .coll-body.folders-hidden .coll-folders:hover { border-color: #3f3f46; }
-  .coll-body.folders-hidden .coll-group, .coll-body.folders-hidden #coll-folder-list { display: none; }
-  .coll-body.folders-hidden .coll-folders-toggle { right: 8px; }
-  .coll-body.folders-hidden .coll-folders-toggle svg { transform: rotate(180deg); }
-  .coll-body.folders-hidden .coll-folders-tab { display: block; position: absolute; top: 44px; left: 50%; transform: translateX(-50%); writing-mode: vertical-rl; color: #71717a; font-size: 11px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
-  #coll-folder-list { display: flex; flex-direction: column; gap: 1px; }
-  #coll-folder-list button { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px; border-radius: 8px; color: #d4d4d8; font-size: 13px; font-weight: 600; text-align: left; }
-  #coll-folder-list button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #coll-folder-list button b { flex: none; padding: 0 7px; border-radius: 999px; background: #18181b; color: #a1a1aa; font-size: 11px; line-height: 18px; }
-  #coll-folder-list button:hover { background: #141416; }
-  #coll-folder-list button.active { background: rgba(229, 9, 20, .14); color: #fff; }
-  #coll-folder-list button.active b { background: #e50914; color: #fff; }
-
-  .coll-main { height: var(--top); overflow-y: auto; padding-right: 6px; scrollbar-width: thin; }
-  .coll-count { margin-bottom: 10px; color: #71717a; font-size: 13px; font-weight: 700; }
-  .coll-grid { --cover: 180px; display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--cover), 1fr)); gap: 18px 14px; align-items: end; }
-  .coll-card { display: flex; flex-direction: column; gap: 6px; min-width: 0; text-align: left; color: inherit; }
-  .coll-cover { position: relative; display: block; border-radius: 8px; overflow: hidden; background: #18181b; border: 2px solid transparent; transition: border-color .15s, transform .15s; }
-  .coll-cover > img:first-child { width: 100%; height: auto; display: block; }
-  .coll-cover:has(.coll-nocover) { aspect-ratio: 27 / 34; }
-  .coll-card:hover .coll-cover { transform: translateY(-2px); border-color: #3f3f46; }
-  .coll-card.selected .coll-cover { border-color: #e50914; }
-  .coll-nocover { display: grid; place-items: center; height: 100%; padding: 10px; color: #a1a1aa; font-size: 13px; font-weight: 800; text-align: center; }
-  .coll-fmt { position: absolute; left: 6px; top: 6px; padding: 1px 6px; border-radius: 4px; font-size: 9px; font-weight: 900; letter-spacing: .06em; box-shadow: 0 1px 3px rgba(0, 0, 0, .6); }
-  .coll-fmt-uhd { background: #000; color: #fff; border: 1px solid #52525b; }
-  .coll-fmt-bd { background: #0a5cc2; color: #fff; }
-  .coll-fmt-three-d { background: #0d9488; color: #fff; }
-  .coll-fmt-dvd { background: #3f3f46; color: #fff; }
-  .coll-w { position: absolute; right: 5px; bottom: 5px; width: 20px; height: 20px; filter: drop-shadow(0 1px 3px rgba(0, 0, 0, .9)); }
-  .coll-card-title { min-height: 2.5em; font-size: 12.5px; font-weight: 800; color: #f4f4f5; line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-  .coll-card-sub { margin-top: -3px; font-size: 11px; color: #71717a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
-  /* The table scrolls in its own box, so the sideways scrollbar is always in
-     view; the header row stays put and the first column stays pinned. */
-  .coll-list { overflow: auto; max-height: calc(var(--top) - 34px); border-radius: 14px; border: 1px solid #1c1c1f; scrollbar-width: thin; }
-  .coll-list tr > :first-child { position: sticky; left: 0; z-index: 1; }
-  .coll-list th:first-child { z-index: 3; }
-  :where(.coll-list) td:first-child { background: #09090b; box-shadow: inset -1px 0 0 #1c1c1f; }
-  .coll-list table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  .coll-list th { position: sticky; top: 0; z-index: 2; padding: 9px 10px; background: #0f0f11; color: #71717a; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-align: left; text-transform: uppercase; white-space: nowrap; }
-  .coll-list th[data-sort] { cursor: pointer; }
-  .coll-list th[data-sort]:hover { color: #e4e4e7; }
-  .coll-list th[data-active="asc"]::after { content: " ▲"; color: #e50914; }
-  .coll-list th[data-active="desc"]::after { content: " ▼"; color: #e50914; }
-  .coll-list td { padding: 7px 10px; border-top: 1px solid #18181b; color: #d4d4d8; white-space: nowrap; max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
-  .coll-list td.t { font-weight: 700; color: #f4f4f5; }
-  .coll-list td.dim { color: #a1a1aa; }
-  .coll-list tr { cursor: pointer; }
-  .coll-list tbody tr:hover td { background: #121214; }
-  .coll-list tr.selected td { background: rgba(229, 9, 20, .12); }
-  .coll-fmt-inline { display: inline-block; padding: 0 6px; border-radius: 4px; font-size: 10px; font-weight: 900; }
-
-  /* Detail panel */
-  .coll-detail { grid-column: 1 / -1; position: relative; min-height: 260px; overflow: hidden; border-radius: 18px; background: #0a0a0a; border: 1px solid #1c1c1f; padding: 24px; isolation: isolate; }
-  .coll-detail.loading { opacity: .6; }
-  .coll-detail-empty { padding: 60px 10px; color: #52525b; font-weight: 700; text-align: center; }
-  .coll-detail .cd-backdrop { position: absolute; inset: 0; background-size: cover; background-position: center 20%; opacity: .3; z-index: -1; mask-image: linear-gradient(90deg, rgba(0,0,0,.5), #000 45%, rgba(0,0,0,.35)), linear-gradient(#000 40%, transparent 95%); mask-composite: intersect; }
-  .coll-detail .cd-close { display: none; position: absolute; right: 12px; top: 10px; width: 32px; height: 32px; border-radius: 999px; background: rgba(0, 0, 0, .6); color: #fff; font-size: 22px; line-height: 1; }
-  .coll-detail .cd-top { display: grid; grid-template-columns: 240px minmax(0, 1fr) minmax(0, 1.1fr); gap: 24px; align-items: start; }
-  .coll-detail .cd-story { min-width: 0; }
-  .coll-detail .cd-plot-label { color: #f87171; font-size: 12px; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; }
-  .coll-detail .cd-sections { columns: 3 300px; column-gap: 28px; margin-top: 12px; }
-  .coll-detail .cd-sections .cd-section { break-inside: avoid; }
-  .coll-detail .cd-cover { flex: none; width: 240px; align-self: start; border-radius: 10px; overflow: hidden; background: #18181b; box-shadow: 0 10px 30px rgba(0, 0, 0, .6); cursor: default; }
-  .coll-detail .cd-cover img { width: 100%; height: auto; display: block; }
-  .coll-detail .cd-head { min-width: 0; }
-  .coll-detail .cd-head h2 { font-size: 28px; font-weight: 900; line-height: 1.1; letter-spacing: -.02em; color: #f87171; }
-  .coll-detail .cd-head h2 span { color: #a1a1aa; font-size: 14px; font-weight: 700; }
-  .coll-detail .cd-sub { margin-top: 4px; color: #a1a1aa; font-size: 12.5px; }
-  .coll-detail .cd-edition { margin-top: 6px; color: #e4e4e7; font-size: 13px; font-weight: 700; }
-  .coll-detail .cd-badges { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
-  .coll-detail .cd-badge { padding: 1px 7px; border-radius: 5px; font-size: 10.5px; font-weight: 900; }
-  .coll-detail .cd-region { background: #27272a; color: #e4e4e7; }
-  .coll-detail .cd-age { background: #f4f4f5; color: #09090b; }
-  .coll-detail .cd-wish { background: rgba(236, 72, 153, .2); color: #f9a8d4; }
-  .coll-detail .cd-ratings { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
-  .coll-detail .cd-imdb { padding: 2px 7px; border-radius: 5px; background: #f5c518; color: #000; font-size: 11px; font-weight: 900; }
-  .coll-detail .cd-imdb i { font-style: normal; font-weight: 600; opacity: .7; }
-  .coll-detail a.cd-imdb { text-decoration: none; }
-  .coll-detail a.cd-imdb:hover { background: #ffd84d; }
-  .coll-detail .cd-stars { display: inline-flex; gap: 2px; }
-  .coll-detail .cd-stars i { width: 9px; height: 9px; clip-path: polygon(50% 0, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%); background: #3f3f46; }
-  .coll-detail .cd-stars i.on { background: #fbbf24; }
-  .coll-detail .cd-seen { display: flex; align-items: center; gap: 6px; margin-top: 10px; color: #a1a1aa; font-size: 12.5px; font-weight: 700; }
-  .coll-detail .cd-seen img { width: 18px; height: 18px; }
-  .coll-detail .cd-seen.on { color: #fca5a5; }
-  .coll-detail .cd-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 16px 0 6px; }
-  .coll-detail .cd-btn { display: inline-flex; align-items: center; padding: 7px 14px; border-radius: 999px; background: #e50914; color: #fff; font-size: 12.5px; font-weight: 800; text-decoration: none; }
-  .coll-detail .cd-btn:hover { background: #f40612; }
-  .coll-detail .cd-btn.ghost { background: transparent; border: 1px solid #3f3f46; color: #e4e4e7; }
-  .coll-detail .cd-tagline { margin-bottom: 12px; color: #d4d4d8; font-size: 13px; font-style: italic; }
-  .coll-detail .cd-plot { margin-top: 8px; color: #a1a1aa; font-size: 13px; line-height: 1.55; }
-  .coll-detail .cd-section { margin-top: 14px; border-top: 1px solid #1c1c1f; padding-top: 10px; }
-  .coll-detail .cd-section summary { cursor: pointer; color: #f87171; font-size: 12px; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; list-style: none; }
-  .coll-detail .cd-section summary::after { content: " +"; color: #52525b; }
-  .coll-detail .cd-section[open] summary::after { content: " –"; }
-  .coll-detail .cd-section > :not(summary) { margin-top: 8px; }
-  .coll-detail .cd-facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; font-size: 12.5px; }
-  .coll-detail .cd-fact { display: contents; }
-  .coll-detail .cd-fact dt { color: #71717a; font-weight: 700; }
-  .coll-detail .cd-fact dd { color: #e4e4e7; min-width: 0; overflow-wrap: anywhere; }
-  .coll-detail .cd-mono { font-family: ui-monospace, monospace; letter-spacing: .04em; }
-  .coll-detail .cd-label { margin-top: 10px; color: #71717a; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
-  .coll-detail .cd-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
-  .coll-detail .cd-chips span { padding: 2px 8px; border-radius: 999px; background: #18181b; border: 1px solid #27272a; color: #d4d4d8; font-size: 11.5px; }
-  .coll-detail .cd-pre { white-space: pre-wrap; font: inherit; color: #a1a1aa; font-size: 12.5px; line-height: 1.55; }
-  .coll-detail .cd-disc { padding: 8px 0; border-bottom: 1px solid #141416; }
-  .coll-detail .cd-disc-head { color: #e4e4e7; font-size: 13px; }
-  .coll-detail .cd-dim { color: #71717a; font-size: 12px; }
-  .coll-detail .cd-episodes { margin: 6px 0 0 18px; list-style: decimal; color: #d4d4d8; font-size: 12.5px; }
-  .coll-detail .cd-notes { margin-top: 8px; color: #d4d4d8; font-size: 12.5px; white-space: pre-wrap; }
-  .coll-detail .cd-cast { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; font-size: 12.5px; }
-  .coll-detail .cd-cast b { display: block; color: #e4e4e7; }
-  .coll-detail .cd-cast span { color: #71717a; font-size: 11.5px; }
-  .coll-detail .cd-mini { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; }
-  .coll-detail .cd-mini button { text-align: left; color: #d4d4d8; font-size: 11.5px; font-weight: 700; }
-  .coll-detail .cd-mini img { width: 100%; aspect-ratio: 27 / 34; object-fit: cover; border-radius: 6px; margin-bottom: 4px; }
-  .coll-detail .cd-others button { color: #d4d4d8; font-size: 12.5px; text-align: left; }
-  .coll-detail .cd-others button:hover { color: #fff; text-decoration: underline; }
-
-  /* Narrower screens: the details open over the page. */
-  @media (max-width: 1100px) {
-    .coll-detail .cd-top { grid-template-columns: 160px minmax(0, 1fr); }
-    .coll-detail .cd-cover { width: 160px; }
-    .coll-detail .cd-story { grid-column: 1 / -1; }
-  }
-  @media (max-width: 767px) {
-    .coll-body { --top: auto; }
-    .coll-main { height: auto; overflow: visible; }
-    .coll-list { max-height: 70vh; }
-    .coll-detail { grid-column: auto; position: fixed; inset: 70px 12px 12px auto; width: min(440px, calc(100vw - 24px)); max-height: none; z-index: 60; transform: translateX(calc(100% + 24px)); transition: transform .2s ease; box-shadow: 0 20px 60px rgba(0, 0, 0, .7); }
-    .coll-detail.open { transform: none; }
-    .coll-detail .cd-close { display: block; }
-    .coll-body { grid-template-columns: minmax(0, 1fr); }
-    .coll-folders { height: auto; max-height: 220px; }
-    .coll-body.folders-hidden { grid-template-columns: minmax(0, 1fr); }
-    .coll-body.folders-hidden .coll-folders { height: 40px; }
-    .coll-body.folders-hidden .coll-folders-tab { top: 50%; left: 14px; transform: translateY(-50%); writing-mode: horizontal-tb; }
-    .coll-letters { display: none; }
-    .coll-controls { margin-left: 0; }
-    .coll-detail { inset: 60px 0 0 0; width: 100%; overflow-y: auto; border-radius: 18px 18px 0 0; }
-    .coll-detail .cd-top { grid-template-columns: 120px minmax(0, 1fr); gap: 14px; }
-    .coll-detail .cd-cover { width: 120px; }
-  }
-
-  html.light .coll-folders, html.light .coll-detail { background: #fafafa; border-color: #e4e4e7; }
-  html.light .coll-card-title { color: #18181b; }
-</style>

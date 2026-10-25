@@ -9,7 +9,8 @@
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
-    "astro": "astro"
+    "astro": "astro",
+    "test": "vitest run"
   },
   "dependencies": {
     "@astrojs/check": "^0.9.10",
@@ -24,5 +25,8 @@
     "qrcode": "^1.5.4",
     "tailwindcss": "^4.2.2",
     "typescript": "^6.0.3"
+  },
+  "devDependencies": {
+    "vitest": "3.2.4"
   }
 }

@@ -35,6 +35,7 @@ share/python-wheels/
 MANIFEST
 .venv/
 **/.venv/
+**/.venv-win/
 venv/
 ENV/
 env/
@@ -100,6 +101,8 @@ frontend/src/assets/Plex_logo_2022.svg
 # Personal watch-history audit (local only)
 history_issues.csv
 backups/
+# Encryption key for the backups: never in git or in the backups themselves.
+backup.key
 backend/data/tvdb_award_index.json
 backend/data/cache/
 backend/data/physical/

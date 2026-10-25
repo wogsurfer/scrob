@@ -1,4 +1,5 @@
 import asyncio
+import os
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -385,6 +386,14 @@ async def _physical_ratings_refresher():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from core.tmdb import start_http_client, close_http_client
+
+    # A quick-preview copy (scripts/dev-api.ps1) shares the live database, so
+    # it leaves the running site's syncs, sessions and timers alone.
+    if os.environ.get("WATCHD_PREVIEW") == "1":
+        await start_http_client()
+        yield
+        await close_http_client()
+        return
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
