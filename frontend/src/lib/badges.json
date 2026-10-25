@@ -1,0 +1,44 @@
+{
+  "format": {
+    "4K UHD": "/badges/format-4kuhd.png",
+    "Blu-ray": "/badges/format-bluray.png",
+    "Blu-ray 3D": "/badges/format-bluray3d.png",
+    "DVD": "/badges/format-dvd.png",
+    "HD DVD": "/badges/format-hddvd.png"
+  },
+  "rating": {
+    "AOFLCG": "/badges/rating-aoflcg.jpg",
+    "AOFLCM": "/badges/rating-aoflcm.jpg",
+    "AOFLCMA15": "/badges/rating-aoflcma15.jpg",
+    "AOFLCPG": "/badges/rating-aoflcpg.jpg",
+    "AOFLCR18": "/badges/rating-aoflcr18.jpg",
+    "BBFC12": "/badges/rating-bbfc12.jpg",
+    "BBFC12A": "/badges/rating-bbfc12a.jpg",
+    "BBFC15": "/badges/rating-bbfc15.jpg",
+    "BBFC18": "/badges/rating-bbfc18.jpg",
+    "BBFCPG": "/badges/rating-bbfcpg.jpg",
+    "BBFCU": "/badges/rating-bbfcu.jpg",
+    "CMPRS14": "/badges/rating-cmprs14.jpg",
+    "CMPRS18": "/badges/rating-cmprs18.jpg",
+    "CMPRSPG": "/badges/rating-cmprspg.jpg",
+    "CMPRSR": "/badges/rating-cmprsr.jpg",
+    "FSK18": "/badges/rating-fsk18.jpg",
+    "IFRST": "/badges/rating-ifrst.jpg",
+    "MPAAG": "/badges/rating-mpaag.png",
+    "MPAANC17": "/badges/rating-mpaanc17.png",
+    "MPAANR": "/badges/rating-mpaanr.png",
+    "MPAAPG": "/badges/rating-mpaapg.jpg",
+    "MPAAPG13": "/badges/rating-mpaapg13.png",
+    "MPAAR": "/badges/rating-mpaar.jpg",
+    "MPAATV14": "/badges/rating-mpaatv14.png",
+    "MPAATVMA": "/badges/rating-mpaatvma.jpg",
+    "MPAATVPG": "/badges/rating-mpaatvpg.gif",
+    "MPAAUR": "/badges/rating-mpaaur.png"
+  },
+  "region": {
+    "Region A": "/badges/region-regiona.png",
+    "Region B": "/badges/region-regionb.jpg",
+    "Region C": "/badges/region-regionc.gif",
+    "Region Free": "/badges/region-regionfree.jpg"
+  }
+}
