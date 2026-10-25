@@ -15,13 +15,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from core import tmdb
-from core.physical import cover_path, fetch_cover, fill_from_tmdb, link_media, rebuild_collection_mirror, refresh_imdb_ratings, save_cover
+from core.physical import (
+    PICK_LISTS, cover_path, fetch_cover, fill_from_tmdb, link_media, pick_values, rebuild_collection_mirror,
+    refresh_imdb_ratings, replace_pick_value, save_cover,
+)
 from db import get_db
 from dependencies import get_current_user
 from models.base import MediaType
 from models.events import WatchEvent
 from models.media import Media
-from models.physical import PhysicalBoxSet, PhysicalItem, PhysicalLoan
+from models.show import Show
+from models.physical import PhysicalBoxSet, PhysicalItem, PhysicalLoan, PhysicalPickValue
 from models.users import User
 from routers.media import get_user_tmdb_key
 
@@ -98,7 +102,9 @@ def _remove_files(stored: str | None) -> None:
 
 def _summary(item: PhysicalItem, plays: dict[int, int], on_loan: set[int], poster: str | None = None) -> dict:
     specs = item.specs or {}
-    watched = bool(item.tmdb_id and plays.get(item.tmdb_id))
+    # Plays are counted per film TMDB id; a series id is a different title.
+    film_id = item.tmdb_id if specs.get("tmdb_kind", "movie") == "movie" else None
+    watched = bool(film_id and plays.get(film_id))
     return {
         "id": item.id,
         "status": item.status,
@@ -127,7 +133,7 @@ def _summary(item: PhysicalItem, plays: dict[int, int], on_loan: set[int], poste
         "my_rating": item.my_rating,
         # Watched in Watchd, or marked seen in Collectorz.
         "seen": watched or item.seen_it,
-        "plays": plays.get(item.tmdb_id, 0) if item.tmdb_id else 0,
+        "plays": plays.get(film_id, 0) if film_id else 0,
         "genres": specs.get("genres", []),
         "regions": specs.get("regions", []),
         "audience_rating": specs.get("audience_rating"),
@@ -174,8 +180,10 @@ async def list_items(
     """Every release in the collection and wish list, with the fields the
     browser sorts, filters and groups by. Small enough to send whole."""
     rows = (await db.execute(
-        select(PhysicalItem, Media.poster_path)
+        select(PhysicalItem, func.coalesce(Media.poster_path, Show.poster_path))
         .outerjoin(Media, Media.id == PhysicalItem.media_id)
+        # Series keep their artwork in shows.
+        .outerjoin(Show, (Show.tmdb_id == PhysicalItem.tmdb_id) & (PhysicalItem.specs["tmdb_kind"].astext == "tv"))
         .options(selectinload(PhysicalItem.box_set))
         .where(PhysicalItem.user_id == current_user.id)
     )).all()
@@ -218,6 +226,20 @@ async def get_item(
         backdrop, poster = (await db.execute(
             select(Media.backdrop_path, Media.poster_path).where(Media.id == item.media_id)
         )).one()
+    if specs.get("tmdb_kind") == "tv" and item.tmdb_id and not (backdrop and poster):
+        # Series keep their artwork in shows, or it's fetched from TMDB.
+        show = (await db.execute(
+            select(Show.backdrop_path, Show.poster_path).where(Show.tmdb_id == item.tmdb_id)
+        )).first()
+        if show and show[1]:
+            backdrop, poster = backdrop or show[0], poster or show[1]
+        else:
+            try:
+                data = await tmdb.get_show_light(item.tmdb_id, api_key=await get_user_tmdb_key(db, current_user.id))
+                backdrop = backdrop or tmdb.poster_url(data.get("backdrop_path"), size="w1280")
+                poster = poster or tmdb.poster_url(data.get("poster_path"))
+            except Exception:
+                pass
     data["cover"] = data["cover"] or _poster_thumb(poster)
     own_poster = _cover_url(specs.get("poster_image"))
     own_backdrop = _cover_url(specs.get("backdrop_image"))
@@ -710,35 +732,142 @@ async def lookup(
     return {"product": product, "query": q, "results": results}
 
 
+# Offered before any disc has one.
+_DEFAULT_PICKS = {"format": ["Blu-ray", "4K UHD", "Blu-ray 3D", "DVD"], "color": ["Color", "Black & White"]}
+
+
+async def _pick_counts(db: AsyncSession, user_id: int) -> dict[str, Counter]:
+    """How many discs use each value of each pick list, with hand-added
+    values (used by none yet) at 0."""
+    items = (await db.execute(select(PhysicalItem).where(PhysicalItem.user_id == user_id))).scalars().all()
+    counts = {field: Counter() for field in PICK_LISTS}
+    for item in items:
+        for field in PICK_LISTS:
+            counts[field].update(set(pick_values(item, field)))
+    added = (await db.execute(
+        select(PhysicalPickValue.field, PhysicalPickValue.value).where(PhysicalPickValue.user_id == user_id)
+    )).all()
+    for field, value in added:
+        if field in counts:
+            counts[field].setdefault(value, 0)
+    for field, values in _DEFAULT_PICKS.items():
+        if not counts[field]:
+            for value in values:
+                counts[field].setdefault(value, 0)
+    return counts
+
+
 @router.get("/options")
 async def field_options(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Values already used for the pick-list fields, for the edit form."""
-    items = (await db.execute(select(PhysicalItem).where(PhysicalItem.user_id == current_user.id))).scalars().all()
+    """The values of each pick list, for the edit form."""
+    counts = await _pick_counts(db, current_user.id)
     boxes = (await db.execute(select(PhysicalBoxSet.name).where(PhysicalBoxSet.user_id == current_user.id))).scalars().all()
+    options = {field: sorted(c, key=str.lower) for field, c in counts.items()}
+    options["box_set"] = sorted(boxes, key=str.lower)
+    return options
 
-    def used(values):
-        return sorted({v for v in values if v}, key=str.lower)
 
-    return {
-        "format": used(i.format for i in items) or ["Blu-ray", "4K UHD", "Blu-ray 3D", "DVD"],
-        "package": used(i.package for i in items),
-        "distributor": used(i.distributor for i in items),
-        "store": used(i.store for i in items),
-        "condition": used(i.condition for i in items),
-        "location": used(i.location for i in items),
-        "owner": used(i.owner for i in items),
-        "series": used(i.series for i in items),
-        "tags": used(t for i in items for t in i.tags or []),
-        "regions": used(r for i in items for r in (i.specs or {}).get("regions", [])),
-        "audio": used(a for i in items for a in (i.specs or {}).get("audio", [])),
-        "subtitles": used(s for i in items for s in (i.specs or {}).get("subtitles", [])),
-        "ratios": used(r for i in items for r in (i.specs or {}).get("ratios", [])),
-        "features": used(f for i in items for f in (i.specs or {}).get("features", [])),
-        "extras": used(e for i in items for e in (i.specs or {}).get("extras", [])),
-        "audience_rating": used((i.specs or {}).get("audience_rating") for i in items),
-        "adaptation_of": used((i.specs or {}).get("adaptation_of") for i in items),
-        "box_set": sorted(boxes, key=str.lower),
-    }
+@router.get("/picklists")
+async def picklists(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Every pick list with its values and how many discs use each."""
+    counts = await _pick_counts(db, current_user.id)
+    return {"lists": [
+        {
+            "key": field,
+            "label": label,
+            "group": group,
+            "many": many,
+            "values": [{"value": v, "count": counts[field][v]} for v in sorted(counts[field], key=str.lower)],
+        }
+        for field, (label, group, _, many) in PICK_LISTS.items()
+    ]}
+
+
+class PickChange(BaseModel):
+    value: str
+    new_value: str | None = None
+
+
+def _pick_field(field: str) -> str:
+    if field not in PICK_LISTS:
+        raise HTTPException(status_code=404, detail="No such pick list")
+    return field
+
+
+@router.post("/picklists/{field}")
+async def add_pick_value(
+    field: str,
+    body: PickChange,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Add a value to a pick list before any disc uses it."""
+    _pick_field(field)
+    value = body.value.strip()
+    if not value:
+        raise HTTPException(status_code=422, detail="Type a value")
+    exists = await db.scalar(select(PhysicalPickValue.id).where(
+        PhysicalPickValue.user_id == current_user.id, PhysicalPickValue.field == field, PhysicalPickValue.value == value,
+    ))
+    if not exists:
+        db.add(PhysicalPickValue(user_id=current_user.id, field=field, value=value))
+        await db.commit()
+    return {"added": value}
+
+
+@router.patch("/picklists/{field}")
+async def rename_pick_value(
+    field: str,
+    body: PickChange,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Rename a value on every disc that has it. Renaming to a value that's
+    already in the list merges the two."""
+    _pick_field(field)
+    new = (body.new_value or "").strip()
+    if not new:
+        raise HTTPException(status_code=422, detail="Type the new name")
+    items = (await db.execute(select(PhysicalItem).where(PhysicalItem.user_id == current_user.id))).scalars().all()
+    changed = replace_pick_value(items, field, body.value, new)
+    await _rename_added(db, current_user.id, field, body.value, new)
+    await db.commit()
+    return {"changed": changed}
+
+
+@router.delete("/picklists/{field}")
+async def remove_pick_value(
+    field: str,
+    value: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Take a value off the list and off every disc that has it."""
+    _pick_field(field)
+    items = (await db.execute(select(PhysicalItem).where(PhysicalItem.user_id == current_user.id))).scalars().all()
+    changed = replace_pick_value(items, field, value, None)
+    await _rename_added(db, current_user.id, field, value, None)
+    await db.commit()
+    return {"changed": changed}
+
+
+async def _rename_added(db: AsyncSession, user_id: int, field: str, old: str, new: str | None) -> None:
+    """Keep a hand-added value's entry in step when it's renamed or removed."""
+    row = await db.scalar(select(PhysicalPickValue).where(
+        PhysicalPickValue.user_id == user_id, PhysicalPickValue.field == field, PhysicalPickValue.value == old,
+    ))
+    if row is None:
+        return
+    taken = new is not None and await db.scalar(select(PhysicalPickValue.id).where(
+        PhysicalPickValue.user_id == user_id, PhysicalPickValue.field == field, PhysicalPickValue.value == new,
+    ))
+    if new is None or taken:
+        await db.delete(row)
+    else:
+        row.value = new

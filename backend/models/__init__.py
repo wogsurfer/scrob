@@ -26,7 +26,7 @@ from .media_translation import MediaTranslation
 from .show_translation import ShowTranslation
 from .episode_order import EpisodeOrderMapping, UserShowEpisodeOrder
 from .watchlist import MovieWatchlist
-from .physical import PhysicalBoxSet, PhysicalItem, PhysicalLoan
+from .physical import PhysicalBoxSet, PhysicalItem, PhysicalLoan, PhysicalPickValue
 from .emby_library import EmbyLibrary
 from .emby_library_stats import EmbyLibraryStats
 

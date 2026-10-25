@@ -1,7 +1,7 @@
 ---
 // The add/edit form for a release in the physical collection, with every
-// Collectorz field. Pick-list fields suggest the values already used; list
-// fields (audio, subtitles...) take one value per line.
+// Collectorz field. Pick-list fields drop down the values already used (or
+// take a new one); list fields (audio, subtitles...) are tick lists.
 import type { PhysicalDetail } from "../lib/api";
 
 interface Props {
@@ -14,7 +14,12 @@ interface Props {
 const { item, options, coverUrl } = Astro.props;
 const s: Record<string, any> = item?.specs ?? {};
 const v = (x: unknown) => (x == null ? "" : String(x));
-const lines = (x?: string[]) => (x ?? []).join("\n");
+// A tick list's entries: the release's own values first (in their order),
+// then every other value used across the collection.
+const ticks = (key: string) => {
+  const mine: string[] = s[key] ?? [];
+  return [...mine.map((o) => ({ o, on: true })), ...(options[key] ?? []).filter((o) => !mine.includes(o)).map((o) => ({ o, on: false }))];
+};
 const isEdit = !!item?.id;
 const lists: { key: string; label: string; hint: string }[] = [
   { key: "regions", label: "Regions", hint: "Region A" },
@@ -27,8 +32,7 @@ const lists: { key: string; label: string; hint: string }[] = [
 ---
 
 <form id="phys-form" class="pf" data-id={item?.id ?? ""} novalidate>
-  <datalist id="pf-format">{(options.format ?? []).map((o) => <option value={o} />)}</datalist>
-  {["package", "distributor", "store", "condition", "location", "owner", "series", "box_set", "audience_rating", "adaptation_of"].map((k) => (
+  {["format", "edition", "package", "distributor", "store", "condition", "location", "owner", "series", "box_set", "audience_rating", "adaptation_of", "layers", "hdr", "color"].map((k) => (
     <datalist id={`pf-${k}`}>{(options[k] ?? []).map((o) => <option value={o} />)}</datalist>
   ))}
 
@@ -55,11 +59,11 @@ const lists: { key: string; label: string; hint: string }[] = [
         </select>
       </label>
       <label class="pf-check"><input type="checkbox" name="is_tv" checked={!!item?.is_tv} /> TV series release</label>
-      <label>Series<input name="series" list="pf-series" value={v(item?.series)} /></label>
-      <label>Box set<input name="box_set" list="pf-box_set" value={v(item?.box_set)} /></label>
+      <label>Series<input name="series" data-combo="pf-series" value={v(item?.series)} /></label>
+      <label>Box set<input name="box_set" data-combo="pf-box_set" value={v(item?.box_set)} /></label>
       <label>Title extension<input name="specs.title_extension" value={v(s.title_extension)} /></label>
       <label>Original title<input name="specs.original_title" value={v(s.original_title)} /></label>
-      <label>Adaptation of<input name="specs.adaptation_of" list="pf-adaptation_of" value={v(s.adaptation_of)} placeholder="Novel, Comics, TV Series…" /></label>
+      <label>Adaptation of<input name="specs.adaptation_of" data-combo="pf-adaptation_of" value={v(s.adaptation_of)} placeholder="Novel, Comics, TV Series…" /></label>
       <label class="pf-wide">Based on<input name="specs.adapted_titles" value={v(s.adapted_titles)} placeholder='"The A-Team"' /></label>
       <label class="pf-full">Tagline<input name="specs.tagline" value={v(s.tagline)} /></label>
       <label class="pf-full">Plot<textarea name="specs.plot" rows="3">{v(s.plot)}</textarea></label>
@@ -69,27 +73,35 @@ const lists: { key: string; label: string; hint: string }[] = [
   <section class="pf-card">
     <h2>Edition</h2>
     <div class="pf-grid">
-      <label>Format<input name="format" list="pf-format" value={v(item?.format)} /></label>
-      <label class="pf-wide">Edition<input name="edition" value={v(item?.edition)} placeholder="2 Disc: 4K Ultra HD + Blu-ray + Digital Code" /></label>
-      <label>Distributor<input name="distributor" list="pf-distributor" value={v(item?.distributor)} /></label>
+      <label>Format<input name="format" data-combo="pf-format" value={v(item?.format)} /></label>
+      <label class="pf-wide">Edition<input name="edition" data-combo="pf-edition" value={v(item?.edition)} placeholder="2 Disc: 4K Ultra HD + Blu-ray + Digital Code" /></label>
+      <label>Distributor<input name="distributor" data-combo="pf-distributor" value={v(item?.distributor)} /></label>
       <label>Barcode<input name="barcode" inputmode="numeric" value={v(item?.barcode)} /></label>
-      <label>Packaging<input name="package" list="pf-package" value={v(item?.package)} /></label>
+      <label>Packaging<input name="package" data-combo="pf-package" value={v(item?.package)} /></label>
       <label>Discs<input name="disc_count" type="number" min="1" value={v(item?.disc_count)} /></label>
       <label>Disc release date<input name="disc_release_date" type="date" value={v(item?.disc_release_date)} /></label>
       <label>Running time (min)<input name="runtime" type="number" min="1" value={v(item?.runtime)} /></label>
-      <label>Age rating<input name="specs.audience_rating" list="pf-audience_rating" value={v(s.audience_rating)} /></label>
-      <label>Layers<input name="specs.layers" value={v(s.layers)} placeholder="Single Side, Dual Layer" /></label>
-      <label>HDR<input name="specs.hdr" value={v(s.hdr)} placeholder="HDR10, Dolby Vision" /></label>
-      <label>Colour<input name="specs.color" value={v(s.color)} placeholder="Color" /></label>
+      <label>Age rating<input name="specs.audience_rating" data-combo="pf-audience_rating" value={v(s.audience_rating)} /></label>
+      <label>Layers<input name="specs.layers" data-combo="pf-layers" value={v(s.layers)} placeholder="Single Side, Dual Layer" /></label>
+      <label>HDR<input name="specs.hdr" data-combo="pf-hdr" value={v(s.hdr)} placeholder="HDR10, Dolby Vision" /></label>
+      <label>Colour<input name="specs.color" data-combo="pf-color" value={v(s.color)} placeholder="Color" /></label>
     </div>
   </section>
 
   <section class="pf-card">
     <h2>Picture, sound and extras</h2>
-    <p class="pf-hint">One per line.</p>
+    <p class="pf-hint">Tick what this release has. Type in a box to find a value, or press Enter to add a new one. Tidy the lists on the <a href="/collection/picklists" target="_blank">Pick Lists</a> page.</p>
     <div class="pf-grid pf-lists">
       {lists.map((l) => (
-        <label>{l.label}<textarea name={`list.${l.key}`} rows="4" placeholder={l.hint}>{lines(s[l.key])}</textarea></label>
+        <div class="pf-ticks" data-key={l.key}>
+          <p class="pf-ticks-label">{l.label} <span class="pf-ticks-count"></span></p>
+          <input class="pf-ticks-find" placeholder={`Find or add, e.g. ${l.hint}`} autocomplete="off" />
+          <div class="pf-ticks-list">
+            {ticks(l.key).map(({ o, on }) => (
+              <label class="pf-tick"><input type="checkbox" name={`list.${l.key}`} value={o} checked={on} /><span>{o}</span></label>
+            ))}
+          </div>
+        </div>
       ))}
       <label class="pf-full">Extra features<textarea name="specs.extra_features" rows="6">{v(s.extra_features)}</textarea></label>
     </div>
@@ -101,10 +113,10 @@ const lists: { key: string; label: string; hint: string }[] = [
       <label>Purchase date<input name="purchase_date" type="date" value={v(item?.purchase_date)} /></label>
       <label>Price paid<input name="purchase_price" type="number" step="0.01" min="0" value={v(item?.purchase_price)} /></label>
       <label>Current value<input name="current_value" type="number" step="0.01" min="0" value={v(item?.current_value)} /></label>
-      <label>Store<input name="store" list="pf-store" value={v(item?.store)} /></label>
-      <label>Condition<input name="condition" list="pf-condition" value={v(item?.condition)} /></label>
-      <label>Location<input name="location" list="pf-location" value={v(item?.location)} /></label>
-      <label>Owner<input name="owner" list="pf-owner" value={v(item?.owner)} /></label>
+      <label>Store<input name="store" data-combo="pf-store" value={v(item?.store)} /></label>
+      <label>Condition<input name="condition" data-combo="pf-condition" value={v(item?.condition)} /></label>
+      <label>Location<input name="location" data-combo="pf-location" value={v(item?.location)} /></label>
+      <label>Owner<input name="owner" data-combo="pf-owner" value={v(item?.owner)} /></label>
       <label>Index<input name="index_no" type="number" min="0" value={v(item?.index_no)} /></label>
       <label>My rating (out of 10)<input name="my_rating" type="number" min="1" max="10" value={v(item?.my_rating)} /></label>
       <label>Seen in cinema
@@ -238,17 +250,122 @@ const lists: { key: string; label: string; hint: string }[] = [
       });
     });
 
+    // Pick-list fields: an arrow that drops down every value used so far,
+    // narrowed as you type; anything new can still be typed in.
+    form.querySelectorAll<HTMLInputElement>("input[data-combo]").forEach((input) => {
+      const values = [...document.querySelectorAll<HTMLOptionElement>(`#${input.dataset.combo} option`)].map((o) => o.value);
+      const wrap = document.createElement("div");
+      wrap.className = "pf-combo";
+      input.replaceWith(wrap);
+      const arrow = document.createElement("button");
+      arrow.type = "button";
+      arrow.className = "pf-combo-arrow";
+      arrow.tabIndex = -1;
+      arrow.setAttribute("aria-label", "Show all");
+      const menu = document.createElement("div");
+      menu.className = "pf-combo-menu";
+      menu.hidden = true;
+      wrap.append(input, arrow, menu);
+      input.autocomplete = "off";
+      let active = -1;
+
+      const render = (all: boolean) => {
+        const q = input.value.trim().toLowerCase();
+        const shown = all || !q ? values : values.filter((x) => x.toLowerCase().includes(q));
+        active = -1;
+        menu.innerHTML = shown.length
+          ? shown.map((x) => `<button type="button" class="pf-combo-opt${x === input.value ? " on" : ""}" data-v="${x.replace(/"/g, "&quot;")}"></button>`).join("")
+          : `<p class="pf-combo-none">${values.length ? "No match: it'll be saved as a new value" : "Nothing used yet: type a value"}</p>`;
+        menu.querySelectorAll<HTMLElement>(".pf-combo-opt").forEach((b) => (b.textContent = b.dataset.v!));
+        menu.hidden = false;
+        menu.querySelector(".on")?.scrollIntoView({ block: "nearest" });
+      };
+      const close = () => { menu.hidden = true; };
+      const pick = (x: string) => { input.value = x; close(); input.dispatchEvent(new Event("change", { bubbles: true })); };
+      const move = (d: number) => {
+        const opts = [...menu.querySelectorAll<HTMLElement>(".pf-combo-opt")];
+        if (!opts.length) return;
+        active = (active + d + opts.length) % opts.length;
+        opts.forEach((o, i) => o.classList.toggle("active", i === active));
+        opts[active].scrollIntoView({ block: "nearest" });
+      };
+
+      arrow.addEventListener("click", (e) => {
+        e.preventDefault();
+        if (menu.hidden) { render(true); input.focus(); } else close();
+      });
+      input.addEventListener("input", () => render(false));
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "ArrowDown") { e.preventDefault(); if (menu.hidden) render(true); else move(1); }
+        else if (e.key === "ArrowUp") { e.preventDefault(); move(-1); }
+        else if (e.key === "Escape") close();
+        else if (e.key === "Enter" && !menu.hidden) {
+          e.preventDefault();
+          const opt = menu.querySelectorAll<HTMLElement>(".pf-combo-opt")[active];
+          if (opt) pick(opt.dataset.v!); else close();
+        }
+      });
+      menu.addEventListener("mousedown", (e) => e.preventDefault());
+      menu.addEventListener("click", (e) => {
+        const opt = (e.target as HTMLElement).closest<HTMLElement>(".pf-combo-opt");
+        if (opt) pick(opt.dataset.v!);
+      });
+      input.addEventListener("blur", close);
+    });
+
+    // Tick lists: find a value, or add a new one with Enter.
+    form.querySelectorAll<HTMLElement>(".pf-ticks").forEach((box) => {
+      const find = box.querySelector<HTMLInputElement>(".pf-ticks-find")!;
+      const list = box.querySelector<HTMLElement>(".pf-ticks-list")!;
+      const count = box.querySelector<HTMLElement>(".pf-ticks-count")!;
+      const boxes = () => [...list.querySelectorAll<HTMLInputElement>("input[type=checkbox]")];
+      const recount = () => {
+        const n = boxes().filter((c) => c.checked).length;
+        count.textContent = n ? `${n} ticked` : "";
+      };
+      const filter = () => {
+        const q = find.value.trim().toLowerCase();
+        for (const c of boxes()) c.closest<HTMLElement>(".pf-tick")!.hidden = !!q && !c.value.toLowerCase().includes(q);
+      };
+      find.addEventListener("input", filter);
+      find.addEventListener("keydown", (e) => {
+        if (e.key !== "Enter") return;
+        e.preventDefault();
+        const value = find.value.trim();
+        if (!value) return;
+        const existing = boxes().find((c) => c.value.toLowerCase() === value.toLowerCase());
+        if (existing) existing.checked = true;
+        else {
+          // New values go after the ticked ones, so the order stays as entered.
+          const row = document.createElement("label");
+          row.className = "pf-tick";
+          row.innerHTML = `<input type="checkbox" name="list.${box.dataset.key}" checked /><span></span>`;
+          row.querySelector("input")!.value = value;
+          row.querySelector("span")!.textContent = value;
+          const lastOn = boxes().filter((c) => c.checked).pop()?.closest(".pf-tick");
+          if (lastOn) lastOn.after(row); else list.prepend(row);
+        }
+        find.value = "";
+        filter();
+        recount();
+      });
+      list.addEventListener("change", recount);
+      recount();
+    });
+
     const numberFields = ["release_year", "tmdb_id", "disc_count", "runtime", "index_no", "my_rating"];
     const decimalFields = ["purchase_price", "current_value"];
 
     function collect() {
       const fd = new FormData(form!);
       const body: Record<string, any> = { specs: {} };
+      // Tick lists with nothing ticked are cleared.
+      form!.querySelectorAll<HTMLElement>(".pf-ticks").forEach((b) => (body.specs[b.dataset.key!] = null));
       for (const [name, raw] of fd.entries()) {
         if (raw instanceof File || name === "cover_url") continue;
         const value = String(raw).trim();
         if (name.startsWith("specs.")) body.specs[name.slice(6)] = value || null;
-        else if (name.startsWith("list.")) body.specs[name.slice(5)] = value ? value.split("\n").map((x) => x.trim()).filter(Boolean) : null;
+        else if (name.startsWith("list.")) body.specs[name.slice(5)] = [...(body.specs[name.slice(5)] ?? []), value];
         else if (name === "tags") body.tags = value ? value.split(",").map((x) => x.trim()).filter(Boolean) : [];
         else if (numberFields.includes(name)) body[name] = value ? parseInt(value, 10) : null;
         else if (decimalFields.includes(name)) body[name] = value ? parseFloat(value) : null;
@@ -304,12 +421,39 @@ const lists: { key: string; label: string; hint: string }[] = [
   .pf-card { padding: 18px; border-radius: 18px; background: #0a0a0a; border: 1px solid #1c1c1f; }
   .pf-card h2 { margin-bottom: 12px; color: #f87171; font-size: 12px; font-weight: 900; letter-spacing: .14em; text-transform: uppercase; }
   .pf-hint { margin: -6px 0 10px; color: #71717a; font-size: 12px; }
+  .pf-hint a { color: #e4e4e7; text-decoration: underline; }
   .pf-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px 14px; }
   .pf-grid label { display: flex; flex-direction: column; gap: 5px; color: #a1a1aa; font-size: 12px; font-weight: 700; }
   .pf-wide { grid-column: span 2; }
   .pf-full { grid-column: 1 / -1; }
   .pf input:not([type="checkbox"]):not([type="file"]), .pf select, .pf textarea { width: 100%; padding: 8px 10px; border-radius: 10px; background: #111113; border: 1px solid #27272a; color: #f4f4f5; font-size: 14px; font-weight: 500; }
   .pf textarea { resize: vertical; font-family: inherit; line-height: 1.45; }
+  .pf :global(.pf-combo) { position: relative; }
+  .pf :global(.pf-combo input) { padding-right: 34px !important; }
+  .pf :global(.pf-combo-arrow) { position: absolute; top: 0; right: 0; bottom: 0; width: 32px; border-radius: 0 10px 10px 0; color: #a1a1aa; cursor: pointer; }
+  .pf :global(.pf-combo-arrow)::after { content: ""; position: absolute; left: 50%; top: 50%; width: 7px; height: 7px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: translate(-50%, -70%) rotate(45deg); }
+  .pf :global(.pf-combo-arrow:hover) { color: #f4f4f5; }
+  .pf :global(.pf-combo-menu) { position: absolute; z-index: 30; top: calc(100% + 4px); left: 0; right: 0; max-height: 280px; overflow-y: auto; padding: 4px; border-radius: 10px; background: #18181b; border: 1px solid #3f3f46; box-shadow: 0 12px 30px rgba(0, 0, 0, .5); }
+  .pf :global(.pf-combo-opt) { display: block; width: 100%; padding: 7px 10px; border-radius: 7px; text-align: left; color: #e4e4e7; font-size: 13px; font-weight: 500; cursor: pointer; }
+  .pf :global(.pf-combo-opt:hover), .pf :global(.pf-combo-opt.active) { background: #27272a; }
+  .pf :global(.pf-combo-opt.on) { color: #fff; font-weight: 800; box-shadow: inset 3px 0 0 #e50914; }
+  .pf :global(.pf-combo-none) { padding: 8px 10px; color: #71717a; font-size: 12px; }
+  .pf-ticks { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .pf-ticks-label { color: #a1a1aa; font-size: 12px; font-weight: 700; }
+  .pf-ticks-count { margin-left: 4px; color: #e50914; font-size: 11px; }
+  .pf-ticks-list { display: flex; flex-direction: column; max-height: 220px; overflow-y: auto; padding: 4px; border-radius: 10px; background: #111113; border: 1px solid #27272a; }
+  /* !important: these labels sit in .pf-grid, whose label rule stacks its fields. */
+  .pf :global(.pf-tick) { display: flex; flex-direction: row !important; align-items: flex-start !important; gap: 8px !important; padding: 5px 6px; border-radius: 6px; color: #d4d4d8 !important; font-size: 13px !important; font-weight: 500 !important; cursor: pointer; }
+  .pf :global(.pf-tick:hover) { background: #1c1c1f; }
+  .pf :global(.pf-tick[hidden]) { display: none; }
+  .pf :global(.pf-tick input) { margin-top: 2px; accent-color: #e50914; flex: none; }
+  .pf :global(.pf-tick:has(input:checked)) { color: #fff !important; }
+  :global(html.light) .pf :global(.pf-combo-menu) { background: #fff; border-color: #d4d4d8; }
+  :global(html.light) .pf :global(.pf-combo-opt) { color: #27272a; }
+  :global(html.light) .pf :global(.pf-combo-opt:hover), :global(html.light) .pf :global(.pf-combo-opt.active) { background: #f4f4f5; }
+  :global(html.light) .pf .pf-ticks-list { background: #fff; border-color: #d4d4d8; }
+  :global(html.light) .pf :global(.pf-tick) { color: #3f3f46 !important; }
+  :global(html.light) .pf :global(.pf-tick:has(input:checked)) { color: #09090b !important; }
   .pf input:focus, .pf select:focus, .pf textarea:focus { outline: none; border-color: #e50914; }
   .pf-grid label.pf-check { flex-direction: row; align-items: center; gap: 8px; align-self: end; padding-bottom: 9px; color: #d4d4d8; }
   .pf-check input { width: 16px; height: 16px; accent-color: #e50914; }

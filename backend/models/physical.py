@@ -115,3 +115,16 @@ class PhysicalLoan(Base):
     notes       : Mapped[Optional[str]]  = mapped_column(Text)
 
     item : Mapped["PhysicalItem"] = relationship(back_populates="loans")
+
+
+class PhysicalPickValue(Base):
+    """A pick-list value added by hand, offered in the edit form even before
+    any disc uses it."""
+    __tablename__ = "physical_pick_values"
+
+    id      : Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id : Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    field   : Mapped[str] = mapped_column(String(50), nullable=False)
+    value   : Mapped[str] = mapped_column(String(500), nullable=False)
+
+    __table_args__ = (UniqueConstraint("user_id", "field", "value", name="uq_physical_pick_value"),)

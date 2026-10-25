@@ -53,19 +53,23 @@ def save_cover(data: bytes, name: str) -> str:
 
 
 async def link_media(db: AsyncSession, item: PhysicalItem, api_key: str | None) -> None:
-    """Point a film release at its movie row, creating the row from TMDB if
-    the film isn't in Watchd yet. Series releases aren't linked to a row."""
-    if item.is_tv or not item.tmdb_id or (item.specs or {}).get("tmdb_kind") == "tv":
+    """Point a release at its film or series row (by its TMDB id and TMDB
+    type), creating the row from TMDB if it isn't in Watchd yet."""
+    if not item.tmdb_id:
         item.media_id = None
         return
+    kind = MediaType.series if (item.specs or {}).get("tmdb_kind") == "tv" else MediaType.movie
     media = (await db.execute(
-        select(Media).where(Media.media_type == MediaType.movie, Media.tmdb_id == item.tmdb_id)
+        select(Media).where(Media.media_type == kind, Media.tmdb_id == item.tmdb_id)
         .order_by(Media.id).limit(1)
     )).scalar_one_or_none()
     if media is None:
-        media = Media(media_type=MediaType.movie, tmdb_id=item.tmdb_id, title=item.title)
+        media = Media(media_type=kind, tmdb_id=item.tmdb_id, title=item.series or item.title)
         await enrich_media(media, api_key=api_key)
         if not media.tmdb_data:
+            if kind == MediaType.series:
+                item.media_id = None
+                return
             # Collectorz sometimes holds a stale TMDB id; its IMDb id finds the film.
             corrected = await _tmdb_id_from_imdb((item.specs or {}).get("imdb_id"), api_key)
             if corrected and corrected != item.tmdb_id:
@@ -82,14 +86,25 @@ async def link_media(db: AsyncSession, item: PhysicalItem, api_key: str | None) 
 
 
 async def _tmdb_id_from_imdb(imdb_id: str | None, api_key: str | None) -> int | None:
+    found = await tmdb_entry_from_imdb(imdb_id, api_key, prefer="movie")
+    return found[0] if found and found[1] == "movie" else None
+
+
+async def tmdb_entry_from_imdb(imdb_id: str | None, api_key: str | None, prefer: str = "movie") -> tuple[int, str] | None:
+    """The TMDB (id, "movie" or "tv") for an IMDb id. A season set's IMDb
+    id is its series'; a TV special is often a film on TMDB, so both are
+    looked at, `prefer` first."""
     if not imdb_id:
         return None
     try:
         found = await tmdb.find_by_external_id(imdb_id, "imdb_id", api_key=api_key)
     except Exception:
         return None
-    results = found.get("movie_results") or []
-    return results[0].get("id") if results else None
+    for kind in (prefer, "tv" if prefer == "movie" else "movie"):
+        results = found.get(f"{kind}_results") or []
+        if results:
+            return results[0]["id"], kind
+    return None
 
 
 async def rebuild_collection_mirror(db: AsyncSession, user_id: int) -> int:
@@ -100,10 +115,12 @@ async def rebuild_collection_mirror(db: AsyncSession, user_id: int) -> int:
     films are in it.
     """
     owned = (await db.execute(
-        select(PhysicalItem.media_id, PhysicalItem.id, PhysicalItem.date_added).where(
+        select(PhysicalItem.media_id, PhysicalItem.id, PhysicalItem.date_added)
+        .join(Media, Media.id == PhysicalItem.media_id)
+        .where(
             PhysicalItem.user_id == user_id,
             PhysicalItem.status == "owned",
-            PhysicalItem.media_id.is_not(None),
+            Media.media_type == MediaType.movie,
         ).order_by(PhysicalItem.date_added)
     )).all()
 
@@ -318,3 +335,71 @@ async def fetch_cover(url: str) -> bytes | None:
     if res.status_code != 200 or not res.headers.get("content-type", "").startswith("image/") or len(res.content) > 15_000_000:
         return None
     return res.content
+
+
+# The pick lists the edit form offers, by key: (label, group, where it's
+# kept, whether a disc holds a list of values). "column" is a PhysicalItem
+# column, "specs" a key in its specs.
+PICK_LISTS: dict[str, tuple[str, str, str, bool]] = {
+    "format": ("Format", "Edition", "column", False),
+    "edition": ("Edition", "Edition", "column", False),
+    "distributor": ("Distributor", "Edition", "column", False),
+    "package": ("Packaging", "Edition", "column", False),
+    "series": ("Series", "Edition", "column", False),
+    "audience_rating": ("Age rating", "Edition", "specs", False),
+    "adaptation_of": ("Adaptation of", "Edition", "specs", False),
+    "layers": ("Layers", "Edition", "specs", False),
+    "hdr": ("HDR", "Edition", "specs", False),
+    "color": ("Colour", "Edition", "specs", False),
+    "regions": ("Regions", "Picture, sound and extras", "specs", True),
+    "ratios": ("Aspect ratios", "Picture, sound and extras", "specs", True),
+    "audio": ("Audio tracks", "Picture, sound and extras", "specs", True),
+    "subtitles": ("Subtitles", "Picture, sound and extras", "specs", True),
+    "features": ("On the disc", "Picture, sound and extras", "specs", True),
+    "extras": ("In the box", "Picture, sound and extras", "specs", True),
+    "store": ("Store", "Personal", "column", False),
+    "condition": ("Condition", "Personal", "column", False),
+    "location": ("Location", "Personal", "column", False),
+    "owner": ("Owner", "Personal", "column", False),
+    "tags": ("Tags", "Personal", "column", True),
+}
+
+
+def pick_values(item: PhysicalItem, field: str) -> list[str]:
+    """A disc's values for a pick list (one or none for a single field)."""
+    _, _, where, many = PICK_LISTS[field]
+    raw = getattr(item, field) if where == "column" else (item.specs or {}).get(field)
+    if many:
+        return [v for v in raw or [] if v]
+    return [raw] if raw else []
+
+
+def set_pick_values(item: PhysicalItem, field: str, values: list[str]) -> None:
+    _, _, where, many = PICK_LISTS[field]
+    # Kept once each, in order.
+    values = list(dict.fromkeys(v for v in values if v))
+    value = (values or None) if many else (values[0] if values else None)
+    if where == "column":
+        setattr(item, field, value if value is not None or not many else [])
+        return
+    specs = dict(item.specs or {})
+    if value is None:
+        specs.pop(field, None)
+    else:
+        specs[field] = value
+    item.specs = specs
+
+
+def replace_pick_value(items: list[PhysicalItem], field: str, old: str, new: str | None) -> int:
+    """Rename a value on every disc that has it (merging it into `new` when
+    that's already used), or remove it when `new` is None. Returns how many
+    discs changed."""
+    changed = 0
+    for item in items:
+        values = pick_values(item, field)
+        if old not in values:
+            continue
+        set_pick_values(item, field, [new if v == old else v for v in values if new is not None or v != old])
+        item.edited_locally = True
+        changed += 1
+    return changed

@@ -1,0 +1,209 @@
+---
+// The edit form's pick lists: rename, merge, remove or add their values.
+// Changes apply to every disc that uses the value.
+import Base from "../../layouts/Base.astro";
+import CollectionNav from "../../components/CollectionNav.astro";
+export const prerender = false;
+---
+
+<Base title="Pick lists">
+  <CollectionNav active="picklists" />
+
+  <div class="pk">
+    <aside class="pk-lists" id="pk-lists"><p class="pk-muted">Loading…</p></aside>
+    <section class="pk-panel">
+      <header class="pk-head">
+        <div>
+          <h2 id="pk-title"></h2>
+          <p class="pk-muted" id="pk-sub"></p>
+        </div>
+        <form id="pk-add" class="pk-add" autocomplete="off">
+          <input id="pk-new" placeholder="Add a value" />
+          <button type="submit">Add</button>
+        </form>
+      </header>
+      <input id="pk-find" class="pk-find" placeholder="Find a value" autocomplete="off" />
+      <p class="pk-error" id="pk-error" hidden></p>
+      <div id="pk-values" class="pk-values"></div>
+      <p class="pk-muted pk-help">Renaming changes it on every disc that has it. Rename one value to another that's already in the list to merge the two.</p>
+    </section>
+  </div>
+</Base>
+
+<script>
+  type Value = { value: string; count: number };
+  type List = { key: string; label: string; group: string; many: boolean; values: Value[] };
+
+  const listsEl = document.getElementById("pk-lists")!;
+  const valuesEl = document.getElementById("pk-values")!;
+  const title = document.getElementById("pk-title")!;
+  const sub = document.getElementById("pk-sub")!;
+  const find = document.getElementById("pk-find") as HTMLInputElement;
+  const errorEl = document.getElementById("pk-error")!;
+  const addForm = document.getElementById("pk-add") as HTMLFormElement;
+  const newInput = document.getElementById("pk-new") as HTMLInputElement;
+
+  let lists: List[] = [];
+  let current = new URLSearchParams(location.search).get("list") || "format";
+  let editing: string | null = null;
+
+  const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
+  const discs = (n: number) => (n === 1 ? "1 disc" : `${n.toLocaleString()} discs`);
+  const showError = (msg: string | null) => { errorEl.textContent = msg ?? ""; errorEl.hidden = !msg; };
+  const list = () => lists.find((l) => l.key === current) ?? lists[0];
+
+  async function load() {
+    const res = await fetch("/api/proxy/physical/picklists");
+    if (!res.ok) { listsEl.innerHTML = "<p class='pk-muted'>Couldn't load the pick lists.</p>"; return; }
+    lists = (await res.json()).lists;
+    render();
+  }
+
+  function render() {
+    const groups = [...new Set(lists.map((l) => l.group))];
+    listsEl.innerHTML = groups.map((g) => `
+      <p class="pk-group">${esc(g)}</p>
+      ${lists.filter((l) => l.group === g).map((l) => `
+        <button type="button" class="pk-list${l.key === current ? " on" : ""}" data-list="${l.key}">
+          <span>${esc(l.label)}</span><span class="pk-n">${l.values.length}</span>
+        </button>`).join("")}`).join("");
+    renderValues();
+  }
+
+  function renderValues() {
+    const l = list();
+    if (!l) return;
+    title.textContent = l.label;
+    const unused = l.values.filter((v) => !v.count).length;
+    sub.textContent = `${l.values.length} values${unused ? ` · ${unused} not on any disc` : ""}`;
+    const q = find.value.trim().toLowerCase();
+    const shown = l.values.filter((v) => !q || v.value.toLowerCase().includes(q));
+    valuesEl.innerHTML = shown.length ? shown.map((v) => v.value === editing ? `
+      <form class="pk-row editing" data-value="${esc(v.value)}">
+        <input class="pk-rename" value="${esc(v.value)}" />
+        <button type="submit" class="pk-btn">Save</button>
+        <button type="button" class="pk-btn" data-act="cancel">Cancel</button>
+      </form>` : `
+      <div class="pk-row" data-value="${esc(v.value)}">
+        <span class="pk-value">${esc(v.value)}</span>
+        <span class="pk-count${v.count ? "" : " none"}">${v.count ? discs(v.count) : "Not used"}</span>
+        <button type="button" class="pk-btn" data-act="rename">Rename</button>
+        <button type="button" class="pk-btn danger" data-act="remove">Remove</button>
+      </div>`).join("") : `<p class="pk-muted pk-empty">${q ? "No match." : "Nothing in this list yet."}</p>`;
+    const input = valuesEl.querySelector<HTMLInputElement>(".pk-rename");
+    if (input) { input.focus(); input.select(); }
+  }
+
+  async function send(method: string, body?: object, query = "") {
+    showError(null);
+    const res = await fetch(`/api/proxy/physical/picklists/${current}${query}`, {
+      method,
+      headers: body ? { "Content-Type": "application/json" } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    if (!res.ok) { showError((await res.json().catch(() => ({}))).detail || "That didn't work"); return false; }
+    await load();
+    return true;
+  }
+
+  listsEl.addEventListener("click", (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLElement>("[data-list]");
+    if (!b) return;
+    current = b.dataset.list!;
+    editing = null;
+    find.value = "";
+    history.replaceState(null, "", `?list=${current}`);
+    showError(null);
+    render();
+  });
+
+  find.addEventListener("input", renderValues);
+
+  valuesEl.addEventListener("click", async (e) => {
+    const act = (e.target as HTMLElement).closest<HTMLElement>("[data-act]")?.dataset.act;
+    const value = (e.target as HTMLElement).closest<HTMLElement>("[data-value]")?.dataset.value;
+    if (!act || value == null) return;
+    const v = list().values.find((x) => x.value === value)!;
+    if (act === "rename") { editing = value; renderValues(); }
+    else if (act === "cancel") { editing = null; renderValues(); }
+    else if (act === "remove") {
+      const msg = v.count ? `Remove "${value}" from ${discs(v.count)}? It's taken off each of them.` : `Remove "${value}" from the list?`;
+      if (confirm(msg)) await send("DELETE", undefined, `?value=${encodeURIComponent(value)}`);
+    }
+  });
+
+  valuesEl.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const row = e.target as HTMLElement;
+    const old = row.dataset.value!;
+    const value = row.querySelector<HTMLInputElement>(".pk-rename")!.value.trim();
+    if (!value || value === old) { editing = null; return renderValues(); }
+    const from = list().values.find((x) => x.value === old)!;
+    const into = list().values.find((x) => x.value === value);
+    if (into && !confirm(`"${value}" is already in the list. Merge "${old}" into it? ${discs(from.count)} will change.`)) return;
+    editing = null;
+    await send("PATCH", { value: old, new_value: value });
+  });
+
+  valuesEl.addEventListener("keydown", (e) => {
+    if ((e as KeyboardEvent).key === "Escape" && editing) { editing = null; renderValues(); }
+  });
+
+  addForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const value = newInput.value.trim();
+    if (!value) return;
+    if (list().values.some((x) => x.value === value)) return showError(`"${value}" is already in the list`);
+    if (await send("POST", { value })) newInput.value = "";
+  });
+
+  load();
+</script>
+
+<style is:global>
+  .pk { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 20px; align-items: start; }
+  .pk-lists { position: sticky; top: 80px; display: flex; flex-direction: column; gap: 2px; padding: 10px; border-radius: 18px; background: #0a0a0a; border: 1px solid #1c1c1f; }
+  .pk-group { margin: 10px 8px 4px; color: #e50914; font-size: 11px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
+  .pk-group:first-child { margin-top: 2px; }
+  .pk-list { display: flex; justify-content: space-between; align-items: center; padding: 7px 10px; border-radius: 9px; color: #a1a1aa; font-size: 13px; font-weight: 700; text-align: left; cursor: pointer; }
+  .pk-list:hover { background: #18181b; color: #f4f4f5; }
+  .pk-list.on { background: #27272a; color: #fff; }
+  .pk-n { color: #71717a; font-size: 11px; }
+  .pk-panel { padding: 18px; border-radius: 18px; background: #0a0a0a; border: 1px solid #1c1c1f; min-width: 0; }
+  .pk-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 12px; margin-bottom: 14px; }
+  .pk-head h2 { color: #f4f4f5; font-size: 22px; font-weight: 900; }
+  .pk-muted { color: #71717a; font-size: 13px; }
+  .pk-add { display: flex; gap: 6px; }
+  .pk input { padding: 8px 10px; border-radius: 10px; background: #111113; border: 1px solid #27272a; color: #f4f4f5; font-size: 14px; }
+  .pk input:focus { outline: none; border-color: #e50914; }
+  .pk-add input { width: 260px; }
+  .pk-add button { padding: 8px 16px; border-radius: 10px; background: #e50914; color: #fff; font-size: 13px; font-weight: 900; }
+  .pk-find { width: 100%; margin-bottom: 10px; }
+  .pk-error { margin-bottom: 10px; color: #f87171; font-size: 13px; font-weight: 700; }
+  .pk-values { display: flex; flex-direction: column; max-height: calc(100vh - 330px); min-height: 200px; overflow-y: auto; border-radius: 12px; border: 1px solid #1c1c1f; }
+  .pk-row { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-bottom: 1px solid #18181b; }
+  .pk-row:last-child { border-bottom: 0; }
+  .pk-row:hover { background: #111113; }
+  .pk-value { flex: 1; min-width: 0; color: #e4e4e7; font-size: 14px; overflow-wrap: anywhere; }
+  .pk-count { color: #a1a1aa; font-size: 12px; font-weight: 700; white-space: nowrap; }
+  .pk-count.none { color: #52525b; }
+  .pk-row.editing input { flex: 1; min-width: 0; }
+  .pk-btn { padding: 4px 10px; border-radius: 999px; border: 1px solid #3f3f46; color: #e4e4e7; font-size: 12px; font-weight: 800; cursor: pointer; opacity: .55; }
+  .pk-row:hover .pk-btn, .pk-row.editing .pk-btn { opacity: 1; }
+  .pk-btn:hover { border-color: #71717a; }
+  .pk-btn.danger { border-color: rgba(239, 68, 68, .5); color: #f87171; }
+  .pk-empty { padding: 20px; text-align: center; }
+  .pk-help { margin-top: 12px; font-size: 12px; }
+  @media (max-width: 760px) {
+    .pk { grid-template-columns: 1fr; }
+    .pk-lists { position: static; }
+    .pk-add input { width: 100%; }
+  }
+  html.light .pk-lists, html.light .pk-panel { background: #fafafa; border-color: #e4e4e7; }
+  html.light .pk-list.on { background: #e4e4e7; color: #09090b; }
+  html.light .pk-head h2, html.light .pk-value { color: #18181b; }
+  html.light .pk input { background: #fff; border-color: #d4d4d8; color: #18181b; }
+  html.light .pk-row { border-color: #f4f4f5; }
+  html.light .pk-row:hover { background: #f4f4f5; }
+  html.light .pk-btn { color: #27272a; border-color: #d4d4d8; }
+</style>
