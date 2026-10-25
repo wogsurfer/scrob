@@ -21,8 +21,9 @@ try {
 }
 
 const status = Astro.url.searchParams.get("status") === "wishlist" ? "wishlist" : "owned";
-const owned = items.filter((i) => i.status === "owned").length;
-const wishlist = items.filter((i) => i.status === "wishlist").length;
+// Counted as they sit on the shelf: a box set once.
+const owned = items.filter((i) => i.status === "owned" && !i.parent_id).length;
+const wishlist = items.filter((i) => i.status === "wishlist" && !i.parent_id).length;
 const loans = items.filter((i) => i.on_loan).length;
 ---
 
@@ -95,7 +96,7 @@ const loans = items.filter((i) => i.on_loan).length;
                 <option value="director">Director</option>
                 <option value="regions">Region</option>
                 <option value="edition">Edition</option>
-                <option value="box_set">Box set</option>
+                <option value="in_set">Box set</option>
                 <option value="series">Series</option>
                 <option value="tags">Tags</option>
                 <option value="audience_rating">Age rating</option>
@@ -153,6 +154,22 @@ const loans = items.filter((i) => i.on_loan).length;
   const dataEl = document.getElementById("coll-data");
   if (root && dataEl && document.getElementById("coll-grid")) {
     const all: PhysicalSummary[] = JSON.parse(dataEl.textContent || "[]");
+
+    // Box sets and multi-film discs are one entry on the shelf, with their
+    // films inside; a set counts as seen once all its films are.
+    const kidsOf = new Map<number, PhysicalSummary[]>();
+    for (const i of all) if (i.parent_id) kidsOf.set(i.parent_id, [...(kidsOf.get(i.parent_id) ?? []), i]);
+    for (const k of kidsOf.values()) k.sort((a, b) => (a.position ?? 1e9) - (b.position ?? 1e9));
+    const kids = (i: PhysicalSummary) => kidsOf.get(i.id) ?? [];
+    for (const i of all) {
+      if (!i.is_set) continue;
+      const k = kids(i);
+      i.seen = k.length > 0 && k.every((x) => x.seen);
+      const years = k.map((x) => x.release_year).filter((y): y is number => !!y);
+      if (!i.release_year && years.length) i.release_year = Math.min(...years);
+    }
+    const setSize = (k: PhysicalSummary[]) =>
+      `${k.length} ${k.every((x) => x.is_tv) ? (k.length === 1 ? "season" : "seasons") : k.some((x) => x.is_tv) ? (k.length === 1 ? "title" : "titles") : (k.length === 1 ? "film" : "films")}`;
     const icons = document.getElementById("coll-icons")!.dataset;
     const status = root.dataset.status || "owned";
     const PAGE = 240;
@@ -183,6 +200,8 @@ const loans = items.filter((i) => i.on_loan).length;
       group: new URL(location.href).searchParams.get("group") ?? saved.group ?? "format",
       folder: new URL(location.href).searchParams.get("folder") as string | null,
       shown: PAGE,
+      // Sets opened in the list view.
+      expanded: new Set<number>(),
       // ?tmdb= (from a film card) opens your copy of that film.
       selected: Number(new URL(location.href).searchParams.get("item"))
         || (() => {
@@ -216,6 +235,7 @@ const loans = items.filter((i) => i.on_loan).length;
         case "decade": return [i.release_year ? `${Math.floor(i.release_year / 10) * 10}s` : "(none)"];
         case "seen": return [i.seen ? "Seen" : "Not seen"];
         case "kind": return [i.is_tv ? "TV" : "Film"];
+        case "in_set": return [i.is_set ? i.title : "(none)"];
         default: {
           const v = (i as Record<string, unknown>)[group];
           return [v ? String(v) : "(none)"];
@@ -232,17 +252,37 @@ const loans = items.filter((i) => i.on_loan).length;
       return /[A-Z]/.test(c) ? c : "#";
     };
 
-    const inStatus = all.filter((i) => i.status === status);
+    const inStatus = all.filter((i) => i.status === status && !i.parent_id);
+
+    // A set is in every folder its films are in (and its own).
+    const folderOf = (i: PhysicalSummary, group: string): string[] => {
+      if (!i.is_set || group === "seen" || group === "in_set") return folderValues(i, group);
+      const values = new Set([i, ...kids(i)].flatMap((x) => folderValues(x, group)).filter((v) => v !== "(none)"));
+      return values.size ? [...values] : ["(none)"];
+    };
+    const qMatch = (i: PhysicalSummary) => {
+      if (!state.q) return true;
+      const hay = [i.title, i.title_extension, i.edition, i.barcode, i.director, i.distributor, i.series, i.store, ...(i.tags || [])]
+        .filter(Boolean).join(" ").toLowerCase();
+      return state.q.toLowerCase().split(/\s+/).every((w) => hay.includes(w));
+    };
 
     function matches(i: PhysicalSummary, skipFolder = false) {
       if (state.letter !== "All" && firstLetter(i) !== state.letter) return false;
-      if (!skipFolder && state.group && state.folder != null && !folderValues(i, state.group).includes(state.folder)) return false;
-      if (state.q) {
-        const hay = [i.title, i.title_extension, i.edition, i.barcode, i.director, i.distributor, i.box_set, i.series, i.store, ...(i.tags || [])]
-          .filter(Boolean).join(" ").toLowerCase();
-        if (!state.q.toLowerCase().split(/\s+/).every((w) => hay.includes(w))) return false;
-      }
+      if (!skipFolder && state.group && state.folder != null && !folderOf(i, state.group).includes(state.folder)) return false;
+      if (state.q && !qMatch(i) && !(i.is_set && kids(i).some(qMatch))) return false;
       return true;
+    }
+
+    // The films in a set that brought it into a search or folder, when
+    // that's only some of them.
+    function hits(i: PhysicalSummary): PhysicalSummary[] {
+      if (!i.is_set || (!state.q && state.folder == null)) return [];
+      // Found by its own name: the whole set's the answer.
+      if (state.q && state.folder == null && qMatch(i)) return [];
+      const k = kids(i);
+      const h = k.filter((x) => qMatch(x) && (!state.group || state.folder == null || folderValues(x, state.group).includes(state.folder)));
+      return h.length < k.length ? h : [];
     }
 
     function sorted(items: PhysicalSummary[]) {
@@ -263,7 +303,7 @@ const loans = items.filter((i) => i.on_loan).length;
       folderList.innerHTML = "";
       if (!state.group) return;
       const counts = new Map<string, number>();
-      for (const i of inStatus) if (matches(i, true)) for (const v of folderValues(i, state.group)) counts.set(v, (counts.get(v) || 0) + 1);
+      for (const i of inStatus) if (matches(i, true)) for (const v of folderOf(i, state.group)) counts.set(v, (counts.get(v) || 0) + 1);
       const numeric = ["purchase_year", "decade"].includes(state.group);
       const entries = [...counts].sort((a, b) =>
         a[0] === "(none)" ? 1 : b[0] === "(none)" ? -1 : numeric ? b[0].localeCompare(a[0]) : a[0].localeCompare(b[0]),
@@ -276,20 +316,30 @@ const loans = items.filter((i) => i.on_loan).length;
 
     function card(i: PhysicalSummary) {
       const seen = i.seen ? icons.red : icons.white;
-      return `<button type="button" class="coll-card${i.id === state.selected ? " selected" : ""}" data-id="${i.id}" title="${esc(i.title)}${i.edition ? ` · ${esc(i.edition)}` : ""}">
+      const k = kids(i);
+      const h = hits(i);
+      const sub = h.length ? `Includes ${h.map((x) => x.title).join(", ")}` : [i.release_year, i.edition].filter(Boolean).join(" · ");
+      return `<button type="button" class="coll-card${i.is_set ? " is-set" : ""}${i.id === state.selected ? " selected" : ""}" data-id="${i.id}" title="${esc(i.title)}${i.is_set ? ` · ${esc(k.map((x) => x.title).join(", "))}` : i.edition ? ` · ${esc(i.edition)}` : ""}">
         <span class="coll-cover">${i.cover ? `<img src="${i.cover}" alt="" loading="lazy" decoding="async" />` : `<span class="coll-nocover">${esc(i.title)}</span>`}
           <span class="coll-fmt coll-fmt-${formatClass(i.format)}">${esc(formatLabel(i.format))}</span>
           ${status === "owned" ? `<img class="coll-w" src="${seen}" alt="${i.seen ? "Seen" : "Not seen"}" />` : ""}
           ${i.on_loan ? `<span class="coll-loan">On loan</span>` : ""}
+          ${i.is_set ? `<span class="coll-set">${esc(setSize(k))}</span>` : ""}
         </span>
         <span class="coll-card-title">${esc(i.title)}</span>
-        <span class="coll-card-sub">${[i.release_year, i.edition].filter(Boolean).map(esc).join(" · ")}</span>
+        <span class="coll-card-sub${h.length ? " hit" : ""}">${esc(sub)}</span>
       </button>`;
     }
 
-    function row(i: PhysicalSummary) {
-      return `<tr data-id="${i.id}" class="${i.id === state.selected ? "selected" : ""}">
-        <td class="t">${esc(i.title)}${i.on_loan ? ` <span class="coll-loan-inline">On loan</span>` : ""}</td>
+    function row(i: PhysicalSummary, kid = false): string {
+      const k = kids(i);
+      const h = hits(i);
+      const open = i.is_set && (state.expanded.has(i.id) || h.length > 0);
+      const toggle = i.is_set
+        ? `<button type="button" class="coll-expand${open ? " open" : ""}" data-expand="${i.id}" aria-label="${open ? "Hide" : "Show"} the films in this set">▸</button>`
+        : "";
+      const self = `<tr data-id="${i.id}" class="${[i.id === state.selected && "selected", kid && "kid", i.is_set && "set"].filter(Boolean).join(" ")}">
+        <td class="t">${toggle}${esc(i.title)}${i.is_set ? ` <span class="coll-set-inline">${esc(setSize(k))}</span>` : ""}${i.on_loan ? ` <span class="coll-loan-inline">On loan</span>` : ""}</td>
         <td>${esc(i.release_year)}</td>
         <td><span class="coll-fmt-inline coll-fmt-${formatClass(i.format)}">${esc(formatLabel(i.format))}</span></td>
         <td class="dim">${esc(i.edition)}</td>
@@ -299,6 +349,7 @@ const loans = items.filter((i) => i.on_loan).length;
         <td>${i.my_rating ? `${i.my_rating}/10` : ""}</td>
         <td>${i.seen ? "Yes" : ""}</td>
       </tr>`;
+      return open ? self + (h.length && !state.expanded.has(i.id) ? h : k).map((x) => row(x, true)).join("") : self;
     }
 
     function render() {
@@ -309,7 +360,7 @@ const loans = items.filter((i) => i.on_loan).length;
       list.hidden = state.view !== "list";
       grid.style.setProperty("--cover", `${state.size}px`);
       if (state.view === "grid") grid.innerHTML = page.map(card).join("");
-      else rows.innerHTML = page.map(row).join("");
+      else rows.innerHTML = page.map((i) => row(i)).join("");
       moreBtn.hidden = visible.length <= state.shown;
       moreBtn.textContent = `Show more (${(visible.length - state.shown).toLocaleString()} left)`;
       document.querySelectorAll<HTMLButtonElement>("#coll-letters button").forEach((b) => b.classList.toggle("active", b.dataset.letter === state.letter));
@@ -356,6 +407,15 @@ const loans = items.filter((i) => i.on_loan).length;
       // Multi-disc releases list what's on each disc, so "On the disc" would repeat it.
       const discs = discsHtml(d);
       const people = (role: string) => (s.crew || []).filter((c: any) => c.role === role).map((c: any) => esc(c.name)).join(", ");
+      // A film in a set: the shelf details (barcode, price, location...) are the set's.
+      const p = d.parent;
+      const shelf = p ?? d;
+      const seenOf = d.contents.filter((x) => x.seen).length;
+      const films = (list: PhysicalDetail["contents"], cls = "") => `<div class="cd-mini ${cls}">${list.map((b) => `<button type="button" data-id="${b.id}">
+        ${b.cover ? `<img src="${b.cover}" alt="" loading="lazy" />` : `<span class="cd-mini-none">${esc(b.title)}</span>`}
+        <span>${esc(b.title)}${b.release_year ? ` (${b.release_year})` : ""}</span>
+        ${status === "owned" ? `<img class="cd-mini-w" src="${b.seen ? icons.red : icons.white}" alt="${b.seen ? "Seen" : "Not seen"}" />` : ""}
+      </button>`).join("")}</div>`;
       return `
         ${d.backdrop ? `<div class="cd-backdrop" style="background-image:url('${esc(d.backdrop)}')"></div>` : ""}
         <button type="button" class="cd-close" aria-label="Close">×</button>
@@ -365,10 +425,12 @@ const loans = items.filter((i) => i.on_loan).length;
           </button>
           <div class="cd-head">
             <h2>${esc(d.title)}${s.title_extension ? ` <span>${esc(s.title_extension)}</span>` : ""}</h2>
+            ${p ? `<button type="button" class="cd-partof" data-id="${p.id}">Part of <b>${esc(p.title)}</b></button>` : ""}
             <p class="cd-sub">${[d.release_year, s.studios?.slice(0, 2).join(" / ")].filter(Boolean).map(esc).join(" · ")}</p>
-            ${d.edition ? `<p class="cd-edition">${esc(d.edition)}</p>` : ""}
+            ${shelf.edition ? `<p class="cd-edition">${esc(shelf.edition)}</p>` : ""}
             <div class="cd-badges">
-              ${d.format ? `<span class="cd-badge coll-fmt-${formatClass(d.format)}">${esc(d.format)}</span>` : ""}
+              ${shelf.format ? `<span class="cd-badge coll-fmt-${formatClass(shelf.format)}">${esc(shelf.format)}</span>` : ""}
+              ${d.is_set ? `<span class="cd-badge cd-setbadge">${esc(setSize(d.contents as any))}</span>` : ""}
               ${(d.regions || []).map((r) => `<span class="cd-badge cd-region">${esc(r.replace("Region ", ""))}</span>`).join("")}
               ${d.audience_rating ? `<span class="cd-badge cd-age">${esc(ageRating(d.audience_rating))}</span>` : ""}
               ${d.status === "wishlist" ? `<span class="cd-badge cd-wish">Wish list</span>` : ""}
@@ -377,9 +439,9 @@ const loans = items.filter((i) => i.on_loan).length;
               ${d.imdb_rating ? `<span class="cd-imdb">IMDb <b>${d.imdb_rating}</b>${s.imdb_votes ? ` <i>${Number(s.imdb_votes).toLocaleString()}</i>` : ""}</span>` : ""}
               ${stars(d.my_rating)}
             </div>
-            <p class="cd-seen ${d.seen ? "on" : ""}">
-              <img src="${d.seen ? icons.red : icons.white}" alt="" />
-              ${watchedText(d)}
+            <p class="cd-seen ${(d.is_set ? d.contents.length > 0 && seenOf === d.contents.length : d.seen) ? "on" : ""}">
+              <img src="${(d.is_set ? d.contents.length > 0 && seenOf === d.contents.length : d.seen) ? icons.red : icons.white}" alt="" />
+              ${d.is_set ? `Seen ${seenOf} of ${d.contents.length}` : watchedText(d)}
             </p>
           </div>
           <div class="cd-story">
@@ -387,11 +449,13 @@ const loans = items.filter((i) => i.on_loan).length;
             ${s.plot ? `<p class="cd-plot-label">Plot</p><p class="cd-plot">${esc(s.plot)}</p>` : ""}
         <div class="cd-actions">
           <a class="cd-btn" href="/collection/${d.id}/edit">Edit</a>
-          ${d.status === "owned" ? (activeLoan
+          ${d.status === "owned" && !p ? (activeLoan
             ? `<button type="button" class="cd-btn" data-return="${activeLoan.id}">Mark returned</button>`
             : `<button type="button" class="cd-btn" data-lend="${d.id}">Lend</button>`) : ""}
+          ${d.is_set ? `<a class="cd-btn ghost" href="/collection/add?set=${encodeURIComponent(d.title)}">Add a film</a>` : ""}
           ${filmHref ? `<a class="cd-btn ghost" href="${filmHref}">${d.tmdb_kind === "tv" ? "Show page" : "Film page"} →</a>` : ""}
         </div>
+        ${p?.on_loan ? `<p class="cd-loan-note">Out on loan with the set</p>` : ""}
         ${activeLoan ? `<p class="cd-loan-note">Lent to <b>${esc(activeLoan.loaned_to)}</b> on ${esc(fmtDate(activeLoan.loan_date))}${activeLoan.due_date ? `, due ${esc(fmtDate(activeLoan.due_date))}` : ""}</p>` : ""}
         <form class="cd-lend" hidden>
           <input name="loaned_to" placeholder="Who's borrowing it?" required />
@@ -402,9 +466,10 @@ const loans = items.filter((i) => i.on_loan).length;
         </div>
 
         <div class="cd-sections">
+        ${d.is_set ? section(`In this set`, d.contents.length ? films(d.contents, "cd-set-films") : `<p class="cd-dim">No films in it yet. Add them with “Add a film”, or set “Part of a set” when editing a disc.</p>`) : ""}
         ${section("Edition", `<dl class="cd-facts">
-          ${fact("Distributor", esc(d.distributor))}
-          ${fact("Barcode", d.barcode ? `<span class="cd-mono">${esc(d.barcode)}</span>` : "")}
+          ${fact("Distributor", esc(shelf.distributor))}
+          ${fact("Barcode", shelf.barcode ? `<span class="cd-mono">${esc(shelf.barcode)}</span>` : "")}
           ${fact("Disc release", esc(fmtDate(d.disc_release_date)))}
           ${fact("Discs", d.disc_count)}
           ${fact("Packaging", esc(d.package))}
@@ -412,7 +477,6 @@ const loans = items.filter((i) => i.on_loan).length;
           ${fact("Layers", esc(s.layers))}
           ${fact("Colour", s.color && s.color !== "Color" ? esc(s.color) : "")}
           ${fact("HDR", esc(s.hdr))}
-          ${fact("Box set", d.box_set ? esc(d.box_set) : "")}
           ${fact("Series", esc(d.series))}
         </dl>`)}
         ${section("Picture and sound", `
@@ -424,19 +488,19 @@ const loans = items.filter((i) => i.on_loan).length;
         `.trim())}
         ${section("Discs", discs, false)}
         ${section("Extra features", s.extra_features ? `<pre class="cd-pre">${esc(s.extra_features)}</pre>` : "", false)}
-        ${section("Purchase", `<dl class="cd-facts">
-          ${fact("Purchased", esc(fmtDate(d.purchase_date)))}
-          ${fact("Store", esc(d.store))}
-          ${fact("Price", d.purchase_price != null ? esc(d.purchase_price.toFixed(2)) : "")}
+        ${section(p ? "Purchase (the set)" : "Purchase", `<dl class="cd-facts">
+          ${fact("Purchased", esc(fmtDate(shelf.purchase_date)))}
+          ${fact("Store", esc(shelf.store))}
+          ${fact("Price", shelf.purchase_price != null ? esc(shelf.purchase_price.toFixed(2)) : "")}
           ${fact("Value", d.current_value != null ? esc(d.current_value.toFixed(2)) : "")}
-          ${fact("Condition", esc(d.condition))}
-          ${fact("Location", esc(d.location))}
+          ${fact("Condition", esc(shelf.condition))}
+          ${fact("Location", esc(shelf.location))}
           ${fact("Index", d.index_no)}
           ${fact("Owner", esc(d.owner))}
           ${fact("Added", esc(fmtDate(d.date_added)))}
           ${fact("Seen in cinema", esc(s.seen_in_cinema))}
         </dl>${d.notes ? `<p class="cd-notes">${esc(d.notes)}</p>` : ""}${d.tags?.length ? chips(d.tags.map((t) => `#${t}`)) : ""}`)}
-        ${section("Film", `<dl class="cd-facts">
+        ${d.is_set ? "" : section("Film", `<dl class="cd-facts">
           ${fact("Director", people("Director"))}
           ${fact("Writer", people("Writer"))}
           ${fact("Music", people("Composer") || people("Musician"))}
@@ -447,7 +511,7 @@ const loans = items.filter((i) => i.on_loan).length;
           ${fact("Based on", esc(s.adapted_titles))}
         </dl>`)}
         ${section("Cast", (s.cast || []).length ? `<ul class="cd-cast">${s.cast.slice(0, 24).map((c: any) => `<li><b>${esc(c.name)}</b>${c.character ? `<span>${esc(c.character)}</span>` : ""}</li>`).join("")}</ul>` : "", false)}
-        ${section("In this box set", d.box_set_items.length ? `<div class="cd-mini">${d.box_set_items.map((b) => `<button type="button" data-id="${b.id}">${b.cover ? `<img src="${b.cover}" alt="" loading="lazy" />` : ""}<span>${esc(b.title)}${b.release_year ? ` (${b.release_year})` : ""}</span></button>`).join("")}</div>` : "")}
+        ${p ? section("Also in this set", d.contents.filter((x) => x.id !== d.id).length ? films(d.contents.filter((x) => x.id !== d.id)) : "") : ""}
         ${section("Your other editions", d.other_editions.length ? `<ul class="cd-others">${d.other_editions.map((o) => `<li><button type="button" data-id="${o.id}">${esc(o.format || "")} · ${esc(o.edition || "Edition")}${o.status === "wishlist" ? " (wish list)" : ""}</button></li>`).join("")}</ul>` : "")}
         ${section("Loans", d.loans.length ? `<ul class="cd-loans">${d.loans.map((l) => `<li><b>${esc(l.loaned_to)}</b> ${esc(fmtDate(l.loan_date))}${l.returned_on ? ` – ${esc(fmtDate(l.returned_on))}` : " – still out"}</li>`).join("")}</ul>` : "", false)}
         </div>
@@ -463,7 +527,9 @@ const loans = items.filter((i) => i.on_loan).length;
       history.replaceState(null, "", url);
       document.querySelectorAll(".coll-card.selected, #coll-rows tr.selected").forEach((e) => e.classList.remove("selected"));
       if (!id) { detail.classList.remove("open"); return; }
-      document.querySelectorAll(`[data-id="${id}"]`).forEach((e) => e.closest(".coll-card, tr")?.classList.add("selected"));
+      // A film in a set lights up the set it's in.
+      const parentId = all.find((i) => i.id === id)?.parent_id;
+      for (const key of [id, parentId]) if (key) document.querySelectorAll(`.coll-card[data-id="${key}"], #coll-rows tr[data-id="${key}"]`).forEach((e) => e.classList.add("selected"));
       const mine = ++detailToken;
       detail.classList.add("open", "loading");
       try {
@@ -473,7 +539,7 @@ const loans = items.filter((i) => i.on_loan).length;
         if (mine !== detailToken) return;
         detail.innerHTML = detailHtml(d);
         detail.scrollTop = 0;
-        if (scroll) document.querySelector(`.coll-card[data-id="${id}"], #coll-rows tr[data-id="${id}"]`)?.scrollIntoView({ block: "nearest" });
+        if (scroll) document.querySelector(`.coll-card[data-id="${id}"], #coll-rows tr[data-id="${id}"], .coll-card[data-id="${parentId}"]`)?.scrollIntoView({ block: "nearest" });
       } catch {
         if (mine === detailToken) detail.innerHTML = `<div class="coll-detail-empty">Couldn't load this disc</div>`;
       } finally {
@@ -513,12 +579,18 @@ const loans = items.filter((i) => i.on_loan).length;
       if (el) select(Number(el.dataset.id));
     };
     grid.addEventListener("click", pick);
-    rows.addEventListener("click", pick);
+    rows.addEventListener("click", (e) => {
+      const toggle = (e.target as HTMLElement).closest<HTMLElement>("[data-expand]");
+      if (!toggle) return pick(e);
+      const id = Number(toggle.dataset.expand);
+      if (state.expanded.has(id)) state.expanded.delete(id); else state.expanded.add(id);
+      render();
+    });
 
     detail.addEventListener("click", async (e) => {
       const t = e.target as HTMLElement;
       if (t.closest(".cd-close")) return select(null);
-      const jump = t.closest<HTMLElement>(".cd-mini [data-id], .cd-others [data-id]");
+      const jump = t.closest<HTMLElement>(".cd-mini [data-id], .cd-others [data-id], .cd-partof");
       if (jump) return select(Number(jump.dataset.id), true);
       const lend = t.closest<HTMLElement>("[data-lend]");
       if (lend) { detail.querySelector<HTMLFormElement>(".cd-lend")!.hidden = false; detail.querySelector<HTMLInputElement>(".cd-lend input")!.focus(); return; }
@@ -556,6 +628,26 @@ const loans = items.filter((i) => i.on_loan).length;
 </script>
 
 <style is:global>
+  /* Box sets and multi-film discs */
+  .coll-set { position: absolute; left: 6px; bottom: 6px; padding: 2px 8px; border-radius: 999px; background: rgba(9, 9, 11, .85); border: 1px solid #3f3f46; color: #f4f4f5; font-size: 10px; font-weight: 900; letter-spacing: .03em; backdrop-filter: blur(4px); }
+  .coll-card.is-set .coll-cover { box-shadow: 4px 4px 0 -1px #27272a, 8px 8px 0 -2px #1c1c1f; }
+  .coll-card-sub.hit { color: #f87171; }
+  .coll-expand { display: inline-grid; place-items: center; width: 18px; height: 18px; margin-right: 6px; border-radius: 5px; color: #a1a1aa; font-size: 11px; transition: transform .15s; }
+  .coll-expand:hover { color: #fff; background: #27272a; }
+  .coll-expand.open { transform: rotate(90deg); }
+  .coll-set-inline { margin-left: 6px; padding: 0 6px; border-radius: 999px; border: 1px solid #3f3f46; color: #a1a1aa; font-size: 10px; font-weight: 800; }
+  #coll-rows tr.kid td { background: #0c0c0e; }
+  #coll-rows tr.kid td.t { padding-left: 38px; color: #d4d4d8; }
+  .cd-partof { display: inline-block; margin: 2px 0 6px; padding: 3px 10px; border-radius: 999px; border: 1px solid #3f3f46; color: #a1a1aa; font-size: 12px; font-weight: 700; }
+  .cd-partof b { color: #f4f4f5; }
+  .cd-partof:hover { border-color: #e50914; }
+  .cd-setbadge { background: #27272a; color: #f4f4f5; }
+  .cd-mini button { position: relative; }
+  .cd-mini-w { position: absolute; top: 6px; right: 6px; width: 18px !important; height: 18px !important; aspect-ratio: auto !important; object-fit: contain !important; border-radius: 0 !important; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .8)); }
+  .cd-mini-none { display: grid; place-items: center; aspect-ratio: 2 / 3; padding: 6px; border-radius: 8px; background: #18181b; color: #71717a; font-size: 11px; text-align: center; }
+  .cd-set-films { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)) !important; }
+  html.light #coll-rows tr.kid td { background: #f4f4f5; }
+
   .coll-error { padding: 16px; border: 1px solid rgba(239, 68, 68, .4); border-radius: 12px; color: #fca5a5; }
   .coll-empty { padding: 48px 16px; text-align: center; color: #71717a; border: 1px dashed #27272a; border-radius: 16px; }
   .coll-empty-title { color: #e4e4e7; font-weight: 800; font-size: 18px; margin-bottom: 4px; }
@@ -695,7 +787,7 @@ const loans = items.filter((i) => i.on_loan).length;
   .coll-detail .cd-cast { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; font-size: 12.5px; }
   .coll-detail .cd-cast b { display: block; color: #e4e4e7; }
   .coll-detail .cd-cast span { color: #71717a; font-size: 11.5px; }
-  .coll-detail .cd-mini { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .coll-detail .cd-mini { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; }
   .coll-detail .cd-mini button { text-align: left; color: #d4d4d8; font-size: 11.5px; font-weight: 700; }
   .coll-detail .cd-mini img { width: 100%; aspect-ratio: 27 / 34; object-fit: cover; border-radius: 6px; margin-bottom: 4px; }
   .coll-detail .cd-others button, .coll-detail .cd-loans li { color: #d4d4d8; font-size: 12.5px; text-align: left; }

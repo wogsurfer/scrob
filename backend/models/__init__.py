@@ -26,7 +26,7 @@ from .media_translation import MediaTranslation
 from .show_translation import ShowTranslation
 from .episode_order import EpisodeOrderMapping, UserShowEpisodeOrder
 from .watchlist import MovieWatchlist
-from .physical import PhysicalBoxSet, PhysicalItem, PhysicalLoan, PhysicalPickValue
+from .physical import PhysicalItem, PhysicalLoan, PhysicalPickValue
 from .emby_library import EmbyLibrary
 from .emby_library_stats import EmbyLibraryStats
 
@@ -59,7 +59,7 @@ __all__ = [
     "ShowTranslation",
     "EpisodeOrderMapping", "UserShowEpisodeOrder",
     "MovieWatchlist",
-    "PhysicalBoxSet", "PhysicalItem", "PhysicalLoan",
+    "PhysicalItem", "PhysicalLoan",
     "EmbyLibrary",
     "EmbyLibraryStats",
 ]

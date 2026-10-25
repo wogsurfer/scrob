@@ -1,6 +1,11 @@
 """The user's physical disc collection: one row per release they own or want
-(a particular edition of a film or series on Blu-ray, 4K UHD, DVD...), with
-box sets grouping several releases and loans tracking who has which disc.
+(a particular edition of a film or series on Blu-ray, 4K UHD, DVD...), and
+loans tracking who has which disc.
+
+A box set or a disc with several films (a double feature) is a release of
+its own, marked is_set: it holds the shelf details (barcode, price,
+location, loans). The films on it are releases inside it (parent_id),
+holding each film's own details.
 
 Fields that are sorted, filtered or grouped by are columns; the long tail of
 edition details (audio tracks, subtitles, discs, extras, cast...) lives in
@@ -16,27 +21,6 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base
-
-
-class PhysicalBoxSet(Base):
-    __tablename__ = "physical_box_sets"
-
-    id            : Mapped[int]                = mapped_column(Integer, primary_key=True)
-    user_id       : Mapped[int]                = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    name          : Mapped[str]                = mapped_column(String(500), nullable=False)
-    upc           : Mapped[Optional[str]]      = mapped_column(String(64))
-    cover_front   : Mapped[Optional[str]]      = mapped_column(String(500))
-    cover_back    : Mapped[Optional[str]]      = mapped_column(String(500))
-    purchase_date : Mapped[Optional[date]]     = mapped_column(Date)
-    release_date  : Mapped[Optional[date]]     = mapped_column(Date)
-    store         : Mapped[Optional[str]]      = mapped_column(String(255))
-    condition     : Mapped[Optional[str]]      = mapped_column(String(100))
-    notes         : Mapped[Optional[str]]      = mapped_column(Text)
-    created_at    : Mapped[datetime]           = mapped_column(DateTime, server_default=func.now(), nullable=False)
-
-    __table_args__ = (UniqueConstraint("user_id", "name", name="uq_physical_box_set_name"),)
-
-    items : Mapped[list["PhysicalItem"]] = relationship(back_populates="box_set")
 
 
 class PhysicalItem(Base):
@@ -55,7 +39,10 @@ class PhysicalItem(Base):
     series            : Mapped[Optional[str]]      = mapped_column(String(255))
     tmdb_id           : Mapped[Optional[int]]      = mapped_column(Integer, index=True)
     media_id          : Mapped[Optional[int]]      = mapped_column(ForeignKey("media.id", ondelete="SET NULL"), index=True)
-    box_set_id        : Mapped[Optional[int]]      = mapped_column(ForeignKey("physical_box_sets.id", ondelete="SET NULL"), index=True)
+    # A box set or multi-film disc, and the films in it in order.
+    is_set            : Mapped[bool]               = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    parent_id         : Mapped[Optional[int]]      = mapped_column(ForeignKey("physical_items.id", ondelete="CASCADE"), index=True)
+    position          : Mapped[Optional[int]]      = mapped_column(Integer)
     release_year      : Mapped[Optional[int]]      = mapped_column(Integer)
 
     # Edition
@@ -99,7 +86,8 @@ class PhysicalItem(Base):
         Index("idx_physical_items_user_status", "user_id", "status"),
     )
 
-    box_set : Mapped[Optional["PhysicalBoxSet"]] = relationship(back_populates="items")
+    parent   : Mapped[Optional["PhysicalItem"]] = relationship(remote_side="PhysicalItem.id", back_populates="contents")
+    contents : Mapped[list["PhysicalItem"]]     = relationship(back_populates="parent", order_by="PhysicalItem.position")
     loans   : Mapped[list["PhysicalLoan"]]       = relationship(back_populates="item", cascade="all, delete-orphan")
 
 

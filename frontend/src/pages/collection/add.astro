@@ -25,7 +25,10 @@ if (p.has("tmdb") && !p.has("title")) {
     return Astro.redirect("/collection/add");
   }
 }
-const picked = p.has("title");
+// ?set= adds a film to that set; ?newset starts a box set or multi-film disc.
+const inSet = p.get("set") ?? undefined;
+const newSet = p.has("newset");
+const picked = p.has("title") || newSet;
 let options: Record<string, string[]> = {};
 try {
   options = await api.physical.options(token);
@@ -42,7 +45,9 @@ const prefill = picked
       barcode: p.get("barcode") ?? undefined,
       status: p.get("status") === "wishlist" ? "wishlist" : "owned",
       format: p.get("format") ?? undefined,
-      specs: { tmdb_kind: kind },
+      specs: newSet ? {} : { tmdb_kind: kind },
+      is_set: newSet,
+      in_set: inSet,
     }
   : null;
 const coverUrl = p.get("cover");
@@ -51,6 +56,7 @@ const coverUrl = p.get("cover");
 <Base title="Add disc">
   <CollectionNav active="add" />
 
+  {inSet && <p class="add-into">Adding a film to <b>{inSet}</b></p>}
   {!picked && (
     <div class="add">
       <form id="add-find" class="add-find">
@@ -67,7 +73,8 @@ const coverUrl = p.get("cover");
       <p id="add-status" class="add-status"></p>
       <div id="add-product" class="add-product" hidden></div>
       <div id="add-results" class="add-results"></div>
-      <p class="add-manual">Can't find it? <a href="/collection/add?title=">Fill in the form yourself</a>.</p>
+      <p class="add-manual">Can't find it? <a href={`/collection/add?${new URLSearchParams({ title: "", ...(inSet ? { set: inSet } : {}) })}`}>Fill in the form yourself</a>.</p>
+      {!inSet && <p class="add-manual">Adding a box set or a disc with several films? <a href="/collection/add?newset=1">Start the set</a>, then add its films to it.</p>}
     </div>
   )}
 
@@ -109,7 +116,9 @@ const coverUrl = p.get("cover");
       status.textContent = data.query ? `Matches for “${data.query}”. Pick the film or series:` : "Pick the film or series:";
       const fmt = /4k|uhd/i.test(product?.title ?? "") ? "4K UHD" : /3d/i.test(product?.title ?? "") ? "Blu-ray 3D" : /blu-?ray/i.test(product?.title ?? "") ? "Blu-ray" : /dvd/i.test(product?.title ?? "") ? "DVD" : "";
       results.innerHTML = data.results.map((r: any) => {
-        const link = new URLSearchParams({ title: r.title, tmdb: String(r.tmdb_id), kind: r.kind, ...(r.year ? { year: r.year } : {}), ...(barcode ? { barcode } : {}), ...(fmt ? { format: fmt } : {}) });
+        const intoSet = new URLSearchParams(location.search).get("set");
+        // A film going into a set: the barcode and format are the set's.
+        const link = new URLSearchParams({ title: r.title, tmdb: String(r.tmdb_id), kind: r.kind, ...(r.year ? { year: r.year } : {}), ...(barcode && !intoSet ? { barcode } : {}), ...(fmt && !intoSet ? { format: fmt } : {}), ...(intoSet ? { set: intoSet } : {}) });
         const cover = productImage || (r.poster ? r.poster.replace("/w185/", "/w500/") : "");
         if (cover) link.set("cover", cover);
         return `<a class="add-result" href="/collection/add?${link}">
@@ -166,6 +175,11 @@ const coverUrl = p.get("cover");
     }
   }
 </script>
+
+<style is:global>
+  .add-into { margin: -8px 0 16px; color: #a1a1aa; font-size: 14px; }
+  .add-into b { color: #f4f4f5; }
+</style>
 
 <style is:global>
   .add { max-width: 820px; }

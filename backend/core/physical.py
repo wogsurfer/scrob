@@ -161,25 +161,30 @@ async def import_clz_records(
     """Add or update releases and box sets parsed from a Collectorz export.
 
     Releases are matched on their Collectorz id; ones edited in Watchd since
-    are left alone. `read_image(path)` returns a cover's bytes, or None when
-    it isn't available. Returns counts of what changed.
+    are left alone. A box set becomes a set release (matched on its name)
+    with its films inside. `read_image(path)` returns a cover's bytes, or
+    None when it isn't available. Returns counts of what changed.
     """
-    from models.physical import PhysicalBoxSet
-
     counts = {"added": 0, "updated": 0, "kept_local_edits": 0, "covers": 0, "box_sets": 0}
 
     existing_sets = {
-        b.name: b for b in (await db.execute(select(PhysicalBoxSet).where(PhysicalBoxSet.user_id == user_id))).scalars()
+        b.title: b for b in (await db.execute(
+            select(PhysicalItem).where(PhysicalItem.user_id == user_id, PhysicalItem.is_set.is_(True))
+        )).scalars()
     }
     for data in box_sets:
         box = existing_sets.get(data["name"])
         if box is None:
-            box = PhysicalBoxSet(user_id=user_id, name=data["name"])
+            box = PhysicalItem(user_id=user_id, title=data["name"], is_set=True, specs={}, tags=[])
             db.add(box)
             existing_sets[data["name"]] = box
             counts["box_sets"] += 1
-        for key in ("upc", "purchase_date", "release_date", "store", "condition", "notes"):
-            setattr(box, key, data.get(key))
+        elif box.edited_locally:
+            continue
+        box.barcode = data.get("upc") or box.barcode
+        box.disc_release_date = data.get("release_date") or box.disc_release_date
+        for key in ("purchase_date", "store", "condition", "notes"):
+            setattr(box, key, data.get(key) or getattr(box, key))
     await db.flush()
     for data in box_sets:
         box = existing_sets[data["name"]]
@@ -202,12 +207,18 @@ async def import_clz_records(
             if data.get("date_added"):
                 item.date_added = data["date_added"]
             db.add(item)
+            existing[data["clz_id"]] = item
             counts["added"] += 1
         else:
             counts["updated"] += 1
         for key in _IMPORTED_COLUMNS:
             setattr(item, key, data.get(key))
-        item.box_set_id = existing_sets[data["box_set"]].id if data.get("box_set") in existing_sets else None
+        box = existing_sets.get(data.get("box_set") or "")
+        if box is not None and item.parent_id != box.id:
+            item.parent_id = box.id
+            item.position = 1 + max((i.position or 0 for i in existing.values() if i.parent_id == box.id), default=0)
+        elif box is None:
+            item.parent_id = item.position = None
         await link_media(db, item, api_key)
         raw = read_image(data.get("cover_front"))
         if raw:

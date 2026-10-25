@@ -363,7 +363,7 @@ async def _physical_ratings_refresher():
             stale = (date.today() - timedelta(days=IMDB_REFRESH_DAYS)).isoformat()
             async with AsyncSessionLocal() as db:
                 items = (await db.execute(
-                    select(PhysicalItem).where(or_(
+                    select(PhysicalItem).where(PhysicalItem.is_set.is_(False), or_(
                         PhysicalItem.specs["imdb_checked"].astext.is_(None),
                         PhysicalItem.specs["imdb_checked"].astext < stale,
                     ))

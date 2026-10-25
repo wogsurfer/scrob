@@ -28,7 +28,7 @@ const lists: { title: string; rows: Row[]; folder: string }[] = stats
   : [];
 const maxYear = Math.max(1, ...(stats?.by_purchase_year ?? []).map((y) => y.count));
 const hours = stats ? Math.round(stats.runtime_minutes / 60) : 0;
-const seenPct = stats && stats.owned ? Math.round((stats.seen / stats.owned) * 100) : 0;
+const seenPct = stats && stats.titles ? Math.round((stats.seen / stats.titles) * 100) : 0;
 ---
 
 <Base title="Collection statistics">
@@ -39,10 +39,11 @@ const seenPct = stats && stats.owned ? Math.round((stats.seen / stats.owned) * 1
   {stats && (
     <>
       <div class="st-tiles">
-        <div class="st-tile"><b>{stats.owned.toLocaleString()}</b><span>releases</span></div>
+        <div class="st-tile"><b>{stats.owned.toLocaleString()}</b><span>on the shelf</span></div>
+        <div class="st-tile"><b>{stats.sets.toLocaleString()}</b><span>box sets</span></div>
         <div class="st-tile"><b>{stats.discs.toLocaleString()}</b><span>discs</span></div>
         <div class="st-tile"><b>{stats.films.toLocaleString()}</b><span>films</span></div>
-        <div class="st-tile"><b>{stats.tv.toLocaleString()}</b><span>TV sets</span></div>
+        <div class="st-tile"><b>{stats.tv.toLocaleString()}</b><span>TV seasons</span></div>
         <div class="st-tile"><b>{hours.toLocaleString()}</b><span>hours of film</span></div>
         <div class="st-tile"><b>{seenPct}%</b><span>seen · {stats.unseen} still to watch</span></div>
         <div class="st-tile"><b>{stats.wishlist.toLocaleString()}</b><span>on the wish list</span></div>

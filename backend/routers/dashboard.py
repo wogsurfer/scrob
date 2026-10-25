@@ -116,7 +116,8 @@ async def dashboard_stats(
     # The physical disc collection: films and TV series owned on disc.
     owned = await db.execute(
         select(PhysicalItem.is_tv, func.count(PhysicalItem.id))
-        .where(PhysicalItem.user_id == current_user.id, PhysicalItem.status == "owned")
+        # Films and series, a box set's counted by what's in it.
+        .where(PhysicalItem.user_id == current_user.id, PhysicalItem.status == "owned", PhysicalItem.is_set.is_(False))
         .group_by(PhysicalItem.is_tv)
     )
     owned_counts = dict(owned.all())

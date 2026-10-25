@@ -25,7 +25,7 @@ from models.base import MediaType
 from models.events import WatchEvent
 from models.media import Media
 from models.show import Show
-from models.physical import PhysicalBoxSet, PhysicalItem, PhysicalLoan, PhysicalPickValue
+from models.physical import PhysicalItem, PhysicalLoan, PhysicalPickValue
 from models.users import User
 from routers.media import get_user_tmdb_key
 
@@ -139,8 +139,10 @@ def _summary(item: PhysicalItem, plays: dict[int, int], on_loan: set[int], poste
         "audience_rating": specs.get("audience_rating"),
         "imdb_rating": specs.get("imdb_rating"),
         "director": _director(specs),
-        "box_set": item.box_set.name if item.box_set else None,
-        "box_set_id": item.box_set_id,
+        # A box set or multi-film disc, or a film in one.
+        "is_set": item.is_set,
+        "parent_id": item.parent_id,
+        "position": item.position,
         "tags": item.tags or [],
         "date_added": item.date_added,
         "on_loan": item.id in on_loan,
@@ -164,7 +166,11 @@ async def _active_loans(db: AsyncSession, user_id: int) -> dict[int, PhysicalLoa
 async def _own_item(db: AsyncSession, user_id: int, item_id: int) -> PhysicalItem:
     item = (await db.execute(
         select(PhysicalItem)
-        .options(selectinload(PhysicalItem.box_set), selectinload(PhysicalItem.loans))
+        .options(
+            selectinload(PhysicalItem.loans),
+            selectinload(PhysicalItem.parent).selectinload(PhysicalItem.loans),
+            selectinload(PhysicalItem.contents),
+        )
         .where(PhysicalItem.id == item_id, PhysicalItem.user_id == user_id)
     )).scalar_one_or_none()
     if item is None:
@@ -184,7 +190,6 @@ async def list_items(
         .outerjoin(Media, Media.id == PhysicalItem.media_id)
         # Series keep their artwork in shows.
         .outerjoin(Show, (Show.tmdb_id == PhysicalItem.tmdb_id) & (PhysicalItem.specs["tmdb_kind"].astext == "tv"))
-        .options(selectinload(PhysicalItem.box_set))
         .where(PhysicalItem.user_id == current_user.id)
     )).all()
     plays = await _watched_tmdb_ids(db, current_user.id)
@@ -244,16 +249,32 @@ async def get_item(
     own_poster = _cover_url(specs.get("poster_image"))
     own_backdrop = _cover_url(specs.get("backdrop_image"))
 
-    siblings = []
-    if item.box_set_id:
-        rows = await db.execute(
-            select(PhysicalItem.id, PhysicalItem.title, PhysicalItem.release_year, PhysicalItem.cover_front)
-            .where(PhysicalItem.box_set_id == item.box_set_id, PhysicalItem.id != item.id)
-            .order_by(PhysicalItem.release_year, PhysicalItem.title)
-        )
-        siblings = [
-            {"id": i, "title": t, "release_year": y, "cover": _cover_url(c, thumb=True)} for i, t, y, c in rows.all()
+    # A set's films, or the set a film is in (with the films beside it).
+    set_item = item if item.is_set else item.parent
+    contents = []
+    if set_item is not None:
+        rows = (await db.execute(
+            select(PhysicalItem, func.coalesce(Media.poster_path, Show.poster_path))
+            .outerjoin(Media, Media.id == PhysicalItem.media_id)
+            .outerjoin(Show, (Show.tmdb_id == PhysicalItem.tmdb_id) & (PhysicalItem.specs["tmdb_kind"].astext == "tv"))
+            .where(PhysicalItem.parent_id == set_item.id)
+            .order_by(PhysicalItem.position.nulls_last(), PhysicalItem.release_year, PhysicalItem.title)
+        )).all()
+        contents = [
+            {k: v for k, v in _summary(f, plays, set(), p).items() if k in (
+                "id", "title", "title_extension", "release_year", "cover", "seen", "plays", "is_tv", "format", "imdb_rating",
+            )}
+            for f, p in rows
         ]
+    parent = None
+    if item.parent is not None:
+        p = item.parent
+        parent = {
+            "id": p.id, "title": p.title, "cover": _cover_url(p.cover_front, thumb=True), "format": p.format,
+            "edition": p.edition, "barcode": p.barcode, "location": p.location, "purchase_date": p.purchase_date,
+            "purchase_price": _num(p.purchase_price), "store": p.store, "condition": p.condition,
+            "distributor": p.distributor, "on_loan": any(loan.returned_on is None for loan in p.loans),
+        }
     other_editions = []
     if item.tmdb_id:
         rows = await db.execute(
@@ -278,7 +299,8 @@ async def get_item(
         "poster_is_own": bool(own_poster),
         "backdrop_is_own": bool(own_backdrop),
         "backdrop": own_backdrop or backdrop,
-        "box_set_items": siblings,
+        "contents": contents,
+        "parent": parent,
         "other_editions": other_editions,
         "loans": [
             {
@@ -319,7 +341,10 @@ class ItemFields(BaseModel):
     viewing_date: date | None = None
     notes: str | None = None
     tags: list[str] | None = None
-    box_set: str | None = None
+    is_set: bool | None = None
+    # The title of the set this release is in ("" takes it out); a new
+    # title starts a new set.
+    in_set: str | None = None
     # Merged into the stored specs; a key set to null removes it.
     specs: dict | None = None
     # On create: an image to use as the front cover until one is uploaded.
@@ -330,19 +355,8 @@ async def _apply(db: AsyncSession, user_id: int, item: PhysicalItem, fields: Ite
     data = fields.model_dump(exclude_unset=True)
     data.pop("cover_url", None)
     tmdb_changed = "tmdb_id" in data and data["tmdb_id"] != item.tmdb_id
-    if "box_set" in data:
-        name = (data.pop("box_set") or "").strip()
-        if name:
-            box = (await db.execute(
-                select(PhysicalBoxSet).where(PhysicalBoxSet.user_id == user_id, PhysicalBoxSet.name == name)
-            )).scalar_one_or_none()
-            if box is None:
-                box = PhysicalBoxSet(user_id=user_id, name=name)
-                db.add(box)
-                await db.flush()
-            item.box_set_id = box.id
-        else:
-            item.box_set_id = None
+    if "in_set" in data:
+        await _place_in_set(db, user_id, item, (data.pop("in_set") or "").strip())
     if "specs" in data:
         specs = dict(item.specs or {})
         for key, value in (data.pop("specs") or {}).items():
@@ -358,8 +372,64 @@ async def _apply(db: AsyncSession, user_id: int, item: PhysicalItem, fields: Ite
     if not item.title:
         raise HTTPException(status_code=422, detail="A title is needed")
     item.edited_locally = True
-    if tmdb_changed or item.media_id is None:
+    if item.is_set:
+        item.parent_id = None
+    if item.is_set and item.id is not None:
+        # The films in a set are in the collection (or wish list) with it.
+        for film in (await db.execute(select(PhysicalItem).where(PhysicalItem.parent_id == item.id))).scalars():
+            film.status = item.status
+    if tmdb_changed or (item.media_id is None and not item.is_set):
         await link_media(db, item, await get_user_tmdb_key(db, user_id))
+
+
+async def _place_in_set(db: AsyncSession, user_id: int, item: PhysicalItem, title: str) -> None:
+    """Put a release in the set with this title (starting the set, with the
+    release's shelf details, when there's none yet), or take it out."""
+    if not title:
+        item.parent_id = item.position = None
+        return
+    box = (await db.execute(
+        select(PhysicalItem).where(PhysicalItem.user_id == user_id, PhysicalItem.is_set.is_(True), PhysicalItem.title == title)
+        .order_by(PhysicalItem.id).limit(1)
+    )).scalar_one_or_none()
+    if box is None:
+        box = PhysicalItem(
+            user_id=user_id, title=title, is_set=True, status=item.status, specs={}, tags=[], edited_locally=True,
+            **{k: getattr(item, k) for k in (
+                "format", "distributor", "barcode", "package", "purchase_date", "purchase_price", "store",
+                "condition", "location", "owner",
+            )},
+        )
+        db.add(box)
+        await db.flush()
+    if box.id == item.id or item.is_set:
+        raise HTTPException(status_code=422, detail="A set can't go inside a set")
+    if item.parent_id != box.id:
+        item.parent_id = box.id
+        last = await db.scalar(select(func.max(PhysicalItem.position)).where(PhysicalItem.parent_id == box.id))
+        item.position = (last or 0) + 1
+    item.status = box.status
+
+
+class SetOrder(BaseModel):
+    ids: list[int]
+
+
+@router.put("/items/{item_id}/contents")
+async def reorder_set(
+    item_id: int,
+    body: SetOrder,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Put a set's films in this order."""
+    item = await _own_item(db, current_user.id, item_id)
+    by_id = {f.id: f for f in item.contents}
+    for position, film_id in enumerate(body.ids, 1):
+        if film_id in by_id:
+            by_id[film_id].position = position
+    await db.commit()
+    return {"ok": True}
 
 
 @router.post("/items")
@@ -372,8 +442,9 @@ async def create_item(
     db.add(item)
     await _apply(db, current_user.id, item, fields)
     api_key = await get_user_tmdb_key(db, current_user.id)
-    await fill_from_tmdb(item, api_key)
-    await refresh_imdb_ratings(db, [item], api_key)
+    if not item.is_set:
+        await fill_from_tmdb(item, api_key)
+        await refresh_imdb_ratings(db, [item], api_key)
     await db.flush()
     if fields.cover_url:
         raw = await fetch_cover(fields.cover_url)
@@ -409,8 +480,12 @@ async def delete_item(
     current_user: User = Depends(get_current_user),
 ):
     item = await _own_item(db, current_user.id, item_id)
-    for slot in ART_SLOTS:
-        _remove_files(_own_art(item, slot))
+    # Deleting a set deletes the films in it too.
+    for release in [item, *item.contents]:
+        for slot in ART_SLOTS:
+            _remove_files(_own_art(release, slot))
+    for film in item.contents:
+        await db.delete(film)
     await db.delete(item)
     await db.flush()
     await rebuild_collection_mirror(db, current_user.id)
@@ -546,6 +621,8 @@ async def lend_item(
     current_user: User = Depends(get_current_user),
 ):
     item = await _own_item(db, current_user.id, item_id)
+    if item.parent is not None:
+        item = item.parent
     if any(loan.returned_on is None for loan in item.loans):
         raise HTTPException(status_code=409, detail="It's already out on loan")
     if not fields.loaned_to.strip():
@@ -607,9 +684,11 @@ async def collection_stats(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    items = (await db.execute(
+    owned = (await db.execute(
         select(PhysicalItem).where(PhysicalItem.user_id == current_user.id, PhysicalItem.status == "owned")
     )).scalars().all()
+    items = [i for i in owned if i.parent_id is None]
+    titles = [i for i in owned if not i.is_set]
     plays = await _watched_tmdb_ids(db, current_user.id)
 
     def top(values, n=12):
@@ -621,19 +700,21 @@ async def collection_stats(
             year = by_year.setdefault(i.purchase_date.year, {"year": i.purchase_date.year, "count": 0, "spent": 0.0})
             year["count"] += 1
             year["spent"] += float(i.purchase_price or 0)
-    decades = Counter((i.release_year // 10) * 10 for i in items if i.release_year)
-    seen = sum(1 for i in items if (i.tmdb_id and plays.get(i.tmdb_id)) or i.seen_it)
+    decades = Counter((i.release_year // 10) * 10 for i in titles if i.release_year)
+    seen = sum(1 for i in titles if (i.tmdb_id and (i.specs or {}).get("tmdb_kind", "movie") == "movie" and plays.get(i.tmdb_id)) or i.seen_it)
     priced = [float(i.purchase_price) for i in items if i.purchase_price is not None]
     return {
         "owned": len(items),
+        "titles": len(titles),
+        "sets": sum(1 for i in items if i.is_set),
         "wishlist": await db.scalar(select(func.count(PhysicalItem.id)).where(
-            PhysicalItem.user_id == current_user.id, PhysicalItem.status == "wishlist")),
+            PhysicalItem.user_id == current_user.id, PhysicalItem.status == "wishlist", PhysicalItem.parent_id.is_(None))),
         "discs": sum(i.disc_count or 1 for i in items),
-        "films": sum(1 for i in items if not i.is_tv),
-        "tv": sum(1 for i in items if i.is_tv),
+        "films": sum(1 for i in titles if not i.is_tv),
+        "tv": sum(1 for i in titles if i.is_tv),
         "seen": seen,
-        "unseen": len(items) - seen,
-        "runtime_minutes": sum(i.runtime or 0 for i in items),
+        "unseen": len(titles) - seen,
+        "runtime_minutes": sum(i.runtime or 0 for i in titles),
         "spent": round(sum(priced), 2) if priced else None,
         "priced_count": len(priced),
         "formats": top((i.format for i in items), 10),
@@ -642,8 +723,8 @@ async def collection_stats(
         "stores": top((i.store for i in items), 15),
         "conditions": top((i.condition for i in items)),
         "regions": top((r for i in items for r in (i.specs or {}).get("regions", []))),
-        "genres": top((g for i in items for g in (i.specs or {}).get("genres", [])), 15),
-        "directors": top((d for i in items for d in (_director(i.specs or {}) or "").split("; ")), 15),
+        "genres": top((g for i in titles for g in (i.specs or {}).get("genres", [])), 15),
+        "directors": top((d for i in titles for d in (_director(i.specs or {}) or "").split("; ")), 15),
         "decades": [{"name": f"{d}s", "count": c} for d, c in sorted(decades.items())],
         "by_purchase_year": [by_year[y] for y in sorted(by_year)],
     }
@@ -764,9 +845,10 @@ async def field_options(
 ):
     """The values of each pick list, for the edit form."""
     counts = await _pick_counts(db, current_user.id)
-    boxes = (await db.execute(select(PhysicalBoxSet.name).where(PhysicalBoxSet.user_id == current_user.id))).scalars().all()
+    boxes = (await db.execute(select(PhysicalItem.title).where(
+        PhysicalItem.user_id == current_user.id, PhysicalItem.is_set.is_(True)))).scalars().all()
     options = {field: sorted(c, key=str.lower) for field, c in counts.items()}
-    options["box_set"] = sorted(boxes, key=str.lower)
+    options["in_set"] = sorted(set(boxes), key=str.lower)
     return options
 
 

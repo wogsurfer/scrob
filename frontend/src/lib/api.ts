@@ -1028,8 +1028,10 @@ export interface PhysicalSummary {
   audience_rating?: string;
   imdb_rating?: number;
   director?: string;
-  box_set?: string;
-  box_set_id?: number;
+  /** A box set or multi-film disc; or, for a film in one, the set's id. */
+  is_set?: boolean;
+  parent_id?: number;
+  position?: number;
   tags?: string[];
   date_added?: string;
   on_loan?: boolean;
@@ -1059,13 +1061,22 @@ export interface PhysicalDetail extends PhysicalSummary {
   front_cover: string | null;
   poster: string | null;
   poster_is_own: boolean;
-  box_set_items: { id: number; title: string; release_year: number | null; cover: string | null }[];
+  /** A set's films, or for a film in a set, the films in that set. */
+  contents: { id: number; title: string; title_extension?: string; release_year?: number; cover?: string; seen?: boolean; plays?: number; is_tv?: boolean; imdb_rating?: number }[];
+  /** The set a film is in, with its shelf details. */
+  parent: {
+    id: number; title: string; cover: string | null; format: string | null; edition: string | null; barcode: string | null;
+    location: string | null; purchase_date: string | null; purchase_price: number | null; store: string | null;
+    condition: string | null; distributor: string | null; on_loan: boolean;
+  } | null;
   other_editions: { id: number; format: string | null; edition: string | null; status: string }[];
   loans: PhysicalLoan[];
 }
 
 export interface PhysicalStats {
   owned: number;
+  titles: number;
+  sets: number;
   wishlist: number;
   discs: number;
   films: number;

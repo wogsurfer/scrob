@@ -32,7 +32,7 @@ const lists: { key: string; label: string; hint: string }[] = [
 ---
 
 <form id="phys-form" class="pf" data-id={item?.id ?? ""} novalidate>
-  {["format", "edition", "package", "distributor", "store", "condition", "location", "owner", "series", "box_set", "audience_rating", "adaptation_of", "layers", "hdr", "color"].map((k) => (
+  {["format", "edition", "package", "distributor", "store", "condition", "location", "owner", "series", "in_set", "audience_rating", "adaptation_of", "layers", "hdr", "color"].map((k) => (
     <datalist id={`pf-${k}`}>{(options[k] ?? []).map((o) => <option value={o} />)}</datalist>
   ))}
 
@@ -59,8 +59,9 @@ const lists: { key: string; label: string; hint: string }[] = [
         </select>
       </label>
       <label class="pf-check"><input type="checkbox" name="is_tv" checked={!!item?.is_tv} /> TV series release</label>
+      <label class="pf-check"><input type="checkbox" name="is_set" checked={!!item?.is_set} /> Box set or disc with several films</label>
       <label>Series<input name="series" data-combo="pf-series" value={v(item?.series)} /></label>
-      <label>Box set<input name="box_set" data-combo="pf-box_set" value={v(item?.box_set)} /></label>
+      <label id="pf-in-set" hidden={!!item?.is_set}>Part of a set<input name="in_set" data-combo="pf-in_set" value={v(item?.parent?.title ?? (item as any)?.in_set)} placeholder="Box set or double feature it's on" /></label>
       <label>Title extension<input name="specs.title_extension" value={v(s.title_extension)} /></label>
       <label>Original title<input name="specs.original_title" value={v(s.original_title)} /></label>
       <label>Adaptation of<input name="specs.adaptation_of" data-combo="pf-adaptation_of" value={v(s.adaptation_of)} placeholder="Novel, Comics, TV Series…" /></label>
@@ -353,6 +354,11 @@ const lists: { key: string; label: string; hint: string }[] = [
       recount();
     });
 
+    // A set isn't inside another set.
+    form.querySelector<HTMLInputElement>('input[name="is_set"]')!.addEventListener("change", (e) => {
+      document.getElementById("pf-in-set")!.hidden = (e.target as HTMLInputElement).checked;
+    });
+
     const numberFields = ["release_year", "tmdb_id", "disc_count", "runtime", "index_no", "my_rating"];
     const decimalFields = ["purchase_price", "current_value"];
 
@@ -372,6 +378,8 @@ const lists: { key: string; label: string; hint: string }[] = [
         else body[name] = value || null;
       }
       body.is_tv = form!.querySelector<HTMLInputElement>('input[name="is_tv"]')!.checked;
+      body.is_set = form!.querySelector<HTMLInputElement>('input[name="is_set"]')!.checked;
+      if (body.is_set) delete body.in_set;
       body.seen_it = form!.querySelector<HTMLInputElement>('input[name="seen_it"]')!.checked;
       const coverUrl = form!.querySelector<HTMLInputElement>('input[name="cover_url"]');
       if (coverUrl && !form!.querySelector<HTMLInputElement>('input[name="cover_front"]')?.files?.length) body.cover_url = coverUrl.value;
