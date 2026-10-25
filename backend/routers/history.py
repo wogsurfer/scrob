@@ -756,6 +756,21 @@ _TVDB_DATES_TTL = 6 * 3600
 _TVDB_DATES: dict[tuple[int, int], dict[int, str | None]] = {}
 _TVDB_DATES_AT: dict[tuple[int, int], float] = {}
 
+# Shows with no stored next episode whose next episode hasn't aired yet, keyed
+# by (show id, season, episode) of the last one watched, with when to look
+# again. Saves repeating the TMDB/TVDB lookups on every dashboard load; a new
+# watch changes the key, so it never hides an episode the user has reached.
+_NO_NEXT_TTL = 3600
+_NO_NEXT_UNTIL: dict[tuple[int, int, int], float] = {}
+
+# Season posters missing from stored show data, fetched from TMDB, by
+# (show TMDB id, season).
+_SEASON_POSTER_TTL = 24 * 3600
+_SEASON_POSTERS: dict[tuple[int, int], tuple[float, str | None]] = {}
+
+# Parallel lookups per Next Up request.
+_NEXT_UP_CONCURRENCY = 8
+
 async def _store_episode(db: AsyncSession, media: Media, show: Show) -> Media:
     """Save a new episode row for Next Up, or return the row that already
     exists for that show, season and episode.
@@ -870,6 +885,14 @@ async def get_next_up(
         _TVDB_DATES_AT.pop(expired, None)
     tvdb_dates = _TVDB_DATES
 
+    # Looked up once here: the per-show checks below run in parallel and
+    # can't share the database session.
+    tmdb_api_key = await get_user_tmdb_key(db, current_user.id)
+    if not check_tmdb_key(tmdb_api_key):
+        tmdb_api_key = None
+    tvdb_api_key = await get_user_tvdb_key(db, current_user.id)
+    limiter = asyncio.Semaphore(_NEXT_UP_CONCURRENCY)
+
     tvmaze_dates: dict[int, dict[tuple[int, int], datetime | None]] = {}
 
     async def get_tvmaze_air_datetime(
@@ -970,21 +993,17 @@ async def get_next_up(
 
             tvdb_series_id = show.tvdb_id
 
-            if not tvdb_series_id and show.tmdb_id:
+            if not tvdb_series_id and show.tmdb_id and tmdb_api_key:
                 try:
-                    tmdb_api_key = await get_user_tmdb_key(db, current_user.id)
-                    if check_tmdb_key(tmdb_api_key):
-                        show_tmdb = await tmdb.get_show(
-                            show.tmdb_id,
-                            api_key=tmdb_api_key,
-                        )
-                        tvdb_series_id = (
-                            show_tmdb.get("external_ids", {}).get("tvdb_id")
-                        )
+                    show_tmdb = await tmdb.get_show(
+                        show.tmdb_id,
+                        api_key=tmdb_api_key,
+                    )
+                    tvdb_series_id = (
+                        show_tmdb.get("external_ids", {}).get("tvdb_id")
+                    )
                 except Exception:
                     tvdb_series_id = None
-
-            tvdb_api_key = await get_user_tvdb_key(db, current_user.id)
 
             if tvdb_api_key and tvdb_series_id:
                 try:
@@ -1009,130 +1028,156 @@ async def get_next_up(
 
         return tvdb_dates.get(key, {}).get(episode)
 
+    # The first aired stored episode per show, checking shows in parallel.
+    episodes_by_show: dict[int, list[Media]] = {}
     for media in candidates:
-        if media.show_id in next_per_show:
-            continue
-        if not media.show or not await episode_has_aired(media, media.show):
-            continue
+        if media.show:
+            episodes_by_show.setdefault(media.show_id, []).append(media)
 
-        next_per_show[media.show_id] = media
+    async def first_aired(episodes: list[Media]) -> Media | None:
+        async with limiter:
+            for media in episodes:
+                if await episode_has_aired(media, media.show):
+                    return media
+        return None
 
-    # Fallback for shows with no local row for the next episode yet.
-    missing_show_ids = set(last_per_show) - set(next_per_show)
+    found = await asyncio.gather(*(first_aired(eps) for eps in episodes_by_show.values()))
+    for show_id, media in zip(episodes_by_show, found):
+        if media is not None:
+            next_per_show[show_id] = media
 
-    if missing_show_ids:
-        api_key = await get_user_tmdb_key(db, current_user.id)
-
-        if check_tmdb_key(api_key):
-            shows_result = await db.execute(
-                select(Show).where(
-                    Show.id.in_(missing_show_ids)
+    async def lookup_next_episode(show: Show, season: int, episode: int) -> tuple[Media | None, float]:
+        """The next aired episode after (season, episode), built from
+        TVMaze/TMDB but not saved, or None with how many seconds until it's
+        worth looking again."""
+        # A just-aired episode can be missing from the local catalog
+        # while TMDB points at the next future episode. Check only the
+        # recent Malta-local window for active shows; fetching an
+        # entire series history for every missing show made this route
+        # slow and produced no useful schedule data for ended shows.
+        show_status = (show.status or "").strip().lower()
+        ended_statuses = {"ended", "canceled", "cancelled"}
+        try:
+            schedule = (
+                await get_tvmaze_episodes(
+                    show.title,
+                    today - timedelta(days=2),
+                    today,
                 )
+                if show_status not in ended_statuses
+                else []
             )
+        except Exception:
+            schedule = []
 
-            shows_by_id = {
-                s.id: s
-                for s in shows_result.scalars().all()
-            }
+        aired_schedule = []
+        for scheduled_ep in schedule:
+            scheduled_season = scheduled_ep.get("season")
+            scheduled_episode = scheduled_ep.get("episode")
+            scheduled_at = scheduled_ep.get("air_datetime")
+            if scheduled_season is None or scheduled_episode is None or not scheduled_at:
+                continue
+            if (scheduled_season, scheduled_episode) <= (season, episode):
+                continue
+            if scheduled_at.tzinfo is None:
+                scheduled_at = scheduled_at.replace(tzinfo=MALTA_TZ)
+            if scheduled_at.astimezone(MALTA_TZ) <= now_malta:
+                aired_schedule.append((scheduled_season, scheduled_episode, scheduled_ep, scheduled_at))
 
-            for show_id in missing_show_ids:
-                show = shows_by_id.get(show_id)
+        aired_schedule.sort(key=lambda item: (item[0], item[1]))
+        if aired_schedule:
+            scheduled_season, scheduled_episode, scheduled_ep, scheduled_at = aired_schedule[0]
+            media = Media(
+                media_type=MediaType.episode,
+                show_id=show.id,
+                season_number=scheduled_season,
+                episode_number=scheduled_episode,
+                title=scheduled_ep.get("title"),
+                release_date=str(scheduled_ep.get("air_date") or "")[:10] or None,
+                first_aired_at=scheduled_at,
+            )
+            await enrich_media(
+                media,
+                api_key=tmdb_api_key,
+                series_tmdb_id=show.tmdb_id,
+            )
+            if media.tmdb_id:
+                return media, 0
 
-                if not show or not show.tmdb_id:
-                    continue
+        next_ep = _compute_next_episode(
+            (show.tmdb_data or {}).get("seasons", []),
+            season,
+            episode,
+        )
 
-                season, episode = last_per_show[show_id]
+        if next_ep is None:
+            return None, _NO_NEXT_TTL
 
-                # A just-aired episode can be missing from the local catalog
-                # while TMDB points at the next future episode. Check only the
-                # recent Malta-local window for active shows; fetching an
-                # entire series history for every missing show made this route
-                # slow and produced no useful schedule data for ended shows.
-                show_status = (show.status or "").strip().lower()
-                ended_statuses = {"ended", "canceled", "cancelled"}
-                try:
-                    schedule = (
-                        await get_tvmaze_episodes(
-                            show.title,
-                            today - timedelta(days=2),
-                            today,
-                        )
-                        if show_status not in ended_statuses
-                        else []
-                    )
-                except Exception:
-                    schedule = []
+        next_season_num, next_episode_num = next_ep
 
-                aired_schedule = []
-                for scheduled_ep in schedule:
-                    scheduled_season = scheduled_ep.get("season")
-                    scheduled_episode = scheduled_ep.get("episode")
-                    scheduled_at = scheduled_ep.get("air_datetime")
-                    if scheduled_season is None or scheduled_episode is None or not scheduled_at:
-                        continue
-                    if (scheduled_season, scheduled_episode) <= (season, episode):
-                        continue
-                    if scheduled_at.tzinfo is None:
-                        scheduled_at = scheduled_at.replace(tzinfo=MALTA_TZ)
-                    if scheduled_at.astimezone(MALTA_TZ) <= now_malta:
-                        aired_schedule.append((scheduled_season, scheduled_episode, scheduled_ep, scheduled_at))
+        media = Media(
+            media_type=MediaType.episode,
+            show_id=show.id,
+            season_number=next_season_num,
+            episode_number=next_episode_num,
+        )
 
-                aired_schedule.sort(key=lambda item: (item[0], item[1]))
-                if aired_schedule:
-                    scheduled_season, scheduled_episode, scheduled_ep, scheduled_at = aired_schedule[0]
-                    media = Media(
-                        media_type=MediaType.episode,
-                        show_id=show.id,
-                        season_number=scheduled_season,
-                        episode_number=scheduled_episode,
-                        title=scheduled_ep.get("title"),
-                        release_date=str(scheduled_ep.get("air_date") or "")[:10] or None,
-                        first_aired_at=scheduled_at,
-                    )
-                    await enrich_media(
-                        media,
-                        api_key=api_key,
-                        series_tmdb_id=show.tmdb_id,
-                    )
-                    if media.tmdb_id:
-                        next_per_show[show_id] = await _store_episode(db, media, show)
-                        continue
+        await enrich_media(
+            media,
+            api_key=tmdb_api_key,
+            series_tmdb_id=show.tmdb_id,
+        )
 
-                next_ep = _compute_next_episode(
-                    (show.tmdb_data or {}).get("seasons", []),
-                    season,
-                    episode,
-                )
+        if not media.tmdb_id:
+            # Possibly a failed TMDB request: try again sooner.
+            return None, 600
+        # Check the air date before the row is linked to the show:
+        # linking it adds it to the session, which would save even an
+        # unaired episode.
+        if not await episode_has_aired(media, show):
+            recheck = _NO_NEXT_TTL
+            if media.first_aired_at:
+                aired_at = media.first_aired_at
+                if aired_at.tzinfo is None:
+                    aired_at = aired_at.replace(tzinfo=UTC)
+                recheck = min(recheck, max(60, (aired_at - now_malta).total_seconds()))
+            return None, recheck
+        return media, 0
 
-                if next_ep is None:
-                    continue
+    async def find_next_episode(show: Show) -> Media | None:
+        season, episode = last_per_show[show.id]
+        async with limiter:
+            media, recheck = await lookup_next_episode(show, season, episode)
+        if media is None:
+            _NO_NEXT_UNTIL[(show.id, season, episode)] = time.monotonic() + recheck
+        return media
 
-                next_season_num, next_episode_num = next_ep
+    # Fallback for shows with no local row for the next episode yet, except
+    # those recently found to have nothing new out.
+    for expired in [k for k, until in _NO_NEXT_UNTIL.items() if until <= now_mono]:
+        _NO_NEXT_UNTIL.pop(expired, None)
+    missing_show_ids = {
+        show_id for show_id in set(last_per_show) - set(next_per_show)
+        if (show_id, *last_per_show[show_id]) not in _NO_NEXT_UNTIL
+    }
 
-                media = Media(
-                    media_type=MediaType.episode,
-                    show_id=show.id,
-                    season_number=next_season_num,
-                    episode_number=next_episode_num,
-                )
+    if missing_show_ids and tmdb_api_key:
 
-                await enrich_media(
-                    media,
-                    api_key=api_key,
-                    series_tmdb_id=show.tmdb_id,
-                )
+        shows_result = await db.execute(
+            select(Show).where(
+                Show.id.in_(missing_show_ids),
+                Show.tmdb_id.isnot(None),
+            )
+        )
+        missing_shows = shows_result.scalars().all()
 
-                if not media.tmdb_id:
-                    continue
-                # Check the air date before the row is linked to the show:
-                # linking it adds it to the session, which would save even an
-                # unaired episode.
-                if not await episode_has_aired(media, show):
-                    continue
+        found = await asyncio.gather(*(find_next_episode(show) for show in missing_shows))
+        # Saved one at a time: they share the database session.
+        for show, media in zip(missing_shows, found):
+            if media is not None:
+                next_per_show[show.id] = await _store_episode(db, media, show)
 
-                next_per_show[show_id] = await _store_episode(db, media, show)
-
-            await db.commit()
+        await db.commit()
 
     if not next_per_show:
         return {"next_up": []}
@@ -1238,20 +1283,29 @@ async def get_next_up(
         (m, item) for m, item in zip(next_up, items)
         if not item["season_poster_path"] and m.show and m.show.tmdb_id
     ]
-    if missing:
-        poster_key = await get_user_tmdb_key(db, current_user.id)
-        if check_tmdb_key(poster_key):
-            async def fetch_season_poster(m, item):
-                try:
-                    data = await tmdb.get_show_light(m.show.tmdb_id, api_key=poster_key)
-                except Exception:
-                    return
-                for s in data.get("seasons") or []:
-                    if s.get("season_number") == m.season_number and s.get("poster_path"):
-                        item["season_poster_path"] = tmdb.poster_url(s["poster_path"])
-                        return
+    if missing and tmdb_api_key:
+        async def fetch_season_poster(m, item):
+            key = (m.show.tmdb_id, m.season_number)
+            hit = _SEASON_POSTERS.get(key)
+            if hit and time.monotonic() - hit[0] < _SEASON_POSTER_TTL:
+                item["season_poster_path"] = hit[1]
+                return
+            try:
+                data = await tmdb.get_show_light(m.show.tmdb_id, api_key=tmdb_api_key)
+            except Exception:
+                return
+            poster = next(
+                (
+                    tmdb.poster_url(s["poster_path"])
+                    for s in data.get("seasons") or []
+                    if s.get("season_number") == m.season_number and s.get("poster_path")
+                ),
+                None,
+            )
+            _SEASON_POSTERS[key] = (time.monotonic(), poster)
+            item["season_poster_path"] = poster
 
-            await asyncio.gather(*(fetch_season_poster(m, item) for m, item in missing))
+        await asyncio.gather(*(fetch_season_poster(m, item) for m, item in missing))
 
     progress_by_show = await _show_watch_pct(
         db,
