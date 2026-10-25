@@ -414,3 +414,84 @@ def replace_pick_value(items: list[PhysicalItem], field: str, old: str, new: str
         item.edited_locally = True
         changed += 1
     return changed
+
+
+# ── Franchise sort titles ────────────────────────────────────────────────────
+
+_ROMAN = {"I": 1, "II": 2, "III": 3, "IV": 4, "V": 5, "VI": 6, "VII": 7, "VIII": 8, "IX": 9, "X": 10}
+
+
+def _episode(title: str) -> int | None:
+    """Star Wars style numbering: "Episode IV - A New Hope" -> 4."""
+    import re
+
+    m = re.search(r"\bEpisode\s+([IVX]+)\b", title or "")
+    return _ROMAN.get(m.group(1)) if m else None
+
+
+def franchise_order(parts: list[dict]) -> list[int]:
+    """A franchise's films in order: by episode number where they have one
+    (Star Wars), otherwise by release date. Returns their TMDB ids."""
+    def key(p):
+        episode = _episode(p.get("title") or "")
+        return (episode if episode is not None else 100, p.get("release_date") or "9999", p.get("title") or "")
+    return [p["id"] for p in sorted(parts, key=key) if p.get("id")]
+
+
+def franchise_name(name: str) -> str:
+    """"The Fast and the Furious Collection" -> "The Fast and the Furious"."""
+    import re
+
+    return re.sub(r"\s*[-–]?\s*Collection$", "", name or "").strip()
+
+
+async def franchise_sort_keys(
+    items: list[PhysicalItem], api_key: str | None, min_films: int = 2,
+) -> dict[int, tuple[str, str] | None]:
+    """For each film, its TMDB franchise and a sort title that files it there
+    in order ("Alien 03"), or None when it isn't part of one (or fewer than
+    `min_films` of `items` are). Sets and series aren't looked up."""
+    import asyncio
+    from collections import Counter
+
+    limit = asyncio.Semaphore(8)
+    collections: dict[int, asyncio.Task] = {}
+
+    async def collection(cid: int) -> dict:
+        async with limit:
+            return await tmdb.get_collection(cid, api_key=api_key)
+
+    async def one(item: PhysicalItem):
+        if item.is_set or not item.tmdb_id or (item.specs or {}).get("tmdb_kind") == "tv":
+            return item.id, None
+        try:
+            async with limit:
+                movie = await tmdb.get_movie_light(item.tmdb_id, api_key=api_key)
+            belongs = movie.get("belongs_to_collection") or {}
+            if not belongs.get("id"):
+                return item.id, None
+            if belongs["id"] not in collections:
+                collections[belongs["id"]] = asyncio.ensure_future(collection(belongs["id"]))
+            coll = await collections[belongs["id"]]
+        except Exception:
+            return item.id, "error"
+        order = franchise_order(coll.get("parts") or [])
+        if item.tmdb_id not in order:
+            return item.id, None
+        name = franchise_name(coll.get("name") or belongs.get("name") or "")
+        return item.id, (name, f"{name} {order.index(item.tmdb_id) + 1:02d}")
+
+    results = [r for r in await asyncio.gather(*(one(i) for i in items)) if r[1] != "error"]
+    # A franchise you have one film of isn't worth filing as one.
+    owned = Counter(found[0] for _, found in results if found)
+    return {item_id: (found if found and owned[found[0]] >= min_films else None) for item_id, found in results}
+
+
+def set_franchise(item: PhysicalItem, found: tuple[str, str] | None) -> None:
+    specs = dict(item.specs or {})
+    if found:
+        specs["franchise"], specs["auto_sort"] = found
+    else:
+        specs.pop("franchise", None)
+        specs.pop("auto_sort", None)
+    item.specs = specs

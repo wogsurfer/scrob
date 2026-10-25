@@ -1031,6 +1031,10 @@ export interface PhysicalSummary {
   /** A box set or multi-film disc; or, for a film in one, the set's id. */
   is_set?: boolean;
   parent_id?: number;
+  /** A sort title typed in (rather than worked out from the franchise). */
+  own_sort?: boolean;
+  /** The TMDB franchise a film belongs to. */
+  franchise?: string;
   position?: number;
   tags?: string[];
   date_added?: string;
@@ -1063,6 +1067,9 @@ export interface PhysicalDetail extends PhysicalSummary {
   poster_is_own: boolean;
   /** A set's films, or for a film in a set, the films in that set. */
   contents: { id: number; title: string; title_extension?: string; release_year?: number; cover?: string; seen?: boolean; plays?: number; is_tv?: boolean; imdb_rating?: number }[];
+  /** The sort title typed in, and the one worked out from the franchise. */
+  own_sort_title?: string | null;
+  auto_sort?: string | null;
   /** The set a film is in, with its shelf details. */
   parent: {
     id: number; title: string; cover: string | null; format: string | null; edition: string | null; barcode: string | null;

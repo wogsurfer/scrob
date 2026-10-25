@@ -40,7 +40,7 @@ const lists: { key: string; label: string; hint: string }[] = [
     <h2>Main</h2>
     <div class="pf-grid">
       <label class="pf-wide">Title<input name="title" required value={v(item?.title)} /></label>
-      <label>Sort title<input name="sort_title" value={v(item?.sort_title !== item?.title ? item?.sort_title : "")} placeholder="Leave blank to sort by title" /></label>
+      <label>Sort title<input name="sort_title" value={v(isEdit ? item?.own_sort_title : item?.sort_title)} placeholder={item?.auto_sort ? `Blank: files as “${item.auto_sort}”` : "Leave blank to sort by title"} /></label>
       <label>Release year<input name="release_year" type="number" min="1880" max="2100" value={v(item?.release_year)} /></label>
       <label>Status
         <select name="status">

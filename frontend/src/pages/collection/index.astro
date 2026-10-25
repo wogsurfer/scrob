@@ -97,6 +97,7 @@ const loans = items.filter((i) => i.on_loan).length;
                 <option value="regions">Region</option>
                 <option value="edition">Edition</option>
                 <option value="in_set">Box set</option>
+                <option value="franchise">Franchise</option>
                 <option value="series">Series</option>
                 <option value="tags">Tags</option>
                 <option value="audience_rating">Age rating</option>
@@ -236,6 +237,7 @@ const loans = items.filter((i) => i.on_loan).length;
         case "seen": return [i.seen ? "Seen" : "Not seen"];
         case "kind": return [i.is_tv ? "TV" : "Film"];
         case "in_set": return [i.is_set ? i.title : "(none)"];
+        case "franchise": return [i.franchise || "(none)"];
         default: {
           const v = (i as Record<string, unknown>)[group];
           return [v ? String(v) : "(none)"];
@@ -243,13 +245,28 @@ const loans = items.filter((i) => i.on_loan).length;
       }
     };
 
-    // Titles sort and file without a leading article or punctuation
-    // ("The 'Burbs" under B, "¡Three Amigos!" under T, "(500) Days..." under #).
-    const sortKey = (i: PhysicalSummary) =>
-      (i.sort_title || i.title).replace(/^(the|a|an)\s+/i, "").replace(/^[^\p{L}\p{N}]+/u, "").toLowerCase();
+    // Titles sort and file as on the shelf: without a leading article, with
+    // "&" read as "and". Ones starting with punctuation ("The 'Burbs",
+    // "(500) Days...") go first, in the # pile; a Spanish "¡" or "¿" is part
+    // of the word, so "¡Three Amigos!" files under T. A box set files where
+    // its first film does, unless it has a sort title of its own.
+    const titleParts = (i: PhysicalSummary) => {
+      const t = (i.sort_title || i.title).replace(/&/g, " and ").replace(/^(the|a|an)\s+/i, "").replace(/^[¡¿]+/, "")
+        .replace(/\s+/g, " ").trim().toLowerCase();
+      const punct = /^[^\p{L}\p{N}]/u.test(t) ? t.charCodeAt(0) : null;
+      return { punct, text: t.replace(/^[^\p{L}\p{N}]+/u, "") };
+    };
+    const shelfItem = (i: PhysicalSummary) => (i.is_set && !i.own_sort && kids(i).length ? kids(i)[0] : i);
+    const sortKey = (i: PhysicalSummary) => {
+      const { punct, text } = titleParts(shelfItem(i));
+      return punct == null ? `1 ${text}` : `0 ${String(punct).padStart(5, "0")} ${text}`;
+    };
+    // Numbers in order: 2 before 10.
+    const byText = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
     const firstLetter = (i: PhysicalSummary) => {
-      const c = sortKey(i).normalize("NFD").charAt(0).toUpperCase();
-      return /[A-Z]/.test(c) ? c : "#";
+      const { punct, text } = titleParts(shelfItem(i));
+      const c = text.normalize("NFD").charAt(0).toUpperCase();
+      return punct == null && /[A-Z]/.test(c) ? c : "#";
     };
 
     const inStatus = all.filter((i) => i.status === status && !i.parent_id);
@@ -291,11 +308,11 @@ const loans = items.filter((i) => i.on_loan).length;
         let x: any, y: any;
         if (k === "title") { x = sortKey(a); y = sortKey(b); }
         else { x = (a as any)[k]; y = (b as any)[k]; }
-        if (x == null && y == null) return sortKey(a).localeCompare(sortKey(b));
+        if (x == null && y == null) return byText(sortKey(a), sortKey(b));
         if (x == null) return 1;
         if (y == null) return -1;
-        const c = typeof x === "number" ? x - y : String(x).localeCompare(String(y));
-        return (c || sortKey(a).localeCompare(sortKey(b))) * state.dir;
+        const c = typeof x === "number" ? x - y : byText(String(x), String(y));
+        return (c || byText(sortKey(a), sortKey(b))) * state.dir;
       });
     }
 

@@ -16,7 +16,7 @@ from sqlalchemy.orm import selectinload
 
 from core import tmdb
 from core.physical import (
-    PICK_LISTS, cover_path, fetch_cover, fill_from_tmdb, link_media, pick_values, rebuild_collection_mirror,
+    PICK_LISTS, cover_path, fetch_cover, fill_from_tmdb, franchise_sort_keys, link_media, set_franchise, pick_values, rebuild_collection_mirror,
     refresh_imdb_ratings, replace_pick_value, save_cover,
 )
 from db import get_db
@@ -109,7 +109,10 @@ def _summary(item: PhysicalItem, plays: dict[int, int], on_loan: set[int], poste
         "id": item.id,
         "status": item.status,
         "title": item.title,
-        "sort_title": item.sort_title or item.title,
+        # A sort title typed in, else one filing it in its franchise.
+        "sort_title": item.sort_title or specs.get("auto_sort") or item.title,
+        "own_sort": bool(item.sort_title),
+        "franchise": specs.get("franchise"),
         "title_extension": specs.get("title_extension"),
         "is_tv": item.is_tv,
         "series": item.series,
@@ -194,11 +197,21 @@ async def list_items(
     )).all()
     plays = await _watched_tmdb_ids(db, current_user.id)
     on_loan = set(await _active_loans(db, current_user.id))
-    # Empty fields are left out: it's the whole collection in one response.
-    return {"items": [
-        {k: v for k, v in _summary(i, plays, on_loan, poster).items() if v not in (None, "", [], False)}
-        for i, poster in rows
-    ]}
+    # A franchise you have one film of isn't filed as one.
+    franchises = Counter((i.specs or {}).get("franchise") for i, _ in rows if not i.is_set)
+    summaries = []
+    for i, poster in rows:
+        data = _summary(i, plays, on_loan, poster)
+        _drop_lone_franchise(data, franchises[data["franchise"]], i)
+        # Empty fields are left out: it's the whole collection in one response.
+        summaries.append({k: v for k, v in data.items() if v not in (None, "", [], False)})
+    return {"items": summaries}
+
+
+def _drop_lone_franchise(data: dict, films_in_it: int, item: PhysicalItem) -> None:
+    if data.get("franchise") and films_in_it < 2:
+        data["franchise"] = None
+        data["sort_title"] = item.sort_title or item.title
 
 
 @router.get("/items/{item_id}")
@@ -212,6 +225,12 @@ async def get_item(
     active = {loan.item_id: loan for loan in item.loans if loan.returned_on is None}
     data = _summary(item, plays, set(active))
     specs = item.specs or {}
+    if data["franchise"]:
+        films_in_it = await db.scalar(select(func.count(PhysicalItem.id)).where(
+            PhysicalItem.user_id == current_user.id, PhysicalItem.is_set.is_(False),
+            PhysicalItem.specs["franchise"].astext == data["franchise"],
+        ))
+        _drop_lone_franchise(data, films_in_it, item)
     last_watched = None
     if item.tmdb_id and data["plays"]:
         last_watched = await db.scalar(
@@ -286,6 +305,8 @@ async def get_item(
     return {
         **data,
         "specs": specs,
+        "own_sort_title": item.sort_title,
+        "auto_sort": specs.get("auto_sort") if data["franchise"] else None,
         "current_value": _num(item.current_value),
         "owner": item.owner,
         "notes": item.notes,
@@ -380,6 +401,11 @@ async def _apply(db: AsyncSession, user_id: int, item: PhysicalItem, fields: Ite
             film.status = item.status
     if tmdb_changed or (item.media_id is None and not item.is_set):
         await link_media(db, item, await get_user_tmdb_key(db, user_id))
+    if tmdb_changed and not item.is_set:
+        # Its franchise, so it files with the rest of it.
+        found = await franchise_sort_keys([item], await get_user_tmdb_key(db, user_id), min_films=1)
+        if item.id in found:
+            set_franchise(item, found[item.id])
 
 
 async def _place_in_set(db: AsyncSession, user_id: int, item: PhysicalItem, title: str) -> None:
