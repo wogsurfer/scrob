@@ -95,6 +95,10 @@ const wishlist = items.filter((i) => i.status === "wishlist" && !i.parent_id).le
 
         <div class="coll-body">
           <aside class="coll-folders">
+            <button type="button" id="coll-folders-toggle" class="coll-folders-toggle" aria-label="Hide folders" title="Hide folders">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="m15 6-6 6 6 6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+            </button>
+            <span class="coll-folders-tab">Folders</span>
             <label class="coll-select coll-group">
               <span>Folders</span>
               <select id="coll-group">
@@ -275,7 +279,10 @@ const wishlist = items.filter((i) => i.status === "wishlist" && !i.parent_id).le
       group: new URL(location.href).searchParams.get("group") ?? saved.group ?? "format",
       folder: new URL(location.href).searchParams.get("folder") as string | null,
       // Sets opened in the list view.
+      foldersHidden: !!saved.foldersHidden,
       expanded: new Set<number>(),
+      // Sets closed by hand, even where a search or folder would open them.
+      collapsed: new Set<number>(),
       // ?tmdb= (from a film card) opens your copy of that film.
       selected: Number(new URL(location.href).searchParams.get("item"))
         || (() => {
@@ -284,7 +291,7 @@ const wishlist = items.filter((i) => i.status === "wishlist" && !i.parent_id).le
         })(),
     };
     const save = () => {
-      try { localStorage.setItem("collection-view", JSON.stringify({ sort: state.sort, dir: state.dir, view: state.view, size: state.size, group: state.group, cols })); } catch {}
+      try { localStorage.setItem("collection-view", JSON.stringify({ sort: state.sort, dir: state.dir, view: state.view, size: state.size, group: state.group, cols, foldersHidden: state.foldersHidden })); } catch {}
     };
 
     const esc = (v: unknown) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
@@ -434,7 +441,7 @@ const wishlist = items.filter((i) => i.status === "wishlist" && !i.parent_id).le
     function row(i: PhysicalSummary, kid = false): string {
       const k = kids(i);
       const h = hits(i);
-      const open = i.is_set && (state.expanded.has(i.id) || h.length > 0);
+      const open = i.is_set && !state.collapsed.has(i.id) && (state.expanded.has(i.id) || h.length > 0);
       const toggle = i.is_set
         ? `<button type="button" class="coll-expand${open ? " open" : ""}" data-expand="${i.id}" aria-label="${open ? "Hide" : "Show"} the films in this set">▸</button>`
         : "";
@@ -705,7 +712,10 @@ const wishlist = items.filter((i) => i.status === "wishlist" && !i.parent_id).le
       const toggle = (e.target as HTMLElement).closest<HTMLElement>("[data-expand]");
       if (!toggle) return pick(e);
       const id = Number(toggle.dataset.expand);
-      if (state.expanded.has(id)) state.expanded.delete(id); else state.expanded.add(id);
+      // The arrow closes an open set, whatever opened it, and opens a closed
+      // one showing all its films.
+      if (toggle.classList.contains("open")) { state.expanded.delete(id); state.collapsed.add(id); }
+      else { state.collapsed.delete(id); state.expanded.add(id); }
       render();
     });
 
@@ -766,6 +776,22 @@ const wishlist = items.filter((i) => i.status === "wishlist" && !i.parent_id).le
     document.addEventListener("click", (e) => {
       if (!colsBox.hidden && !(e.target as HTMLElement).closest(".coll-cols-wrap")) colsBox.hidden = true;
     });
+
+    // Folders panel: hide it to give the covers or list the room.
+    const body = document.querySelector<HTMLElement>(".coll-body")!;
+    const foldersToggle = $("coll-folders-toggle");
+    const showFolders = () => {
+      body.classList.toggle("folders-hidden", state.foldersHidden);
+      const label = state.foldersHidden ? "Show folders" : "Hide folders";
+      foldersToggle.setAttribute("aria-label", label);
+      foldersToggle.title = label;
+    };
+    foldersToggle.addEventListener("click", () => { state.foldersHidden = !state.foldersHidden; save(); showFolders(); });
+    document.querySelector(".coll-folders")!.addEventListener("click", (e) => {
+      // A click anywhere on the hidden strip opens it.
+      if (state.foldersHidden && !(e.target as HTMLElement).closest("#coll-folders-toggle")) { state.foldersHidden = false; save(); showFolders(); }
+    });
+    showFolders();
 
     sortSel.value = state.sort;
     groupSel.value = state.group;
@@ -862,6 +888,18 @@ const wishlist = items.filter((i) => i.status === "wishlist" && !i.parent_id).le
   .coll-body { --top: clamp(320px, 52vh, 620px); display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 16px; align-items: start; }
   .coll-folders { height: var(--top); overflow-y: auto; padding: 12px; border-radius: 16px; background: #0a0a0a; border: 1px solid #1c1c1f; }
   .coll-group { display: flex; flex-direction: column; align-items: stretch; gap: 6px; margin-bottom: 10px; }
+  .coll-folders { position: relative; }
+  .coll-folders-toggle { position: absolute; top: 9px; right: 9px; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 7px; color: #71717a; z-index: 1; }
+  .coll-folders-toggle:hover { color: #fff; background: #27272a; }
+  .coll-folders-toggle svg { width: 15px; height: 15px; transition: transform .15s; }
+  .coll-folders-tab { display: none; }
+  .coll-body.folders-hidden { grid-template-columns: 42px minmax(0, 1fr); }
+  .coll-body.folders-hidden .coll-folders { padding: 0; overflow: hidden; cursor: pointer; }
+  .coll-body.folders-hidden .coll-folders:hover { border-color: #3f3f46; }
+  .coll-body.folders-hidden .coll-group, .coll-body.folders-hidden #coll-folder-list { display: none; }
+  .coll-body.folders-hidden .coll-folders-toggle { right: 8px; }
+  .coll-body.folders-hidden .coll-folders-toggle svg { transform: rotate(180deg); }
+  .coll-body.folders-hidden .coll-folders-tab { display: block; position: absolute; top: 44px; left: 50%; transform: translateX(-50%); writing-mode: vertical-rl; color: #71717a; font-size: 11px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
   #coll-folder-list { display: flex; flex-direction: column; gap: 1px; }
   #coll-folder-list button { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px; border-radius: 8px; color: #d4d4d8; font-size: 13px; font-weight: 600; text-align: left; }
   #coll-folder-list button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -992,6 +1030,9 @@ const wishlist = items.filter((i) => i.status === "wishlist" && !i.parent_id).le
     .coll-detail .cd-close { display: block; }
     .coll-body { grid-template-columns: minmax(0, 1fr); }
     .coll-folders { height: auto; max-height: 220px; }
+    .coll-body.folders-hidden { grid-template-columns: minmax(0, 1fr); }
+    .coll-body.folders-hidden .coll-folders { height: 40px; }
+    .coll-body.folders-hidden .coll-folders-tab { top: 50%; left: 14px; transform: translateY(-50%); writing-mode: horizontal-tb; }
     .coll-letters { display: none; }
     .coll-controls { margin-left: 0; }
     .coll-detail { inset: 60px 0 0 0; width: 100%; overflow-y: auto; border-radius: 18px 18px 0 0; }
