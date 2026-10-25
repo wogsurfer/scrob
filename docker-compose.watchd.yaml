@@ -1,0 +1,47 @@
+# Watchd as always-on containers: the database and the app (backend and
+# frontend together), both restarting on their own whenever Docker starts.
+#
+# Start or update after code changes:
+#   docker compose -f docker-compose.watchd.yaml up -d --build
+#
+# The db service matches docker-compose-test-db.yaml and uses the same data
+# folder, so it takes over the existing database container.
+name: scrob
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "5433:5432"
+    volumes:
+      - ./.testdb:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  app:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+      # The frontend expects the backend on 8000.
+      BACKEND_PORT: "8000"
+      TZ: Europe/Malta
+    ports:
+      - "7330:7330"
+    volumes:
+      # Caches and imports, shared with the dev servers.
+      - ./backend/data:/app/backend/data
+    depends_on:
+      db:
+        condition: service_healthy
