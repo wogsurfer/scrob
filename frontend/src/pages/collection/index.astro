@@ -183,7 +183,12 @@ const loans = items.filter((i) => i.on_loan).length;
       group: new URL(location.href).searchParams.get("group") ?? saved.group ?? "format",
       folder: new URL(location.href).searchParams.get("folder") as string | null,
       shown: PAGE,
-      selected: Number(new URL(location.href).searchParams.get("item")) || null,
+      // ?tmdb= (from a film card) opens your copy of that film.
+      selected: Number(new URL(location.href).searchParams.get("item"))
+        || (() => {
+          const tmdb = Number(new URL(location.href).searchParams.get("tmdb"));
+          return (tmdb && all.find((i) => i.tmdb_id === tmdb && i.status === status)?.id) || null;
+        })(),
     };
     const save = () => {
       try { localStorage.setItem("collection-view", JSON.stringify({ sort: state.sort, dir: state.dir, view: state.view, size: state.size, group: state.group })); } catch {}

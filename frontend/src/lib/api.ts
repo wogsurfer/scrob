@@ -1398,7 +1398,7 @@ export const api = {
     loans: (token?: string) => get<{ loans: (PhysicalLoan & { item_id: number; title: string; format: string | null; cover: string | null; overdue: boolean })[] }>("/physical/loans", undefined, token),
     stats: (token?: string) => get<PhysicalStats>("/physical/stats", undefined, token),
     options: (token?: string) => get<Record<string, string[]>>("/physical/options", undefined, token),
-    lookup: (params: { barcode?: string; q?: string }, token?: string) =>
+    lookup: (params: { barcode?: string; q?: string; tmdb_id?: number; kind?: "movie" | "tv" }, token?: string) =>
       get<{
         product: { title?: string; brand?: string; images?: string[]; already?: { id: number; title: string; status: string } } | null;
         query: string | null;

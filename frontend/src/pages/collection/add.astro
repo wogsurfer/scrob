@@ -10,6 +10,21 @@ export const prerender = false;
 
 const { token } = Astro.locals;
 const p = Astro.url.searchParams;
+
+// From a film or show card: only the TMDB id is known, so look the title up
+// and open the form for it.
+if (p.has("tmdb") && !p.has("title")) {
+  try {
+    const kindParam = p.get("kind") === "tv" ? "tv" : "movie";
+    const found = (await api.physical.lookup({ tmdb_id: Number(p.get("tmdb")), kind: kindParam }, token)).results[0];
+    const next = new URLSearchParams({ title: found.title, tmdb: String(found.tmdb_id), kind: kindParam });
+    if (found.year) next.set("year", found.year);
+    if (found.poster) next.set("cover", found.poster.replace("/w185/", "/w500/"));
+    return Astro.redirect(`/collection/add?${next}`);
+  } catch {
+    return Astro.redirect("/collection/add");
+  }
+}
 const picked = p.has("title");
 let options: Record<string, string[]> = {};
 try {

@@ -516,11 +516,27 @@ def clean_product_title(title: str) -> str:
 async def lookup(
     barcode: str | None = None,
     q: str | None = None,
+    tmdb_id: int | None = None,
+    kind: str = Query("movie", pattern="^(movie|tv)$"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Candidates for a new release: the product a barcode belongs to (from
-    UPCitemdb's free lookup) and matching TMDB films and series."""
+    UPCitemdb's free lookup) and matching TMDB films and series, or the one
+    film or series with `tmdb_id`."""
+    if tmdb_id:
+        api_key = await get_user_tmdb_key(db, current_user.id)
+        try:
+            data = await (tmdb.get_show_light(tmdb_id, api_key=api_key) if kind == "tv" else tmdb.get_movie_releases(tmdb_id, api_key=api_key))
+        except Exception:
+            raise HTTPException(status_code=404, detail="Not found on TMDB")
+        return {"product": None, "query": None, "results": [{
+            "kind": kind,
+            "tmdb_id": tmdb_id,
+            "title": data.get("title") or data.get("name"),
+            "year": (data.get("release_date") or data.get("first_air_date") or "")[:4] or None,
+            "poster": tmdb.poster_url(data.get("poster_path"), size="w185"),
+        }]}
     product = None
     if barcode:
         existing = (await db.execute(
