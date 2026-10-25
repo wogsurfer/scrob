@@ -1039,6 +1039,31 @@ export interface PhysicalSummary {
   tags?: string[];
   date_added?: string;
   cover?: string;
+  // Shown as optional columns in the list view.
+  original_title?: string;
+  imdb_votes?: number;
+  current_value?: number | null;
+  owner?: string | null;
+  viewing_date?: string | null;
+  updated_at?: string;
+  seen_in_cinema?: string;
+  country?: string;
+  language?: string;
+  studios?: string[];
+  writer?: string;
+  producer?: string;
+  composer?: string;
+  cinematography?: string;
+  actors?: string[];
+  adaptation_of?: string;
+  ratios?: string[];
+  audio?: string[];
+  subtitles?: string[];
+  layers?: string;
+  hdr?: string;
+  color?: string;
+  extras?: string[];
+  notes?: string | null;
 }
 
 export interface PhysicalDetail extends PhysicalSummary {

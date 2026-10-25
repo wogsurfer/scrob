@@ -78,6 +78,18 @@ const wishlist = items.filter((i) => i.status === "wishlist" && !i.parent_id).le
               </button>
             </div>
             <input id="coll-size" type="range" min="120" max="300" step="10" value="180" title="Cover size" aria-label="Cover size" />
+            <div class="coll-cols-wrap">
+              <button type="button" id="coll-cols-btn" class="coll-cols-btn" aria-expanded="false" hidden>Columns</button>
+              <div id="coll-cols" class="coll-cols" hidden>
+                <div class="coll-cols-head">
+                  <b>Columns</b>
+                  <button type="button" id="coll-cols-reset">Reset</button>
+                </div>
+                <p class="coll-cols-hint">Tick to show; use the arrows to reorder.</p>
+                <input id="coll-cols-find" placeholder="Find a column" autocomplete="off" />
+                <ul id="coll-cols-list"></ul>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -116,19 +128,7 @@ const wishlist = items.filter((i) => i.status === "wishlist" && !i.parent_id).le
             <div id="coll-grid" class="coll-grid"></div>
             <div id="coll-list" class="coll-list" hidden>
               <table>
-                <thead>
-                  <tr>
-                    <th data-sort="title">Title</th>
-                    <th data-sort="release_year">Year</th>
-                    <th data-sort="format">Format</th>
-                    <th>Edition</th>
-                    <th data-sort="distributor">Distributor</th>
-                    <th data-sort="purchase_date">Purchased</th>
-                    <th>Store</th>
-                    <th data-sort="my_rating">Rating</th>
-                    <th>Seen</th>
-                  </tr>
-                </thead>
+                <thead><tr id="coll-head"></tr></thead>
                 <tbody id="coll-rows"></tbody>
               </table>
             </div>
@@ -189,6 +189,75 @@ const wishlist = items.filter((i) => i.status === "wishlist" && !i.parent_id).le
 
     // Per-viewer preferences.
     const saved = (() => { try { return JSON.parse(localStorage.getItem("collection-view") || "{}"); } catch { return {}; } })();
+
+    // ── List view columns ───────────────────────────────────────────────
+    // Every column the list view can show (the ones Collectorz has, plus
+    // Watchd's own), in groups for the chooser. `sort` is the value it
+    // sorts by; `cell` what it shows.
+    type Col = { label: string; group: string; sort?: (i: PhysicalSummary) => unknown; cell?: (i: PhysicalSummary) => string; dim?: boolean };
+    const list2 = (v?: string[]) => (v?.length ? v.join(", ") : "");
+    const money = (v?: number | null) => (v != null ? v.toFixed(2) : "");
+    const COLS: Record<string, Col> = {
+      title: { label: "Title", group: "Film" },
+      original_title: { label: "Original title", group: "Film", dim: true },
+      release_year: { label: "Year", group: "Film" },
+      director: { label: "Director", group: "Film", dim: true },
+      writer: { label: "Writer", group: "Film", dim: true },
+      producer: { label: "Producer", group: "Film", dim: true },
+      composer: { label: "Composer", group: "Film", dim: true },
+      cinematography: { label: "Cinematography", group: "Film", dim: true },
+      actors: { label: "Cast", group: "Film", dim: true, sort: (i) => list2(i.actors), cell: (i) => esc(list2(i.actors)) },
+      genres: { label: "Genre", group: "Film", dim: true, sort: (i) => list2(i.genres), cell: (i) => esc(list2(i.genres)) },
+      studios: { label: "Studio", group: "Film", dim: true, sort: (i) => list2(i.studios), cell: (i) => esc(list2(i.studios)) },
+      country: { label: "Country", group: "Film", dim: true },
+      language: { label: "Language", group: "Film", dim: true },
+      runtime: { label: "Running time", group: "Film", cell: (i) => (i.runtime ? `${i.runtime} min` : "") },
+      audience_rating: { label: "Age rating", group: "Film", cell: (i) => esc(ageRating(i.audience_rating)) },
+      imdb_rating: { label: "IMDb rating", group: "Film" },
+      imdb_votes: { label: "IMDb votes", group: "Film", cell: (i) => (i.imdb_votes ? i.imdb_votes.toLocaleString() : "") },
+      adaptation_of: { label: "Adaptation of", group: "Film", dim: true },
+      series: { label: "Series", group: "Film", dim: true },
+      franchise: { label: "Franchise", group: "Film", dim: true },
+      kind: { label: "Film or TV", group: "Film", sort: (i) => (i.is_tv ? "TV" : "Film"), cell: (i) => (i.is_tv ? "TV" : "Film") },
+      format: { label: "Format", group: "Edition", cell: (i) => (i.format ? `<span class="coll-fmt-inline coll-fmt-${formatClass(i.format)}">${esc(formatLabel(i.format))}</span>` : "") },
+      edition: { label: "Edition", group: "Edition", dim: true },
+      distributor: { label: "Distributor", group: "Edition", dim: true },
+      barcode: { label: "Barcode", group: "Edition", dim: true },
+      package: { label: "Packaging", group: "Edition", dim: true },
+      disc_count: { label: "Discs", group: "Edition" },
+      disc_release_date: { label: "Disc release", group: "Edition", cell: (i) => esc(fmtDate(i.disc_release_date)) },
+      regions: { label: "Region", group: "Edition", sort: (i) => list2(i.regions), cell: (i) => esc((i.regions || []).map((r) => r.replace("Region ", "")).join(", ")) },
+      ratios: { label: "Aspect ratio", group: "Edition", dim: true, sort: (i) => list2(i.ratios), cell: (i) => esc(list2(i.ratios)) },
+      audio: { label: "Audio", group: "Edition", dim: true, sort: (i) => list2(i.audio), cell: (i) => esc(list2(i.audio)) },
+      subtitles: { label: "Subtitles", group: "Edition", dim: true, sort: (i) => list2(i.subtitles), cell: (i) => esc(list2(i.subtitles)) },
+      layers: { label: "Layers", group: "Edition", dim: true },
+      hdr: { label: "HDR", group: "Edition", dim: true },
+      color: { label: "Colour", group: "Edition", dim: true },
+      extras: { label: "In the box", group: "Edition", dim: true, sort: (i) => list2(i.extras), cell: (i) => esc(list2(i.extras)) },
+      in_set: { label: "Box set", group: "Edition", dim: true, sort: (i) => setTitle(i), cell: (i) => esc(setTitle(i)) },
+      status: { label: "Collection status", group: "Personal", cell: (i) => (i.status === "wishlist" ? "Wish list" : i.status === "owned" ? "In collection" : esc(i.status)) },
+      purchase_date: { label: "Purchased", group: "Personal", cell: (i) => esc(fmtDate(i.purchase_date)) },
+      purchase_price: { label: "Price", group: "Personal", cell: (i) => money(i.purchase_price) },
+      current_value: { label: "Value", group: "Personal", cell: (i) => money(i.current_value) },
+      store: { label: "Store", group: "Personal", dim: true },
+      condition: { label: "Condition", group: "Personal", dim: true },
+      location: { label: "Location", group: "Personal", dim: true },
+      owner: { label: "Owner", group: "Personal", dim: true },
+      index_no: { label: "Index", group: "Personal" },
+      my_rating: { label: "My rating", group: "Personal", cell: (i) => (i.my_rating ? `${i.my_rating}/10` : "") },
+      seen: { label: "Seen", group: "Personal", sort: (i) => (i.seen ? 1 : 0), cell: (i) => (i.seen ? "Yes" : "") },
+      plays: { label: "Plays", group: "Personal", cell: (i) => (i.plays ? String(i.plays) : "") },
+      viewing_date: { label: "Viewing date", group: "Personal", cell: (i) => esc(fmtDate(i.viewing_date)) },
+      seen_in_cinema: { label: "Seen in cinema", group: "Personal", dim: true },
+      tags: { label: "Tags", group: "Personal", dim: true, sort: (i) => list2(i.tags), cell: (i) => esc((i.tags || []).map((t) => `#${t}`).join(" ")) },
+      notes: { label: "Notes", group: "Personal", dim: true },
+      date_added: { label: "Added", group: "Personal", cell: (i) => esc(fmtDate(i.date_added)) },
+      updated_at: { label: "Modified", group: "Personal", cell: (i) => esc(fmtDate(i.updated_at)) },
+    };
+    const DEFAULT_COLS = ["title", "release_year", "format", "edition", "distributor", "purchase_date", "store", "my_rating", "seen"];
+    const setTitle = (i: PhysicalSummary) => (i.is_set ? i.title : i.parent_id ? all.find((x) => x.id === i.parent_id)?.title ?? "" : "");
+    let cols: string[] = (Array.isArray(saved.cols) ? saved.cols : DEFAULT_COLS).filter((k: string) => k in COLS);
+    if (!cols.includes("title")) cols.unshift("title");
     const state = {
       q: "",
       letter: "All",
@@ -210,7 +279,7 @@ const wishlist = items.filter((i) => i.status === "wishlist" && !i.parent_id).le
         })(),
     };
     const save = () => {
-      try { localStorage.setItem("collection-view", JSON.stringify({ sort: state.sort, dir: state.dir, view: state.view, size: state.size, group: state.group })); } catch {}
+      try { localStorage.setItem("collection-view", JSON.stringify({ sort: state.sort, dir: state.dir, view: state.view, size: state.size, group: state.group, cols })); } catch {}
     };
 
     const esc = (v: unknown) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
@@ -305,8 +374,12 @@ const wishlist = items.filter((i) => i.status === "wishlist" && !i.parent_id).le
       const k = state.sort;
       return [...items].sort((a, b) => {
         let x: any, y: any;
+        const by = COLS[k]?.sort;
         if (k === "title") { x = sortKey(a); y = sortKey(b); }
+        else if (by) { x = by(a) || null; y = by(b) || null; }
         else { x = (a as any)[k]; y = (b as any)[k]; }
+        if (x === "") x = null;
+        if (y === "") y = null;
         if (x == null && y == null) return byText(sortKey(a), sortKey(b));
         if (x == null) return 1;
         if (y == null) return -1;
@@ -346,6 +419,12 @@ const wishlist = items.filter((i) => i.status === "wishlist" && !i.parent_id).le
       </button>`;
     }
 
+    // A cell's plain text, for its tooltip (long values are cut short).
+    function cellText(i: PhysicalSummary, c: string): string {
+      const v = COLS[c].sort ? COLS[c].sort!(i) : (i as any)[c];
+      return v == null || v === false ? "" : String(v);
+    }
+
     function row(i: PhysicalSummary, kid = false): string {
       const k = kids(i);
       const h = hits(i);
@@ -354,15 +433,9 @@ const wishlist = items.filter((i) => i.status === "wishlist" && !i.parent_id).le
         ? `<button type="button" class="coll-expand${open ? " open" : ""}" data-expand="${i.id}" aria-label="${open ? "Hide" : "Show"} the films in this set">▸</button>`
         : "";
       const self = `<tr data-id="${i.id}" class="${[i.id === state.selected && "selected", kid && "kid", i.is_set && "set"].filter(Boolean).join(" ")}">
-        <td class="t">${toggle}${esc(i.title)}${i.is_set ? ` <span class="coll-set-inline">${esc(setSize(k))}</span>` : ""}</td>
-        <td>${esc(i.release_year)}</td>
-        <td><span class="coll-fmt-inline coll-fmt-${formatClass(i.format)}">${esc(formatLabel(i.format))}</span></td>
-        <td class="dim">${esc(i.edition)}</td>
-        <td class="dim">${esc(i.distributor)}</td>
-        <td>${esc(fmtDate(i.purchase_date))}</td>
-        <td class="dim">${esc(i.store)}</td>
-        <td>${i.my_rating ? `${i.my_rating}/10` : ""}</td>
-        <td>${i.seen ? "Yes" : ""}</td>
+        ${cols.map((c) => c === "title"
+          ? `<td class="t">${toggle}${esc(i.title)}${i.is_set ? ` <span class="coll-set-inline">${esc(setSize(k))}</span>` : ""}</td>`
+          : `<td class="${COLS[c].dim ? "dim" : ""}" title="${esc(cellText(i, c))}">${COLS[c].cell ? COLS[c].cell!(i) : esc((i as any)[c])}</td>`).join("")}
       </tr>`;
       return open ? self + (h.length && !state.expanded.has(i.id) ? h : k).map((x) => row(x, true)).join("") : self;
     }
@@ -380,7 +453,9 @@ const wishlist = items.filter((i) => i.status === "wishlist" && !i.parent_id).le
       moreBtn.textContent = `Show more (${(visible.length - state.shown).toLocaleString()} left)`;
       document.querySelectorAll<HTMLButtonElement>("#coll-letters button").forEach((b) => b.classList.toggle("active", b.dataset.letter === state.letter));
       document.querySelectorAll<HTMLButtonElement>(".coll-views button").forEach((b) => b.classList.toggle("active", b.dataset.view === state.view));
-      document.querySelectorAll<HTMLElement>("#coll-list th[data-sort]").forEach((th) => th.dataset.active = th.dataset.sort === state.sort ? (state.dir > 0 ? "asc" : "desc") : "");
+      $("coll-head").innerHTML = cols.map((c) => `<th data-sort="${c}" data-active="${c === state.sort ? (state.dir > 0 ? "asc" : "desc") : ""}">${esc(COLS[c].label)}</th>`).join("");
+      $("coll-cols-btn").hidden = state.view !== "list";
+      if (state.view !== "list") $("coll-cols").hidden = true;
       renderFolders();
     }
 
@@ -574,7 +649,7 @@ const wishlist = items.filter((i) => i.status === "wishlist" && !i.parent_id).le
     document.querySelector("#coll-list thead")!.addEventListener("click", (e) => {
       const th = (e.target as HTMLElement).closest<HTMLElement>("th[data-sort]");
       if (!th) return;
-      if (state.sort === th.dataset.sort) state.dir *= -1; else { state.sort = th.dataset.sort!; state.dir = 1; sortSel.value = state.sort; }
+      if (state.sort === th.dataset.sort) state.dir *= -1; else { state.sort = th.dataset.sort!; state.dir = 1; if ([...sortSel.options].some((o) => o.value === state.sort)) sortSel.value = state.sort; }
       save(); rerender();
     });
     const pick = (e: Event) => {
@@ -600,6 +675,54 @@ const wishlist = items.filter((i) => i.status === "wishlist" && !i.parent_id).le
       if (e.key === "Escape" && detail.classList.contains("open") && window.matchMedia("(max-width: 767px)").matches) select(null);
     });
 
+    // The columns chooser.
+    const colsBox = $("coll-cols");
+    const colsList = $("coll-cols-list");
+    const colsFind = $<HTMLInputElement>("coll-cols-find");
+    function renderCols() {
+      const q = colsFind.value.trim().toLowerCase();
+      const order = [...cols, ...Object.keys(COLS).filter((k) => !cols.includes(k))];
+      let group = "";
+      colsList.innerHTML = order.filter((k) => !q || COLS[k].label.toLowerCase().includes(q)).map((k) => {
+        const on = cols.includes(k);
+        const head = !on && COLS[k].group !== group ? `<li class="coll-cols-group">${esc((group = COLS[k].group))}</li>` : "";
+        const idx = cols.indexOf(k);
+        return `${head}<li class="${on ? "on" : ""}">
+          <label><input type="checkbox" data-col="${k}" ${on ? "checked" : ""} ${k === "title" ? "disabled" : ""} /> ${esc(COLS[k].label)}</label>
+          ${on && !q ? `<span class="coll-cols-move">
+            <button type="button" data-move="${k}" data-by="-1" ${idx <= 1 ? "disabled" : ""} aria-label="Move left">▲</button>
+            <button type="button" data-move="${k}" data-by="1" ${idx === 0 || idx === cols.length - 1 ? "disabled" : ""} aria-label="Move right">▼</button>
+          </span>` : ""}
+        </li>`;
+      }).join("");
+    }
+    const colsChanged = () => { save(); renderCols(); render(); };
+    $("coll-cols-btn").addEventListener("click", () => {
+      colsBox.hidden = !colsBox.hidden;
+      $("coll-cols-btn").setAttribute("aria-expanded", String(!colsBox.hidden));
+      if (!colsBox.hidden) { colsFind.value = ""; renderCols(); }
+    });
+    colsFind.addEventListener("input", renderCols);
+    colsList.addEventListener("change", (e) => {
+      const box = (e.target as HTMLInputElement);
+      const k = box.dataset.col!;
+      cols = box.checked ? [...cols, k] : cols.filter((c) => c !== k);
+      colsChanged();
+    });
+    colsList.addEventListener("click", (e) => {
+      const b = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-move]");
+      if (!b) return;
+      const from = cols.indexOf(b.dataset.move!);
+      const to = from + Number(b.dataset.by);
+      if (to < 1 || to >= cols.length) return;
+      [cols[from], cols[to]] = [cols[to], cols[from]];
+      colsChanged();
+    });
+    $("coll-cols-reset").addEventListener("click", () => { cols = [...DEFAULT_COLS]; colsChanged(); });
+    document.addEventListener("click", (e) => {
+      if (!colsBox.hidden && !(e.target as HTMLElement).closest(".coll-cols-wrap")) colsBox.hidden = true;
+    });
+
     sortSel.value = state.sort;
     groupSel.value = state.group;
     sizeInput.value = String(state.size);
@@ -609,6 +732,31 @@ const wishlist = items.filter((i) => i.status === "wishlist" && !i.parent_id).le
 </script>
 
 <style is:global>
+  /* List view columns chooser */
+  .coll-cols-wrap { position: relative; }
+  .coll-cols-btn { height: 34px; padding: 0 12px; border-radius: 10px; border: 1px solid #27272a; color: #e4e4e7; font-size: 12px; font-weight: 800; }
+  .coll-cols-btn:hover, .coll-cols-btn[aria-expanded="true"] { border-color: #52525b; background: #18181b; }
+  .coll-cols { position: absolute; right: 0; top: calc(100% + 6px); z-index: 40; width: 280px; padding: 12px; border-radius: 14px; background: #111113; border: 1px solid #3f3f46; box-shadow: 0 16px 40px rgba(0, 0, 0, .6); }
+  .coll-cols-head { display: flex; justify-content: space-between; align-items: center; color: #f4f4f5; font-size: 14px; }
+  .coll-cols-head button { color: #f87171; font-size: 12px; font-weight: 800; }
+  .coll-cols-hint { margin: 2px 0 8px; color: #71717a; font-size: 11.5px; }
+  #coll-cols-find { width: 100%; margin-bottom: 8px; padding: 7px 10px; border-radius: 9px; background: #0a0a0a; border: 1px solid #27272a; color: #f4f4f5; font-size: 13px; }
+  #coll-cols-find:focus { outline: none; border-color: #e50914; }
+  #coll-cols-list { max-height: 360px; overflow-y: auto; }
+  #coll-cols-list li { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 3px 6px; border-radius: 7px; }
+  #coll-cols-list li:hover { background: #18181b; }
+  #coll-cols-list li.on label { color: #fff; font-weight: 700; }
+  #coll-cols-list label { display: flex; align-items: center; gap: 8px; flex: 1; color: #a1a1aa; font-size: 13px; cursor: pointer; }
+  #coll-cols-list input { accent-color: #e50914; }
+  .coll-cols-group { margin-top: 8px; color: #e50914 !important; font-size: 10px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
+  .coll-cols-group:hover { background: none !important; }
+  .coll-cols-move { display: flex; gap: 2px; }
+  .coll-cols-move button { width: 22px; height: 20px; border-radius: 5px; color: #a1a1aa; font-size: 9px; }
+  .coll-cols-move button:hover:not(:disabled) { color: #fff; background: #27272a; }
+  .coll-cols-move button:disabled { opacity: .25; }
+  html.light .coll-cols { background: #fff; border-color: #d4d4d8; }
+  html.light #coll-cols-list li.on label, html.light .coll-cols-head { color: #18181b; }
+
   /* Box sets and multi-film discs */
   .coll-set { position: absolute; left: 6px; bottom: 6px; padding: 2px 8px; border-radius: 999px; background: rgba(9, 9, 11, .85); border: 1px solid #3f3f46; color: #f4f4f5; font-size: 10px; font-weight: 900; letter-spacing: .03em; backdrop-filter: blur(4px); }
   .coll-card.is-set .coll-cover { box-shadow: 4px 4px 0 -1px #27272a, 8px 8px 0 -2px #1c1c1f; }

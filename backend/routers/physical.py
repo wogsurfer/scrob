@@ -44,9 +44,13 @@ def _num(value: Decimal | None) -> float | None:
     return float(value) if value is not None else None
 
 
+def _crew(specs: dict, role: str) -> str | None:
+    names = [c.get("name") for c in specs.get("crew") or [] if c.get("role") == role and c.get("name")]
+    return "; ".join(dict.fromkeys(names)) or None
+
+
 def _director(specs: dict) -> str | None:
-    names = [c.get("name") for c in specs.get("crew") or [] if c.get("role") == "Director" and c.get("name")]
-    return "; ".join(names) or None
+    return _crew(specs, "Director")
 
 
 async def _watched_tmdb_ids(db: AsyncSession, user_id: int) -> dict[int, int]:
@@ -142,6 +146,31 @@ def _summary(item: PhysicalItem, plays: dict[int, int], poster: str | None = Non
         "audience_rating": specs.get("audience_rating"),
         "imdb_rating": specs.get("imdb_rating"),
         "director": _director(specs),
+        # The rest of what the list view can show as columns.
+        "original_title": specs.get("original_title"),
+        "imdb_votes": specs.get("imdb_votes"),
+        "current_value": _num(item.current_value),
+        "owner": item.owner,
+        "viewing_date": item.viewing_date,
+        "updated_at": item.updated_at,
+        "seen_in_cinema": specs.get("seen_in_cinema"),
+        "country": specs.get("country"),
+        "language": specs.get("language"),
+        "studios": (specs.get("studios") or [])[:3],
+        "writer": _crew(specs, "Writer"),
+        "producer": _crew(specs, "Producer"),
+        "composer": _crew(specs, "Composer") or _crew(specs, "Musician"),
+        "cinematography": _crew(specs, "Cinematography"),
+        "actors": [c.get("name") for c in (specs.get("cast") or [])[:4] if c.get("name")],
+        "adaptation_of": specs.get("adaptation_of"),
+        "ratios": specs.get("ratios", []),
+        "audio": specs.get("audio", []),
+        "subtitles": specs.get("subtitles", []),
+        "layers": specs.get("layers"),
+        "hdr": specs.get("hdr"),
+        "color": specs.get("color"),
+        "extras": specs.get("extras", []),
+        "notes": (item.notes or "")[:160] or None,
         # A box set or multi-film disc, or a film in one.
         "is_set": item.is_set,
         "parent_id": item.parent_id,
