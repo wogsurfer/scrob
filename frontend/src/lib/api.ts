@@ -1326,6 +1326,18 @@ export const api = {
           badge?: string | null;
           watched?: boolean;
         }>;
+        // Release dates of films on the user's watchlist and lists, and
+        // recent films they've watched.
+        movies?: Array<{
+          tmdb_id: number;
+          title: string | null;
+          poster_path: string | null;
+          date: string;
+          kind: "cinema" | "digital" | "streaming" | "disc";
+          label: string;
+          country: string | null;
+          watched: boolean;
+        }>;
       }>(`/calendar/upcoming?days=${days}${fromWeekStart ? "&from_week_start=true" : ""}`, undefined, token),
   },
 

@@ -1,11 +1,12 @@
 import asyncio
+import time
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import httpx
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import desc, select
+from sqlalchemy import desc, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db import get_db, engine, AsyncSessionLocal
@@ -17,9 +18,13 @@ from models.media import Media
 from models.events import WatchEvent
 from models.base import MediaType
 from models.show import Show
+from models.lists import List, ListItem
+from models.watchlist import MovieWatchlist
+from models.profile import UserProfileData
 from core import tmdb
 from core.episode_badges import episode_badge
-from routers.media import get_user_tmdb_key
+from core.movie_releases import COUNTRY_NAMES, release_countries, upcoming_releases
+from routers.media import check_tmdb_key, get_user_tmdb_key
 
 router = APIRouter()
 
@@ -346,6 +351,126 @@ async def _episode_types(pairs: set[tuple[int, int]], api_key: str | None) -> di
 
 
 # =========================================================
+# Film releases
+# =========================================================
+
+# TMDB release dates per film, kept for half a day: they change rarely and
+# the calendar asks for a hundred or so films at a time.
+_MOVIE_RELEASES_TTL = 12 * 3600
+_movie_releases: dict[int, tuple[float, dict]] = {}
+
+
+async def _calendar_movie_candidates(db: AsyncSession, user_id: int, today: date) -> dict[int, dict]:
+    """Films whose releases belong on the user's calendar, by TMDB id: recent
+    films on their watchlist or lists, and recent films they've watched (for
+    their disc and streaming dates)."""
+    recent_year = today.year - 2
+    candidates: dict[int, dict] = {}
+
+    watchlist = await db.execute(
+        select(MovieWatchlist.tmdb_id, MovieWatchlist.title).where(
+            MovieWatchlist.user_id == user_id,
+            or_(MovieWatchlist.year.is_(None), MovieWatchlist.year == 0, MovieWatchlist.year >= recent_year),
+        )
+    )
+    for tmdb_id, title in watchlist.all():
+        candidates[tmdb_id] = {"title": title, "poster_path": None}
+
+    recent = or_(Media.release_date.is_(None), Media.release_date >= str(recent_year))
+    listed = await db.execute(
+        select(Media.tmdb_id, Media.title, Media.poster_path)
+        .join(ListItem, ListItem.media_id == Media.id)
+        .join(List, List.id == ListItem.list_id)
+        .where(List.user_id == user_id, Media.media_type == MediaType.movie, Media.tmdb_id.is_not(None), recent)
+    )
+    watched = await db.execute(
+        select(Media.tmdb_id, Media.title, Media.poster_path)
+        .join(WatchEvent, WatchEvent.media_id == Media.id)
+        .where(
+            WatchEvent.user_id == user_id,
+            Media.media_type == MediaType.movie,
+            Media.tmdb_id.is_not(None),
+            Media.release_date >= f"{today.year - 1}-01-01",
+        )
+    )
+    for tmdb_id, title, poster in [*listed.all(), *watched.all()]:
+        entry = candidates.setdefault(tmdb_id, {"title": title, "poster_path": None})
+        entry["poster_path"] = entry["poster_path"] or poster
+
+    if candidates:
+        seen = await db.execute(
+            select(Media.tmdb_id)
+            .join(WatchEvent, WatchEvent.media_id == Media.id)
+            .where(
+                WatchEvent.user_id == user_id,
+                WatchEvent.completed.is_(True),
+                Media.media_type == MediaType.movie,
+                Media.tmdb_id.in_(list(candidates)),
+            )
+            .distinct()
+        )
+        for (tmdb_id,) in seen.all():
+            candidates[tmdb_id]["watched"] = True
+    return candidates
+
+
+async def _calendar_movies(
+    candidates: dict[int, dict],
+    start: date,
+    end: date,
+    countries: list[str],
+    api_key: str | None,
+) -> list[dict]:
+    """Cinema, digital, streaming and disc releases of the candidate films
+    between start and end."""
+    if not candidates or not check_tmdb_key(api_key):
+        return []
+    gate = asyncio.Semaphore(8)
+
+    async def releases(tmdb_id: int) -> dict:
+        hit = _movie_releases.get(tmdb_id)
+        if hit and time.monotonic() - hit[0] < _MOVIE_RELEASES_TTL:
+            return hit[1]
+        async with gate:
+            try:
+                data = await tmdb.get_movie_releases(tmdb_id, api_key=api_key)
+            except Exception:
+                return {}
+        kept = {
+            "title": data.get("title"),
+            "poster_path": data.get("poster_path"),
+            "results": (data.get("release_dates") or {}).get("results") or [],
+        }
+        _movie_releases[tmdb_id] = (time.monotonic(), kept)
+        return kept
+
+    ids = list(candidates)
+    movies = []
+    for tmdb_id, data in zip(ids, await asyncio.gather(*(releases(i) for i in ids))):
+        if not data:
+            continue
+        film = candidates[tmdb_id]
+        poster = film.get("poster_path") or tmdb.poster_url(data.get("poster_path"))
+        for release in upcoming_releases(data["results"], start, end, countries):
+            movies.append({
+                "tmdb_id": tmdb_id,
+                "title": data.get("title") or film["title"],
+                "poster_path": poster,
+                "date": release["date"].isoformat(),
+                "kind": release["kind"],
+                "label": release["label"],
+                # Only named when it isn't the user's own country.
+                "country": (
+                    COUNTRY_NAMES.get(release["country"], release["country"])
+                    if release["country"] != countries[0] else None
+                ),
+                "watched": bool(film.get("watched")),
+            })
+    movies.sort(key=lambda m: (m["date"], m["title"] or ""))
+    return movies
+
+
+# =========================================================
 # Calendar endpoint
 # =========================================================
 
@@ -364,7 +489,8 @@ async def calendar_upcoming(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Return upcoming TV episodes for shows the user watches.
+    Return upcoming TV episodes for shows the user watches, and release
+    dates (cinema, digital, streaming, disc) of films they follow.
 
     IMPORTANT:
 
@@ -394,6 +520,19 @@ async def calendar_upcoming(
         start_date
         + timedelta(days=days - 1)
     )
+
+    # Film releases are fetched alongside the TV schedule below.
+    tmdb_api_key = await get_user_tmdb_key(db, current_user.id)
+    profile = (await db.execute(
+        select(UserProfileData).where(UserProfileData.user_id == current_user.id)
+    )).scalar_one_or_none()
+    movies_task = asyncio.create_task(_calendar_movies(
+        await _calendar_movie_candidates(db, current_user.id, today),
+        start_date,
+        end_date,
+        release_countries(profile.country if profile else None),
+        tmdb_api_key,
+    ))
 
     # -----------------------------------------------------
     # 1. Find every TV show the user has watched.
@@ -437,6 +576,7 @@ async def calendar_upcoming(
             "today": today.isoformat(),
             "end_date": end_date.isoformat(),
             "episodes": [],
+            "movies": await movies_task,
         }
 
     # -----------------------------------------------------
@@ -485,6 +625,7 @@ async def calendar_upcoming(
             "today": today.isoformat(),
             "end_date": end_date.isoformat(),
             "episodes": [],
+            "movies": await movies_task,
         }
 
     # -----------------------------------------------------
@@ -572,7 +713,7 @@ async def calendar_upcoming(
             for show, scheduled in schedule_results if show.tmdb_id
             for ep in scheduled if ep.get("season") is not None
         },
-        await get_user_tmdb_key(db, current_user.id),
+        tmdb_api_key,
     )
 
     # -----------------------------------------------------
@@ -802,4 +943,5 @@ async def calendar_upcoming(
         "today": today.isoformat(),
         "end_date": end_date.isoformat(),
         "episodes": unique_episodes,
+        "movies": await movies_task,
     }

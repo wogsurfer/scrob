@@ -77,6 +77,13 @@ for (const ep of data.episodes ?? []) {
   byDay.set(ep.air_date, cards);
 }
 
+// Film releases: one card per film, release kind and day.
+type Release = NonNullable<typeof data.movies>[number];
+const filmsByDay = new Map<string, Release[]>();
+for (const m of data.movies ?? []) {
+  filmsByDay.set(m.date, [...(filmsByDay.get(m.date) ?? []), m]);
+}
+
 const pad = (n: number) => String(n).padStart(2, "0");
 const code = (c: Card) => `S${pad(c.season)}E${pad(c.first)}${c.last > c.first ? `–${pad(c.last)}` : ""}`;
 const isTba = (t: string) => !t || /^(tba|tbd|episode \d+)$/i.test(t.trim());
@@ -90,7 +97,9 @@ const weeks = Array.from({ length: WEEKS }, (_, w) => {
   const days = Array.from({ length: 7 }, (_, d) => {
     const date = new Date(start.getTime() + d * DAY_MS);
     const key = iso(date);
-    return { key, date, cards: byDay.get(key) ?? [], past: key < todayIso, today: key === todayIso };
+    const cards = byDay.get(key) ?? [];
+    const films = filmsByDay.get(key) ?? [];
+    return { key, date, cards, films, empty: !cards.length && !films.length, past: key < todayIso, today: key === todayIso };
   });
   const end = days[6].date;
   const range = start.getUTCMonth() === end.getUTCMonth()
@@ -98,10 +107,16 @@ const weeks = Array.from({ length: WEEKS }, (_, w) => {
     : `${fmt(start, { day: "numeric", month: "short" })} – ${fmt(end, { day: "numeric", month: "short" })}`;
   const label = w === 0 ? "This week" : w === 1 ? "Next week" : `Week of ${fmt(start, { day: "numeric", month: "long" })}`;
   const count = days.reduce((n, d) => n + d.cards.reduce((m, c) => m + episodeCount(c), 0), 0);
-  return { label, range, days, count };
+  const filmCount = days.reduce((n, d) => n + d.films.length, 0);
+  return { label, range, days, count, filmCount };
 });
 
 const total = weeks.reduce((n, w) => n + w.count, 0);
+const filmTotal = weeks.reduce((n, w) => n + w.filmCount, 0);
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+const summary = (episodes: number, films: number) =>
+  [episodes ? plural(episodes, "episode", "episodes") : null, films ? plural(films, "film release", "film releases") : null]
+    .filter(Boolean).join(" · ");
 ---
 
 <Base title="Calendar">
@@ -109,31 +124,31 @@ const total = weeks.reduce((n, w) => n + w.count, 0);
     <header class="cal-head">
       <div>
         <h1 class="text-3xl font-black text-zinc-100 tracking-tighter uppercase">Calendar</h1>
-        <p class="cal-sub">This week's and upcoming episodes from shows you're watching</p>
+        <p class="cal-sub">Episodes from shows you're watching, and release dates for films you follow</p>
       </div>
-      {total > 0 && <p class="cal-total">{total} {total === 1 ? "episode" : "episodes"} over {WEEKS} weeks</p>}
+      {total + filmTotal > 0 && <p class="cal-total">{summary(total, filmTotal)} over {WEEKS} weeks</p>}
     </header>
 
     {error && <div class="cal-error">{error}</div>}
 
-    {!error && total === 0 && (
+    {!error && total + filmTotal === 0 && (
       <div class="cal-empty">
         <p class="cal-empty-title">Nothing upcoming</p>
-        <p>There are no episodes this week or in the next {WEEKS - 1} weeks.</p>
+        <p>There are no episodes or film releases this week or in the next {WEEKS - 1} weeks.</p>
       </div>
     )}
 
-    {total > 0 && weeks.map((week) => (
+    {total + filmTotal > 0 && weeks.map((week) => (
       <section class="cal-week">
         <div class="cal-week-head">
           <h2>{week.label}</h2>
           <span>{week.range}</span>
-          <span class="cal-week-count">{week.count > 0 ? `${week.count} ${week.count === 1 ? "episode" : "episodes"}` : "Nothing scheduled"}</span>
+          <span class="cal-week-count">{summary(week.count, week.filmCount) || "Nothing scheduled"}</span>
         </div>
 
         <div class="cal-grid">
           {week.days.map((day) => (
-            <div class:list={["cal-day", { past: day.past, today: day.today, empty: day.cards.length === 0 }]}>
+            <div class:list={["cal-day", { past: day.past, today: day.today, empty: day.empty }]}>
               <div class="cal-day-head">
                 <span class="cal-dow">{day.today ? "Today" : fmt(day.date, { weekday: "short" })}</span>
                 <span class="cal-dom">{day.date.getUTCDate()}</span>
@@ -167,6 +182,19 @@ const total = weeks.reduce((n, w) => n + w.count, 0);
                     </Tag>
                   );
                 })}
+                {day.films.map((film) => (
+                  <a href={`/media/movie/${film.tmdb_id}`} class:list={["cal-card", "cal-film", { watched: film.watched }]}>
+                    <div class="cal-poster">
+                      {film.poster_path ? <img src={thumb(film.poster_path)} alt="" loading="lazy" decoding="async" /> : <span>{(film.title ?? "?").slice(0, 1)}</span>}
+                      {film.watched && <img class="cal-w" src={watchdIconRed.src} alt="Watched" title="Watched" />}
+                    </div>
+                    <div class="cal-info">
+                      <span class:list={["cal-release", `cal-release-${film.kind}`]}>{film.label}</span>
+                      <p class="cal-show" title={film.title ?? ""}>{film.title}</p>
+                      <p class="cal-meta">{["Film", film.country].filter(Boolean).join(" · ")}</p>
+                    </div>
+                  </a>
+                ))}
               </div>
             </div>
           ))}
@@ -217,6 +245,18 @@ const total = weeks.reduce((n, w) => n + w.count, 0);
   .cal-title.tba { color: #52525b; font-style: italic; }
   .cal-meta { margin-top: 3px; font-size: 10.5px; font-weight: 700; color: #71717a; }
   .cal-w { position: absolute; right: 2px; bottom: 2px; width: 15px; height: 15px; object-fit: contain; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .9)); }
+
+  /* Film releases: the kind of release as a tag, in colours apart from the
+     episode labels. */
+  .cal-release { display: inline-block; max-width: 100%; margin-bottom: 3px; padding: 1px 7px; border-radius: 4px; border: 1px solid; font-size: 9px; font-weight: 800; letter-spacing: .08em; line-height: 1.5; text-transform: uppercase; }
+  .cal-release-disc { color: #f4f4f5; background: rgba(244, 244, 245, .12); border-color: rgba(244, 244, 245, .45); }
+  .cal-release-cinema { color: #fb923c; background: rgba(249, 115, 22, .14); border-color: rgba(249, 115, 22, .5); }
+  .cal-release-digital { color: #2dd4bf; background: rgba(20, 184, 166, .14); border-color: rgba(20, 184, 166, .5); }
+  .cal-release-streaming { color: #a3e635; background: rgba(132, 204, 22, .13); border-color: rgba(132, 204, 22, .45); }
+  :global(html.light) .cal-release-disc { color: #27272a; background: rgba(39, 39, 42, .06); border-color: rgba(39, 39, 42, .35); }
+  :global(html.light) .cal-release-cinema { color: #c2410c; }
+  :global(html.light) .cal-release-digital { color: #0f766e; }
+  :global(html.light) .cal-release-streaming { color: #4d7c0f; }
 
   /* Narrower screens: one row per day, with past and empty days hidden. */
   @media (max-width: 1023px) {

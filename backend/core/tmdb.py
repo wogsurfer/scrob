@@ -117,6 +117,16 @@ async def get_movie(tmdb_id: int, api_key: str = None, language: str | None = No
     )
 
 
+async def get_movie_releases(tmdb_id: int, api_key: str = None) -> dict:
+    """A movie's basic details and per-country release dates, without the
+    credits and recommendations get_movie adds."""
+    return await _get(
+        f"{TMDB_BASE}/movie/{tmdb_id}",
+        headers=get_headers(api_key),
+        params={"append_to_response": "release_dates"},
+    )
+
+
 async def get_show(tmdb_id: int, api_key: str = None, language: str | None = None) -> dict:
     params: dict = {"append_to_response": "credits,aggregate_credits,content_ratings,recommendations,external_ids"}
     if language:
