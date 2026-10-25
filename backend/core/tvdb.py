@@ -7,6 +7,7 @@ import asyncio
 import json
 import time
 import httpx
+from core.genres import HIDDEN_GENRES
 
 TVDB_BASE = "https://api4.thetvdb.com/v4"
 
@@ -461,7 +462,7 @@ def format_series(raw: dict, language: str | None = None) -> dict:
     translated_title = _pick("nameTranslations", "name")
     eng_overview = _pick("overviewTranslations", "overview")
 
-    genres = [g.get("name") for g in (raw.get("genres") or []) if g.get("name")]
+    genres = [g.get("name") for g in (raw.get("genres") or []) if g.get("name") and g.get("name") not in HIDDEN_GENRES]
 
     # Count episodes per season and derive premiere dates from embedded episodes
     episode_counts: dict[int, int] = {}

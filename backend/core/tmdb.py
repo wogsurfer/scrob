@@ -2,6 +2,8 @@ import asyncio
 import copy
 import hashlib
 import httpx
+
+from core.genres import strip_hidden_genres
 import json
 import time
 from collections import OrderedDict
@@ -80,7 +82,8 @@ async def _get(url: str, *, headers: dict = None, params: dict = None, max_retri
                 await asyncio.sleep(wait)
                 continue
             r.raise_for_status()
-            payload = r.json()
+            # Kids and Family aren't counted as genres anywhere on the site.
+            payload = strip_hidden_genres(r.json())
             if cacheable and isinstance(payload, dict):
                 _response_cache[key] = (time.monotonic(), copy.deepcopy(payload))
                 _response_cache.move_to_end(key)

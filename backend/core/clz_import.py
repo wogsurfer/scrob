@@ -10,6 +10,7 @@ is the importer's job.
 import re
 import xml.etree.ElementTree as ET
 from datetime import date, datetime
+from core.genres import HIDDEN_GENRES
 
 STATUSES = {
     "in collection": "owned",
@@ -164,7 +165,7 @@ def parse_movie(m: ET.Element) -> dict:
         "imdb_rating": _float(_text(m, "imdbrating")),
         "imdb_votes": _int(_text(m, "imdbvotes")),
         "plot": _text(m, "plot"),
-        "genres": _names(m, "genres/genre"),
+        "genres": [g for g in _names(m, "genres/genre") if g not in HIDDEN_GENRES],
         "studios": _names(m, "studios/studio"),
         "country": _text(m, "country/displayname"),
         "language": _text(m, "language/displayname"),
