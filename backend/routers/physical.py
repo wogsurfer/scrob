@@ -620,5 +620,6 @@ async def field_options(
         "features": used(f for i in items for f in (i.specs or {}).get("features", [])),
         "extras": used(e for i in items for e in (i.specs or {}).get("extras", [])),
         "audience_rating": used((i.specs or {}).get("audience_rating") for i in items),
+        "adaptation_of": used((i.specs or {}).get("adaptation_of") for i in items),
         "box_set": sorted(boxes, key=str.lower),
     }

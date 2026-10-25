@@ -28,7 +28,7 @@ const lists: { key: string; label: string; hint: string }[] = [
 
 <form id="phys-form" class="pf" data-id={item?.id ?? ""} novalidate>
   <datalist id="pf-format">{(options.format ?? []).map((o) => <option value={o} />)}</datalist>
-  {["package", "distributor", "store", "condition", "location", "owner", "series", "box_set", "audience_rating"].map((k) => (
+  {["package", "distributor", "store", "condition", "location", "owner", "series", "box_set", "audience_rating", "adaptation_of"].map((k) => (
     <datalist id={`pf-${k}`}>{(options[k] ?? []).map((o) => <option value={o} />)}</datalist>
   ))}
 
@@ -59,6 +59,8 @@ const lists: { key: string; label: string; hint: string }[] = [
       <label>Box set<input name="box_set" list="pf-box_set" value={v(item?.box_set)} /></label>
       <label>Title extension<input name="specs.title_extension" value={v(s.title_extension)} /></label>
       <label>Original title<input name="specs.original_title" value={v(s.original_title)} /></label>
+      <label>Adaptation of<input name="specs.adaptation_of" list="pf-adaptation_of" value={v(s.adaptation_of)} placeholder="Novel, Comics, TV Series…" /></label>
+      <label class="pf-wide">Based on<input name="specs.adapted_titles" value={v(s.adapted_titles)} placeholder='"The A-Team"' /></label>
       <label class="pf-full">Tagline<input name="specs.tagline" value={v(s.tagline)} /></label>
       <label class="pf-full">Plot<textarea name="specs.plot" rows="3">{v(s.plot)}</textarea></label>
     </div>
