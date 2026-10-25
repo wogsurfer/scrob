@@ -47,6 +47,10 @@ function formatDuration(minutes: number) {
 
         <a href="/stats/ytd">YEAR TO DATE →</a>
 
+        <a href="/pipeline" id="pipeline-chip" class="pipeline-chip" data-status="loading" title="Download pipeline health">
+          <span class="pipeline-dot"></span><span class="pipeline-text">DOWNLOADS</span>
+        </a>
+
       </div>
 
     </div>
@@ -163,6 +167,22 @@ function formatDuration(minutes: number) {
 
 </section>
 
+<script>
+  // The download pipeline's health (Sonarr, Radarr, Prowlarr, Unpackerr):
+  // green when all's well, amber or red with a count when something isn't.
+  const chip = document.getElementById("pipeline-chip");
+  if (chip) {
+    fetch("/api/proxy/pipeline/health")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((h) => {
+        chip.dataset.status = h.status;
+        chip.querySelector(".pipeline-text")!.textContent =
+          h.problems ? `DOWNLOADS: ${h.problems} PROBLEM${h.problems === 1 ? "" : "S"}` : "DOWNLOADS OK";
+      })
+      .catch(() => { chip.dataset.status = "unknown"; });
+  }
+</script>
+
 <style>
 
 .dashboard-header{
@@ -271,6 +291,26 @@ function formatDuration(minutes: number) {
     gap:16px;
 
 }
+
+.pipeline-chip{
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+}
+
+.pipeline-dot{
+    width:9px;
+    height:9px;
+    border-radius:50%;
+    background:#52525b;
+    flex:none;
+}
+
+.pipeline-chip[data-status="ok"] .pipeline-dot{ background:#22c55e; }
+.pipeline-chip[data-status="warn"] .pipeline-dot{ background:#f59e0b; box-shadow:0 0 0 3px rgba(245,158,11,.25); }
+.pipeline-chip[data-status="error"] .pipeline-dot{ background:#ef4444; box-shadow:0 0 0 3px rgba(239,68,68,.3); }
+.pipeline-chip[data-status="warn"] .pipeline-text{ color:#fbbf24; }
+.pipeline-chip[data-status="error"] .pipeline-text{ color:#f87171; }
 
 .dashboard-links a{
 

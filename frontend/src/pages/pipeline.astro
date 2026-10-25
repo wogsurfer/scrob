@@ -1,0 +1,82 @@
+---
+// The download pipeline's health: Sonarr, Radarr, Prowlarr and Unpackerr,
+// the downloads folder and disk space, with whatever's wrong and what to do.
+import Base from "../layouts/Base.astro";
+export const prerender = false;
+---
+
+<Base title="Downloads health">
+  <div class="pl">
+    <header class="pl-head">
+      <div>
+        <h1 class="text-3xl font-black text-zinc-100 tracking-tighter uppercase">Downloads</h1>
+        <p class="pl-sub" id="pl-sub">Checking…</p>
+      </div>
+      <button type="button" id="pl-refresh" class="pl-refresh">Check again</button>
+    </header>
+    <div id="pl-checks" class="pl-checks"></div>
+  </div>
+</Base>
+
+<script>
+  type Check = { key: string; label: string; status: "ok" | "warn" | "error"; summary: string; details: string[] };
+  type Health = { status: string; problems: number; checked_at: string; checks: Check[] };
+
+  const list = document.getElementById("pl-checks")!;
+  const sub = document.getElementById("pl-sub")!;
+  const refresh = document.getElementById("pl-refresh") as HTMLButtonElement;
+  const esc = (v: string) => v.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
+
+  async function load(force = false) {
+    refresh.disabled = true;
+    sub.textContent = "Checking…";
+    try {
+      const res = await fetch(`/api/proxy/pipeline/health${force ? "?refresh=true" : ""}`);
+      if (!res.ok) throw new Error();
+      const h: Health = await res.json();
+      const when = new Date(h.checked_at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+      sub.textContent = (h.problems ? `${h.problems} part${h.problems === 1 ? "" : "s"} need attention` : "Everything's working") + ` · checked at ${when}`;
+      list.innerHTML = h.checks.map((c) => `
+        <section class="pl-card" data-status="${c.status}">
+          <div class="pl-card-head">
+            <span class="pl-dot"></span>
+            <h2>${esc(c.label)}</h2>
+            <span class="pl-summary">${esc(c.summary)}</span>
+          </div>
+          ${c.details.length ? `<ul class="pl-details">${c.details.map((d) => `<li>${esc(d)}</li>`).join("")}</ul>` : ""}
+        </section>`).join("");
+    } catch {
+      sub.textContent = "Couldn't run the checks";
+    } finally {
+      refresh.disabled = false;
+    }
+  }
+
+  refresh.addEventListener("click", () => load(true));
+  load();
+</script>
+
+<style is:global>
+  .pl { max-width: 860px; }
+  .pl-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; margin-bottom: 1.5rem; }
+  .pl-sub { margin-top: 4px; color: #a1a1aa; font-size: 14px; }
+  .pl-refresh { padding: 8px 14px; border-radius: 999px; border: 1px solid #3f3f46; color: #e4e4e7; font-size: 13px; font-weight: 800; }
+  .pl-refresh:hover { border-color: #71717a; }
+  .pl-refresh:disabled { opacity: .5; }
+  .pl-checks { display: flex; flex-direction: column; gap: 10px; }
+  .pl-card { padding: 14px 16px; border-radius: 14px; background: #0a0a0a; border: 1px solid #1c1c1f; }
+  .pl-card[data-status="warn"] { border-color: rgba(245, 158, 11, .45); }
+  .pl-card[data-status="error"] { border-color: rgba(239, 68, 68, .55); background: rgba(239, 68, 68, .05); }
+  .pl-card-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .pl-card h2 { color: #f4f4f5; font-size: 15px; font-weight: 800; min-width: 130px; }
+  .pl-summary { color: #a1a1aa; font-size: 13px; }
+  .pl-dot { width: 10px; height: 10px; border-radius: 50%; background: #22c55e; flex: none; }
+  .pl-card[data-status="warn"] .pl-dot { background: #f59e0b; }
+  .pl-card[data-status="error"] .pl-dot { background: #ef4444; }
+  .pl-card[data-status="warn"] .pl-summary { color: #fbbf24; }
+  .pl-card[data-status="error"] .pl-summary { color: #f87171; }
+  .pl-details { margin: 10px 0 0 20px; display: flex; flex-direction: column; gap: 4px; color: #d4d4d8; font-size: 12.5px; list-style: disc; overflow-wrap: anywhere; }
+  html.light .pl-card { background: #fafafa; border-color: #e4e4e7; }
+  html.light .pl-card h2 { color: #18181b; }
+  html.light .pl-details { color: #3f3f46; }
+</style>

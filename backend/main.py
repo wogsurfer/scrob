@@ -9,6 +9,7 @@ from db import engine, Base
 import models # noqa: F401
 from routers import (
     awards,
+    pipeline,
     webhooks,
     media,
     history,
@@ -485,6 +486,7 @@ app.include_router(
     prefix="/watchlist",
     tags=["Watchlist"],
 )
+app.include_router(pipeline.router, prefix="/pipeline", tags=["pipeline"])
 
 @app.get("/health")
 async def health():

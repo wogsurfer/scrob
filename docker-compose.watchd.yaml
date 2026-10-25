@@ -47,6 +47,15 @@ services:
     volumes:
       # Caches and imports, shared with the dev servers.
       - ./backend/data:/app/backend/data
+      # The download pipeline, read-only, for its health check on the
+      # dashboard (backend/core/pipeline.py): the apps' settings (for their
+      # API keys), Unpackerr's settings and log, and the downloads folder.
+      - C:/ProgramData/Sonarr:/host/arr/Sonarr:ro
+      - C:/ProgramData/Radarr:/host/arr/Radarr:ro
+      - C:/ProgramData/Prowlarr:/host/arr/Prowlarr:ro
+      - C:/ProgramData/unpackerr:/host/unpackerr:ro
+      - C:/Users/wogsu/.unpackerr:/host/unpackerr-logs:ro
+      - D:/Downloads:/host/downloads:ro
     depends_on:
       db:
         condition: service_healthy
