@@ -295,6 +295,9 @@ export interface UserList {
   description: string | null;
   privacy_level: PrivacyLevel;
   item_count: number;
+  movie_count?: number;
+  show_count?: number;
+  last_added?: string | null;
   created_at: string;
   updated_at: string;
   preview_posters: { url: string; adult: boolean }[];

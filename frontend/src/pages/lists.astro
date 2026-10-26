@@ -38,10 +38,15 @@ try {
 
 <Base title="Lists">
   <div>
-    <h1 class="page-title mb-10">Lists</h1>
-
-    <div class="flex items-center justify-between mb-6">
-      <h2 class="section-headline">My Lists</h2>
+    <div class="flex flex-wrap items-end justify-between gap-4 mb-8">
+      <div>
+        <h1 class="text-3xl font-black text-zinc-100 tracking-tighter uppercase">Lists</h1>
+        {lists.length > 0 && (
+          <p class="mt-1 text-sm text-zinc-400">
+            {lists.length} {lists.length === 1 ? "list" : "lists"} · {lists.reduce((t, l) => t + l.item_count, 0).toLocaleString()} items
+          </p>
+        )}
+      </div>
       <button
         id="new-list-btn"
         class="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl transition-all shadow-lg shadow-blue-600/20 active:scale-95 text-sm cursor-pointer"
@@ -149,7 +154,7 @@ try {
         </button>
       </div>
     ) : (
-      <div id="lists-grid" class="grid grid-cols-1 gap-4">
+      <div id="lists-grid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
         {lists.map((list) => (
           <div class="group relative" data-list-id={list.id}>
             <ListCard
@@ -158,10 +163,13 @@ try {
               description={list.description}
               privacy_level={list.privacy_level}
               item_count={list.item_count}
+              movie_count={list.movie_count}
+              show_count={list.show_count}
+              last_added={list.last_added}
               preview_posters={list.preview_posters}
             />
             <button
-              class="delete-list-btn absolute top-3 right-3 p-1.5 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer z-10"
+              class="delete-list-btn absolute top-3 right-3 p-2 rounded-xl bg-black/50 backdrop-blur text-zinc-300 hover:text-red-400 hover:bg-red-500/20 opacity-0 group-hover:opacity-100 focus:opacity-100 transition cursor-pointer z-10"
               data-list-id={list.id}
               data-list-name={list.name}
               aria-label="Delete list"
@@ -178,9 +186,11 @@ try {
     {publicLists.length > 0 && (
       <div class="mt-16 pt-10 border-t border-zinc-800/50">
         <h2 class="section-headline mb-6">From the Community</h2>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
           {publicLists.map((list) => (
             <ListCard
+              movie_count={list.movie_count}
+              show_count={list.show_count}
               id={list.id}
               name={list.name}
               description={list.description}

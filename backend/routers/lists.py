@@ -180,7 +180,8 @@ async def _list_show_poster_map(db: AsyncSession, lists: list[ListModel]) -> dic
 def _format_list(lst: ListModel, show_poster_map: dict[int, ShowModel] | None = None) -> dict:
     preview_posters: list[dict] = []
     for item in sorted(lst.items, key=lambda x: (x.sort_order, x.added_at)):
-        if len(preview_posters) >= 3:
+        # Enough for the strip of posters across a list's card.
+        if len(preview_posters) >= 8:
             break
         try:
             poster = item.media.poster_path
@@ -202,6 +203,9 @@ def _format_list(lst: ListModel, show_poster_map: dict[int, ShowModel] | None = 
         "description": lst.description,
         "privacy_level": lst.privacy_level,
         "item_count": len(lst.items),
+        "movie_count": sum(1 for i in lst.items if i.media and i.media.media_type == MediaType.movie),
+        "show_count": sum(1 for i in lst.items if i.media and i.media.media_type == MediaType.series),
+        "last_added": max((i.added_at for i in lst.items), default=None) and max(i.added_at for i in lst.items).isoformat(),
         "created_at": lst.created_at.isoformat(),
         "updated_at": lst.updated_at.isoformat(),
         "preview_posters": preview_posters,
