@@ -155,13 +155,13 @@ html.light :where(.coll-list) td:first-child { background: #fff; box-shadow: ins
 .coll-detail .cd-close { display: none; position: absolute; right: 12px; top: 10px; width: 32px; height: 32px; border-radius: 999px; background: rgba(0, 0, 0, .6); color: #fff; font-size: 22px; line-height: 1; }
 .coll-detail .cd-top { display: grid; grid-template-columns: 240px minmax(0, 1fr) minmax(0, 1.1fr); gap: 24px; align-items: start; }
 .coll-detail .cd-story { min-width: 0; }
-.coll-detail .cd-plot-label { color: #f87171; font-size: 12px; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; }
+.coll-detail .cd-plot-label { color: #e50914; font-size: 12px; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; }
 .coll-detail .cd-sections { columns: 3 300px; column-gap: 28px; margin-top: 12px; }
 .coll-detail .cd-sections .cd-section { break-inside: avoid; }
 .coll-detail .cd-cover { flex: none; width: 240px; align-self: start; border-radius: 10px; overflow: hidden; background: #18181b; box-shadow: 0 10px 30px rgba(0, 0, 0, .6); cursor: default; }
 .coll-detail .cd-cover img { width: 100%; height: auto; display: block; }
 .coll-detail .cd-head { min-width: 0; }
-.coll-detail .cd-head h2 { font-size: 28px; font-weight: 900; line-height: 1.1; letter-spacing: -.02em; color: #f87171; }
+.coll-detail .cd-head h2 { font-size: 28px; font-weight: 900; line-height: 1.1; letter-spacing: -.02em; color: #e50914; }
 .coll-detail .cd-head h2 span { color: #a1a1aa; font-size: 14px; font-weight: 700; }
 .coll-detail .cd-sub { margin-top: 4px; color: #a1a1aa; font-size: 12.5px; }
 .coll-detail .cd-edition { margin-top: 6px; color: #e4e4e7; font-size: 13px; font-weight: 700; }
@@ -180,7 +180,7 @@ html.light :where(.coll-list) td:first-child { background: #fff; box-shadow: ins
 .coll-detail .cd-stars i.on { background: #fbbf24; }
 .coll-detail .cd-seen { display: flex; align-items: center; gap: 6px; margin-top: 10px; color: #a1a1aa; font-size: 12.5px; font-weight: 700; }
 .coll-detail .cd-seen img { width: 18px; height: 18px; }
-.coll-detail .cd-seen.on { color: #fca5a5; }
+.coll-detail .cd-seen.on { color: #e50914; }
 .coll-detail .cd-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 16px 0 6px; }
 .coll-detail .cd-btn { display: inline-flex; align-items: center; padding: 7px 14px; border-radius: 999px; background: #e50914; color: #fff; font-size: 12.5px; font-weight: 800; text-decoration: none; }
 .coll-detail .cd-btn:hover { background: #f40612; }
@@ -188,7 +188,7 @@ html.light :where(.coll-list) td:first-child { background: #fff; box-shadow: ins
 .coll-detail .cd-tagline { margin-bottom: 12px; color: #d4d4d8; font-size: 13px; font-style: italic; }
 .coll-detail .cd-plot { margin-top: 8px; color: #a1a1aa; font-size: 13px; line-height: 1.55; }
 .coll-detail .cd-section { margin-top: 14px; border-top: 1px solid #1c1c1f; padding-top: 10px; }
-.coll-detail .cd-section summary { cursor: pointer; color: #f87171; font-size: 12px; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; list-style: none; }
+.coll-detail .cd-section summary { cursor: pointer; color: #e50914; font-size: 12px; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; list-style: none; }
 .coll-detail .cd-section summary::after { content: " +"; color: #52525b; }
 .coll-detail .cd-section[open] summary::after { content: " –"; }
 .coll-detail .cd-section > :not(summary) { margin-top: 8px; }

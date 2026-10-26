@@ -309,7 +309,7 @@ const wishlist = items.filter((i) => i.status === "wishlist" && !i.parent_id).le
 
     // "Watched twice, last on 14 March 2025"; "Watched once, on 2 June 2024".
     function watchedText(d: PhysicalDetail) {
-      if (!d.plays) return d.seen ? "Marked as seen" : "Not watched yet";
+      if (!d.plays) return d.seen ? "Marked as watched" : "Not watched yet";
       const times = d.plays === 1 ? "once" : d.plays === 2 ? "twice" : `${d.plays} times`;
       const when = d.last_watched
         ? new Date(d.last_watched).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })
