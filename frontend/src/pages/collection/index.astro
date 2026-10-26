@@ -206,11 +206,12 @@ const wishlist = items.filter((i) => i.status === "wishlist" && !i.parent_id).le
       expanded: new Set<number>(),
       // Sets closed by hand, even where a search or folder would open them.
       collapsed: new Set<number>(),
-      // ?tmdb= (from a film card) opens your copy of that film.
+      // ?tmdb= (from a film card) opens your copy of that film. Films and
+      // series are numbered apart on TMDB, so a show can share its number.
       selected: Number(new URL(location.href).searchParams.get("item"))
         || (() => {
           const tmdb = Number(new URL(location.href).searchParams.get("tmdb"));
-          return (tmdb && all.find((i) => i.tmdb_id === tmdb && i.status === status)?.id) || null;
+          return (tmdb && all.find((i) => i.tmdb_id === tmdb && i.tmdb_kind === "movie" && i.status === status)?.id) || null;
         })(),
     };
     const save = () => {
