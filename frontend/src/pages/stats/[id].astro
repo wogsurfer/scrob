@@ -106,6 +106,18 @@ const heroSubtitle =
   .ws-col { position: relative; flex: 1 1 0; min-width: 8px; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; }
   .ws-bar { width: 100%; background: #e50914; border-radius: 3px 3px 0 0; transition: filter .15s ease; }
   .ws-col:hover .ws-bar { filter: brightness(1.25); }
+  /* Episodes & Movies per Week: movies stacked on episodes */
+  .ws-weekly { margin: 0 0 1.5rem; }
+  .ws-bar-ep { border-radius: 0; }
+  .ws-bar-mv { background: #e4e4e7; border-radius: 3px 3px 0 0; }
+  .ws-col .ws-bar-mv + .ws-bar-ep { border-radius: 0; }
+  .ws-col .ws-bar-mv[style="height:0px"] + .ws-bar-ep { border-radius: 3px 3px 0 0; }
+  .ws-legend { display: flex; gap: 14px; margin: -4px 0 10px; color: #a1a1aa; font-size: 12px; font-weight: 700; }
+  .ws-legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .ws-legend i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+  .ws-key-ep { background: #e50914; }
+  .ws-key-mv { background: #e4e4e7; }
+  .ws-axis-weeks span { overflow: visible; white-space: nowrap; }
   .ws-val { margin-bottom: 4px; font-size: 10px; font-weight: 800; color: #bdbdbd; font-variant-numeric: tabular-nums; }
   .ws-tip { position: fixed; z-index: 9999; pointer-events: none; opacity: 0; transition: opacity .1s ease; display: flex; flex-direction: column; gap: 2px; padding: 8px 12px; border-radius: 10px; background: #111111; border: 1px solid #2b2b2b; box-shadow: 0 8px 30px rgba(0, 0, 0, .5); white-space: nowrap; }
   .ws-tip.on { opacity: 1; }
@@ -401,6 +413,36 @@ const heroSubtitle =
   const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   const toItems = (labels, counts) => labels.map((label, i) => ({ label, count: (counts || [])[i] || 0 }));
   const hourItems = counts => Array.from({ length: 24 }, (_, h) => ({ label: pad(h), count: (counts || [])[h] || 0 }));
+
+  // Episodes and movies per week of the year, stacked: week 1 is 1–7 January,
+  // week 2 is 8–14 January and so on (week 53 is the last day or two).
+  function weeklyChart(d) {
+    const year = statsYear;
+    const count = (bucket, w) => ((bucket.by_week || []).find(x => x.year === year && x.week === w) || {}).count || 0;
+    const jan1 = new Date(year, 0, 1);
+    const daysInYear = (new Date(year + 1, 0, 1) - jan1) / 864e5;
+    let last = Math.ceil(daysInYear / 7);
+    if (statsMode === 'ytd') last = Math.floor((NOW - jan1) / 864e5 / 7) + 1;
+    const dm = dt => dt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+    const weeks = Array.from({ length: last }, (_, i) => {
+      const start = new Date(year, 0, 1 + i * 7);
+      const end = new Date(Math.min(new Date(year, 0, 7 + i * 7), new Date(year, 11, 31)));
+      return { w: i + 1, start, end, eps: count(d.tv, i + 1), mv: count(d.movies, i + 1) };
+    });
+    if (!weeks.some(x => x.eps || x.mv)) return EMPTY('No data for this period.');
+    const max = Math.max(...weeks.map(x => x.eps + x.mv), 1);
+    const MAXPX = 176;
+    const px = n => (n > 0 ? Math.max(Math.round(n / max * MAXPX), 2) : 0);
+    const cols = weeks.map(x => {
+      const span = dm(x.start) === dm(x.end) ? dm(x.start) : `${dm(x.start)}–${dm(x.end)}`;
+      const tip = `Week ${x.w} (${span}): ${num(x.eps)} ${x.eps === 1 ? 'episode' : 'episodes'}, ${num(x.mv)} ${x.mv === 1 ? 'movie' : 'movies'}`;
+      return `<div class="ws-col" data-tip="${esc(tip)}"><div class="ws-bar ws-bar-mv" style="height:${px(x.mv)}px"></div><div class="ws-bar ws-bar-ep" style="height:${px(x.eps)}px"></div></div>`;
+    }).join('');
+    // A label at the first week of each month.
+    const axis = weeks.map((x, i) => `<span>${i === 0 || x.start.getMonth() !== weeks[i - 1].start.getMonth() ? esc(MONTHS[x.start.getMonth()]) : ''}</span>`).join('');
+    const legend = '<div class="ws-legend"><span><i class="ws-key-ep"></i>Episodes</span><span><i class="ws-key-mv"></i>Movies</span></div>';
+    return `${legend}<div class="ws-scroll"><div style="min-width:${weeks.length * 12}px"><div class="ws-bars">${cols}</div><div class="ws-axis ws-axis-weeks">${axis}</div></div></div>`;
+  }
 
   const chartCard = (title, body, span) => `<div class="ws-card ${span ? 'ws-span2' : ''}"><h4 class="ws-card-t">${esc(title)}</h4>${body}</div>`;
 
@@ -795,6 +837,7 @@ const heroSubtitle =
         ['Library Items', 'TBD', 'tbd'],
         ['Ratings', 'TBD', 'tbd'],
       ]),
+      SINGLE_YEAR ? `<div class="ws-card ws-weekly"><h4 class="ws-card-t">Episodes &amp; Movies per Week</h4>${weeklyChart(d)}</div>` : '',
       playCard('First Play', d.first_play),
       tvSection(d, days),
       movieSection(d, days),

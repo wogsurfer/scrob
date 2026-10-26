@@ -1980,6 +1980,8 @@ async def get_stats_overview(
             "month": [0] * 12,
             "weekday": [0] * 7,
             "hour": [0] * 24,
+            # Week of the year: days 1-7 are week 1, 8-14 week 2, and so on.
+            "week": defaultdict(int),
             "sources": defaultdict(int),
         }
 
@@ -2012,6 +2014,7 @@ async def get_stats_overview(
             bucket["month"][local.month - 1] += 1
             bucket["weekday"][local.weekday()] += 1
             bucket["hour"][local.hour] += 1
+            bucket["week"][(local.year, (local.timetuple().tm_yday - 1) // 7 + 1)] += 1
             if first_event is None or stamp < first_event[0]:
                 first_event = (stamp, media_id)
             if last_event is None or stamp > last_event[0]:
@@ -2228,6 +2231,7 @@ async def get_stats_overview(
             "by_month": bucket["month"],
             "by_weekday": bucket["weekday"],  # Monday first
             "by_hour": bucket["hour"],
+            "by_week": [{"year": y, "week": w, "count": c} for (y, w), c in sorted(bucket["week"].items())],
             "sources": ranked(bucket["sources"], 12),
         }
 
