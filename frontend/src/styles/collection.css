@@ -210,7 +210,7 @@ html.light :where(.coll-list) td:first-child { background: #fff; box-shadow: ins
 .coll-detail .cd-cast b { display: block; color: #e4e4e7; }
 .coll-detail .cd-cast span { color: #71717a; font-size: 11.5px; }
 .coll-detail .cd-mini { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; }
-.coll-detail .cd-mini button { text-align: left; color: #d4d4d8; font-size: 11.5px; font-weight: 700; }
+.coll-detail .cd-mini button { display: flex; flex-direction: column; justify-content: flex-start; align-items: stretch; text-align: left; color: #d4d4d8; font-size: 11.5px; font-weight: 700; }
 .coll-detail .cd-mini img { width: 100%; aspect-ratio: 27 / 34; object-fit: cover; border-radius: 6px; margin-bottom: 4px; }
 .coll-detail .cd-others button { color: #d4d4d8; font-size: 12.5px; text-align: left; }
 .coll-detail .cd-others button:hover { color: #fff; text-decoration: underline; }
