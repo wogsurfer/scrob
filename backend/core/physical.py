@@ -495,3 +495,36 @@ def set_franchise(item: PhysicalItem, found: tuple[str, str] | None) -> None:
         specs.pop("franchise", None)
         specs.pop("auto_sort", None)
     item.specs = specs
+
+
+# Most current first: what's on the shelf, then what's coming, then the past.
+_DISC_STATUS_ORDER = {"owned": 0, "ordered": 1, "for_sale": 2, "wishlist": 3, "sold": 4}
+
+
+async def film_discs(db: AsyncSession, user_id: int, tmdb_id: int) -> list[dict]:
+    """Every edition of a film in the user's disc records: owned now, on
+    order, for sale, wished for, or owned before and sold. Films inside a box
+    set say which set."""
+    rows = (await db.execute(
+        select(PhysicalItem).where(
+            PhysicalItem.user_id == user_id, PhysicalItem.tmdb_id == tmdb_id, PhysicalItem.is_set.is_(False),
+        )
+    )).scalars().all()
+    rows = [r for r in rows if (r.specs or {}).get("tmdb_kind", "movie") == "movie"]
+    parents = {}
+    if any(r.parent_id for r in rows):
+        parents = {p.id: p for p in (await db.execute(
+            select(PhysicalItem).where(PhysicalItem.id.in_({r.parent_id for r in rows if r.parent_id}))
+        )).scalars()}
+    out = []
+    for r in rows:
+        shelf = parents.get(r.parent_id, r)
+        out.append({
+            "id": r.id,
+            "status": r.status,
+            "format": shelf.format or r.format,
+            "edition": shelf.edition or r.edition,
+            "in_set": shelf.title if r.parent_id else None,
+            "purchase_date": shelf.purchase_date,
+        })
+    return sorted(out, key=lambda d: (_DISC_STATUS_ORDER.get(d["status"], 9), str(d["purchase_date"] or "")))

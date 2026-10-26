@@ -9,6 +9,11 @@ import AwardsList from "../../../components/AwardsList.astro";
 import SoundtrackList from "../../../components/SoundtrackList.astro";
 import { api, type MediaItem } from "../../../lib/api";
 import { utcIso, formatWatchDate, formatWatchTime } from "../../../lib/time";
+import badges from "../../../lib/badges.json";
+
+// On disc: your Collectorz format icons, and what a non-current edition is.
+const formatIcons: Record<string, string> = badges.format;
+const discState: Record<string, string> = { sold: "Previously owned", ordered: "On order", for_sale: "For sale", wishlist: "Wish list" };
 export const prerender = false;
 
 const { type, id } = Astro.params;
@@ -337,17 +342,32 @@ const refreshUrl = isEpisode
                 userRating={item.user_rating ?? null}
                 hideRate={isMovie}
               />
+              <!-- Your disc editions: owned now first, then on order, for sale,
+                   wished for, and those owned before (sold). -->
+              {!!item.discs?.length && (
+                <div class="disc-row">
+                  <p class="disc-row-label">On disc</p>
+                  {item.discs.map((d) => {
+                    const icon = d.format ? formatIcons[d.format] : undefined;
+                    const state = discState[d.status];
+                    return (
+                      <a href={`/collection?item=${d.id}`} class:list={["disc-chip", { past: d.status === "sold", wish: d.status === "wishlist" }]}
+                         title={[d.format, d.edition, d.in_set && `in ${d.in_set}`].filter(Boolean).join(" · ")}>
+                        {icon ? <img src={icon} alt={d.format} /> : <span class="disc-chip-fmt">{d.format ?? "Disc"}</span>}
+                        {(d.in_set || d.edition) && <span class="disc-chip-set">{d.in_set || d.edition}</span>}
+                        {state && <span class="disc-chip-state">{state}</span>}
+                      </a>
+                    );
+                  })}
+                </div>
+              )}
               <WatchHistory watches={item.watch_history} />
             </div>
 
-            <!-- Library info -->
-            {item.library && (
+            <!-- Media-server file details, when there are any -->
+            {item.library && [item.library.resolution, item.library.video_codec, item.library.audio_codec, item.library.audio_channels,
+              ...(item.library.audio_languages ?? []), ...(item.library.subtitle_languages ?? [])].some(Boolean) && (
               <div class="mb-4 flex flex-wrap gap-2">
-                {!!item.play_count && (
-                  <span class="inline-flex items-center px-3 py-1.5 bg-zinc-900 border border-zinc-800 text-zinc-400 text-xs rounded-lg font-bold">
-                    {item.play_count} {item.play_count === 1 ? 'Play' : 'Plays'}
-                  </span>
-                )}
                 {[
                   item.library.resolution,
                   item.library.video_codec,
@@ -630,3 +650,19 @@ const refreshUrl = isEpisode
     });
   }
 </script>
+
+<style>
+  /* On disc: your editions of the film, the ones you used to own dimmed. */
+  .disc-row { display: flex; flex-direction: column; align-items: stretch; gap: 6px; margin-top: 1rem; padding: 0 4px; }
+  .disc-row-label { color: #71717a; font-size: 10px; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; margin-bottom: -1px; }
+  .disc-chip { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 5px 10px 5px 6px; border-radius: 10px; background: #18181b; border: 1px solid #27272a; color: #d4d4d8; font-size: 12px; font-weight: 700; text-decoration: none; transition: border-color .15s; }
+  .disc-chip:hover { border-color: #52525b; }
+  .disc-chip img { flex: none; height: 22px; width: auto; border-radius: 3px; }
+  .disc-chip-fmt { padding: 2px 6px; border-radius: 5px; background: #27272a; font-size: 11px; font-weight: 900; }
+  .disc-chip-set { flex: 1 1 auto; color: #a1a1aa; font-weight: 600; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .disc-chip-state { flex: none; color: #a1a1aa; font-size: 11px; font-weight: 800; white-space: nowrap; }
+  .disc-chip.past { opacity: .55; }
+  .disc-chip.past img { filter: grayscale(1); }
+  .disc-chip.wish { border-style: dashed; }
+  :global(html.light) .disc-chip { background: #f4f4f5; border-color: #d4d4d8; color: #27272a; }
+</style>

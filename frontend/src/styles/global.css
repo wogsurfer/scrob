@@ -351,7 +351,7 @@ video::-webkit-media-text-track-container {
 @media (min-width: 1024px) {
   .action-stack-host {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 13rem;
+    grid-template-columns: minmax(0, 1fr) 15rem;
     column-gap: 2.5rem;
     align-items: start;
   }

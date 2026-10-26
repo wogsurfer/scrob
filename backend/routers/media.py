@@ -5357,8 +5357,15 @@ async def get_media_details(
         if collection and collection.get("parts"):
             await enrich_with_state(db, current_user.id, collection["parts"])
 
+        # Your disc editions of a film, current and previous.
+        discs = []
+        if type == "movie":
+            from core.physical import film_discs
+            discs = await film_discs(db, current_user.id, tmdb_id)
+
         return {
             **local_info,
+            "discs": discs,
             "tmdb_id": tmdb_id,
             "type": type,
             "watched": state_item.get("watched", False),

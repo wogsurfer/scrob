@@ -568,6 +568,8 @@ export interface ConnectionStatus {
 
 export interface MediaItem {
   id: number | null;
+  /** Your disc editions of a film: owned now, on order, for sale, wished for or sold. */
+  discs?: { id: number; status: string; format: string | null; edition: string | null; in_set: string | null; purchase_date: string | null }[];
   tmdb_id: number | null;
   tvdb_id?: number | null;
   type: MediaType;
