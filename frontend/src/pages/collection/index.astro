@@ -199,6 +199,8 @@ const wishlist = items.filter((i) => i.status === "wishlist" && !i.parent_id).le
       // A link can open a folder: ?group=kind&folder=TV.
       group: new URL(location.href).searchParams.get("group") ?? saved.group ?? "format",
       folder: new URL(location.href).searchParams.get("folder") as string | null,
+      // ?show= (from a show's Collection button): only that series' discs.
+      show: Number(new URL(location.href).searchParams.get("show")) || null,
       foldersHidden: !!saved.foldersHidden,
       // Sets opened in the list view.
       expanded: new Set<number>(),
@@ -276,7 +278,17 @@ const wishlist = items.filter((i) => i.status === "wishlist" && !i.parent_id).le
 
     function render() {
       const visible = sorted(inStatus.filter((i) => matches(i)));
-      countEl.textContent = `${visible.length.toLocaleString()} ${visible.length === 1 ? "disc" : "discs"}${state.folder != null ? ` in ${state.folder}` : ""}`;
+      // The show's name: what its discs' titles share ("Breaking Bad: The
+      // First Season", "Breaking Bad: The Second Season"... -> "Breaking Bad").
+      const showTitles = state.show ? all.filter((i) => i.tmdb_id === state.show && i.tmdb_kind === "tv").map((i) => i.title) : [];
+      let showName = showTitles[0] ?? "this show";
+      if (showTitles.length > 1) {
+        let common = showTitles.reduce((a, b) => { let n = 0; while (n < a.length && a[n] === b[n]) n++; return a.slice(0, n); });
+        if (common.includes(":")) common = common.slice(0, common.lastIndexOf(":"));
+        showName = common.trim() || showName;
+      }
+      countEl.innerHTML = esc(`${visible.length.toLocaleString()} ${visible.length === 1 ? "disc" : "discs"}${state.folder != null ? ` in ${state.folder}` : ""}`)
+        + (state.show ? ` of ${esc(showName)} · <a href="/collection" class="coll-showall">Show all</a>` : "");
       grid.hidden = state.view !== "grid";
       list.hidden = state.view !== "list";
       grid.style.setProperty("--cover", `${state.size}px`);

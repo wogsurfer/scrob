@@ -176,6 +176,7 @@ const seasonAllWatched = airedCount > 0 && watchedCount === airedCount;
                 inLists={[]}
                 inLibrary={season.season_in_library ?? season.show_in_library ?? false}
                 collectionPct={season.season_collection_pct ?? season.show_collection_pct ?? 0}
+                discId={season.season_disc_id ?? null}
                 watchPct={season.season_watched ? 100 : 0}
                 seasonNumber={Number(season_number)}
                 isMonitored={season.show_is_monitored ?? false}

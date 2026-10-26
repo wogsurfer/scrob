@@ -1,0 +1,68 @@
+---
+// "On disc": your discs of a film or series, under the action buttons on its
+// page. Each shows your format icon and the edition, box set or (for a
+// series) season, linking to the disc in the collection. Discs owned before
+// and sold are dimmed; on order, for sale and wish list are labelled.
+import badges from "../lib/badges.json";
+
+interface Disc {
+  id: number;
+  status: string;
+  title?: string | null;
+  format: string | null;
+  edition: string | null;
+  in_set: string | null;
+}
+
+interface Props {
+  discs?: Disc[] | null;
+  /** A series' title: its season sets are labelled without it
+   *  ("Breaking Bad: The First Season" shows as "The First Season"). */
+  seriesTitle?: string | null;
+}
+
+const { discs = [], seriesTitle } = Astro.props;
+const formatIcons: Record<string, string> = badges.format;
+const discState: Record<string, string> = { sold: "Previously owned", ordered: "On order", for_sale: "For sale", wishlist: "Wish list" };
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const seasonOf = (title?: string | null) => {
+  if (!title || !seriesTitle) return title ?? null;
+  const short = title.replace(new RegExp(`^${escapeRe(seriesTitle)}\\s*[:\\-–]\\s*`, "i"), "").trim();
+  return short || title;
+};
+const label = (d: Disc) => (seriesTitle ? seasonOf(d.title) : d.in_set || d.edition);
+---
+
+{!!discs?.length && (
+  <div class="disc-row">
+    <p class="disc-row-label">On disc</p>
+    {discs.map((d) => {
+      const icon = d.format ? formatIcons[d.format] : undefined;
+      const state = discState[d.status];
+      const text = label(d);
+      return (
+        <a href={`/collection?item=${d.id}`} class:list={["disc-chip", { past: d.status === "sold", wish: d.status === "wishlist" }]}
+           title={[d.title, d.format, d.edition, d.in_set && `in ${d.in_set}`].filter(Boolean).join(" · ")}>
+          {icon ? <img src={icon} alt={d.format} /> : <span class="disc-chip-fmt">{d.format ?? "Disc"}</span>}
+          {text && <span class="disc-chip-set">{text}</span>}
+          {state && <span class="disc-chip-state">{state}</span>}
+        </a>
+      );
+    })}
+  </div>
+)}
+
+<style>
+  .disc-row { display: flex; flex-direction: column; align-items: stretch; gap: 6px; margin-top: 1rem; padding: 0 4px; }
+  .disc-row-label { color: #71717a; font-size: 10px; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; margin-bottom: -1px; }
+  .disc-chip { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 5px 10px 5px 6px; border-radius: 10px; background: #18181b; border: 1px solid #27272a; color: #d4d4d8; font-size: 12px; font-weight: 700; text-decoration: none; transition: border-color .15s; }
+  .disc-chip:hover { border-color: #52525b; }
+  .disc-chip img { flex: none; height: 22px; width: auto; border-radius: 3px; }
+  .disc-chip-fmt { flex: none; padding: 2px 6px; border-radius: 5px; background: #27272a; font-size: 11px; font-weight: 900; }
+  .disc-chip-set { flex: 1 1 auto; min-width: 0; color: #a1a1aa; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .disc-chip-state { flex: none; color: #a1a1aa; font-size: 11px; font-weight: 800; white-space: nowrap; }
+  .disc-chip.past { opacity: .55; }
+  .disc-chip.past img { filter: grayscale(1); }
+  .disc-chip.wish { border-style: dashed; }
+  :global(html.light) .disc-chip { background: #f4f4f5; border-color: #d4d4d8; color: #27272a; }
+</style>

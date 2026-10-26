@@ -12,7 +12,12 @@ export interface Filters {
   letter: string;
   group: string;
   folder: string | null;
+  /** Only a series' discs (its TMDB id), as opened from its page. */
+  show?: number | null;
 }
+
+/** A disc of the series with this TMDB id. */
+const ofShow = (i: Item, show: number) => i.tmdb_id === show && i.tmdb_kind === "tv";
 
 /** Box sets and multi-film discs are one entry on the shelf, with their films
  *  inside (in order). A set counts as seen once all its films are, and takes
@@ -145,6 +150,7 @@ export function qMatch(i: Item, q: string): boolean {
  *  matches the search). `skipFolder` counts it for every folder. */
 export function matches(i: Item, f: Filters, kids: Kids, skipFolder = false): boolean {
   if (f.letter !== "All" && firstLetter(i, kids) !== f.letter) return false;
+  if (f.show && !ofShow(i, f.show) && !(i.is_set && kids(i).some((k) => ofShow(k, f.show!)))) return false;
   if (!skipFolder && f.group && f.folder != null && !folderOf(i, f.group, kids).includes(f.folder)) return false;
   if (f.q && !qMatch(i, f.q) && !(i.is_set && kids(i).some((k) => qMatch(k, f.q)))) return false;
   return true;
@@ -153,6 +159,10 @@ export function matches(i: Item, f: Filters, kids: Kids, skipFolder = false): bo
 /** The films in a set that brought it into a search or folder, when that's
  *  only some of them. */
 export function hits(i: Item, f: Filters, kids: Kids): Item[] {
+  if (f.show && i.is_set) {
+    const k = kids(i), h = k.filter((x) => ofShow(x, f.show!));
+    return h.length < k.length ? h : [];
+  }
   if (!i.is_set || (!f.q && f.folder == null)) return [];
   // Found by its own name: the whole set's the answer.
   if (f.q && f.folder == null && qMatch(i, f.q)) return [];

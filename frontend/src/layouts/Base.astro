@@ -1462,11 +1462,17 @@ const bottomNavItem = (active: boolean) =>
 
       } else if (action === 'collected') {
         // The collection is the physical discs: open your copy of a film you
-        // own, otherwise add a disc of it. Seasons and episodes add a disc
-        // of their show.
+        // own, or your discs of a show you own any of; otherwise add a disc
+        // of it. Seasons and episodes go by their show.
         const showTmdbId = card.dataset.showTmdbId;
         const inLibrary = btn.dataset.inLibrary === 'true';
-        if (mediaType === 'movie' && tmdbId && inLibrary) {
+        const ownsShow = Number(btn.dataset.collectionPct || 0) > 0;
+        if (btn.dataset.discId) {
+          // A season you own: straight to its disc.
+          window.location.href = `/collection?item=${btn.dataset.discId}`;
+        } else if (mediaType === 'series' && ownsShow && (showTmdbId || tmdbId)) {
+          window.location.href = `/collection?show=${showTmdbId || tmdbId}`;
+        } else if (mediaType === 'movie' && tmdbId && inLibrary) {
           window.location.href = `/collection?tmdb=${tmdbId}`;
         } else if (mediaType === 'movie' && tmdbId) {
           window.location.href = `/collection/add?tmdb=${tmdbId}&kind=movie`;

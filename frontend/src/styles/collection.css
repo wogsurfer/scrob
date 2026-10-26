@@ -10,6 +10,8 @@
 .coll-list th.drop-before { box-shadow: inset 3px 0 0 #e50914; }
 .coll-list th.drop-after { box-shadow: inset -3px 0 0 #e50914; }
 
+.coll-showall { color: #e4e4e7; text-decoration: underline; }
+
 /* List view columns chooser */
 .coll-cols-wrap { position: relative; }
 .coll-cols-btn { height: 34px; padding: 0 12px; border-radius: 10px; border: 1px solid #27272a; color: #e4e4e7; font-size: 12px; font-weight: 800; }

@@ -121,6 +121,8 @@ export interface SeasonMeta {
 }
 
 export interface SeasonState {
+  /** The disc of yours holding this season, when you own it. */
+  disc_id?: number | null;
   watched: boolean;
   in_library: boolean;
   collection_pct: number;

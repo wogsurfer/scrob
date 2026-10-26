@@ -493,6 +493,28 @@ async def enrich_with_state(
         )
         collected_map = {r[0]: r[1] for r in collected_q.all()}
 
+        # Season sets you own on disc count too: each covers the episodes of
+        # the seasons its title names ("The Third Season", "Series One & Two").
+        from core.physical import season_numbers
+        from models.physical import PhysicalItem
+        disc_rows = await db.execute(
+            select(PhysicalItem.tmdb_id, PhysicalItem.title).where(
+                PhysicalItem.user_id == user_id,
+                PhysicalItem.status == "owned",
+                PhysicalItem.is_set.is_(False),
+                PhysicalItem.tmdb_id.in_(show_tmdb_ids),
+                PhysicalItem.specs["tmdb_kind"].astext == "tv",
+            )
+        )
+        disc_seasons: dict[int, set[int]] = {}
+        for tid, title in disc_rows.all():
+            numbered = [s for s in show_seasons_map.get(tid, []) if s.get("season_number")]
+            last = max((s["season_number"] for s in numbered), default=0)
+            disc_seasons.setdefault(tid, set()).update(season_numbers(title, last))
+        for tid, seasons in disc_seasons.items():
+            on_disc = sum(s.get("episode_count", 0) for s in show_seasons_map.get(tid, []) if s.get("season_number") in seasons)
+            collected_map[tid] = max(collected_map.get(tid, 0), on_disc)
+
         for tmdb_id in show_tmdb_ids:
             total = total_map.get(tmdb_id, 0)
             collected = collected_map.get(tmdb_id, 0)

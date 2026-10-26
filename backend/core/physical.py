@@ -3,6 +3,7 @@ release to its film, and keeping the site-wide "in collection" entries in
 step with the discs the user owns."""
 
 import io
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -502,15 +503,21 @@ _DISC_STATUS_ORDER = {"owned": 0, "ordered": 1, "for_sale": 2, "wishlist": 3, "s
 
 
 async def film_discs(db: AsyncSession, user_id: int, tmdb_id: int) -> list[dict]:
-    """Every edition of a film in the user's disc records: owned now, on
-    order, for sale, wished for, or owned before and sold. Films inside a box
-    set say which set."""
+    """Every edition of a film in the user's disc records."""
+    return await title_discs(db, user_id, tmdb_id, "movie")
+
+
+async def title_discs(db: AsyncSession, user_id: int, tmdb_id: int, kind: str) -> list[dict]:
+    """Every disc of a film or series ("movie" or "tv") in the user's records:
+    owned now, on order, for sale, wished for, or owned before and sold. Discs
+    inside a box set say which set; a series' discs (its season sets) come in
+    release order."""
     rows = (await db.execute(
         select(PhysicalItem).where(
             PhysicalItem.user_id == user_id, PhysicalItem.tmdb_id == tmdb_id, PhysicalItem.is_set.is_(False),
         )
     )).scalars().all()
-    rows = [r for r in rows if (r.specs or {}).get("tmdb_kind", "movie") == "movie"]
+    rows = [r for r in rows if (r.specs or {}).get("tmdb_kind", "movie") == kind]
     parents = {}
     if any(r.parent_id for r in rows):
         parents = {p.id: p for p in (await db.execute(
@@ -521,10 +528,83 @@ async def film_discs(db: AsyncSession, user_id: int, tmdb_id: int) -> list[dict]
         shelf = parents.get(r.parent_id, r)
         out.append({
             "id": r.id,
+            "title": r.title,
+            "release_year": r.release_year,
             "status": r.status,
             "format": shelf.format or r.format,
             "edition": shelf.edition or r.edition,
             "in_set": shelf.title if r.parent_id else None,
             "purchase_date": shelf.purchase_date,
         })
+    if kind == "tv":
+        return sorted(out, key=lambda d: (d["release_year"] or 9999, d["title"].casefold()))
     return sorted(out, key=lambda d: (_DISC_STATUS_ORDER.get(d["status"], 9), str(d["purchase_date"] or "")))
+
+
+# ── Which seasons a season set holds ─────────────────────────────────────────
+
+_NUMBER_WORDS = {w: i for i, w in enumerate(
+    "one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen "
+    "sixteen seventeen eighteen nineteen twenty".split(), 1)}
+_ORDINAL_WORDS = {w: i for i, w in enumerate(
+    "first second third fourth fifth sixth seventh eighth ninth tenth eleventh twelfth thirteenth "
+    "fourteenth fifteenth sixteenth seventeenth eighteenth nineteenth twentieth".split(), 1)}
+_NUM = r"(\d+|" + "|".join(_NUMBER_WORDS) + r")"
+
+
+def _num(word: str) -> int:
+    return int(word) if word.isdigit() else _NUMBER_WORDS[word]
+
+
+def season_numbers(title: str, season_count: int) -> set[int]:
+    """The seasons a season set holds, from its title: "Season Five", "The
+    Second Season", "Series One & Two", "SEASON 10", "The Complete Fifth
+    Season", "The Final Season (Part 2)" (the last season), "The Complete
+    Series" (all). A title with no season in it (a mini-series, a one-season
+    show) holds them all."""
+    t = (title or "").lower()
+    everything = set(range(1, season_count + 1))
+    if re.search(r"\bcomplete series\b", t) and not re.search(r"\bseries\s+" + _NUM, t):
+        return everything
+    found = set()
+    for m in re.finditer(r"\b(?:season|series)s?\s+" + _NUM + r"(?:\s*(&|and|-|–|to)\s*" + _NUM + r")?\b", t):
+        a = _num(m.group(1))
+        b = _num(m.group(3)) if m.group(3) else None
+        found |= set(range(a, b + 1)) if b and m.group(2) in ("-", "–", "to") else {a, b} - {None}
+    for m in re.finditer(r"\b(" + "|".join(_ORDINAL_WORDS) + r")\s+(?:season|series)\b", t):
+        found.add(_ORDINAL_WORDS[m.group(1)])
+    if re.search(r"\bfinal\s+(?:season|series)\b", t) and season_count:
+        found.add(season_count)
+    if not found and not re.search(r"\b(?:season|series)\b", t):
+        return everything
+    return {n for n in found if 1 <= n <= max(season_count, 1)}
+
+
+async def seasons_on_disc(db: AsyncSession, user_id: int, series_tmdb_id: int) -> set[int]:
+    """The season numbers of a series the user owns on disc."""
+    return set(await season_discs(db, user_id, series_tmdb_id))
+
+
+async def season_discs(db: AsyncSession, user_id: int, series_tmdb_id: int) -> dict[int, int]:
+    """For each season of a series the user owns on disc, the disc that holds
+    it (read from the season sets' titles)."""
+    from models.show import Show
+
+    rows = (await db.execute(
+        select(PhysicalItem.id, PhysicalItem.title).where(
+            PhysicalItem.user_id == user_id,
+            PhysicalItem.status == "owned",
+            PhysicalItem.is_set.is_(False),
+            PhysicalItem.tmdb_id == series_tmdb_id,
+            PhysicalItem.specs["tmdb_kind"].astext == "tv",
+        ).order_by(PhysicalItem.release_year, PhysicalItem.id)
+    )).all()
+    if not rows:
+        return {}
+    seasons = await db.scalar(select(Show.tmdb_data["seasons"]).where(Show.tmdb_id == series_tmdb_id).limit(1)) or []
+    last = max((s.get("season_number") or 0 for s in seasons if isinstance(s, dict)), default=0)
+    owned: dict[int, int] = {}
+    for disc_id, title in rows:
+        for n in season_numbers(title, last):
+            owned.setdefault(n, disc_id)
+    return owned

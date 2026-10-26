@@ -1598,6 +1598,9 @@ async def get_show(
     )
     show = show_result.scalar_one_or_none()
     order_preference = await get_episode_order(db, current_user.id, series_tmdb_id)
+    # Your discs of the series (its season sets), for "On disc".
+    from core.physical import title_discs
+    discs = await title_discs(db, current_user.id, series_tmdb_id, "tv")
     selected_episode_order = order_preference.episode_order if order_preference else "tmdb"
 
     if show:
@@ -1824,15 +1827,23 @@ async def get_show(
                 if sn > last_sn:
                     season_ep_counts[sn] = 0
 
+        # Seasons you own on disc are fully collected.
+        from core.physical import season_discs
+        owned_on_disc = await season_discs(db, current_user.id, series_tmdb_id)
+
         # Build season states for all known seasons
         for sn in set(list(coll_per_season.keys()) + list(season_ep_counts.keys())):
             collected = coll_per_season.get(sn, 0)
             watched = watched_per_season.get(sn, 0)
             total = season_ep_counts.get(sn, 0)
+            if sn in owned_on_disc:
+                collected = max(collected, total)
             
             # Use distinct (season, episode) from user's collection for calculation
             # to be consistent with how total is calculated (unique episodes in season).
             season_states[sn] = {
+                # The disc holding this season, when you own it.
+                "disc_id": owned_on_disc.get(sn),
                 "in_library": collected > 0,
                 "collection_pct": min(100, int((collected / total) * 100)) if total > 0 else 0,
                 "watched": watched >= total if total > 0 else False,
@@ -1946,6 +1957,7 @@ async def get_show(
                     show_dict[field] = val
 
         return {
+            "discs": discs,
             **show_dict,
             "episode_order": selected_episode_order,
             "tvdb_id": (
@@ -2032,6 +2044,7 @@ async def get_show(
         )
 
         return {
+            "discs": discs,
             "id": None,
             "tmdb_id": series_tmdb_id,
             "episode_order": selected_episode_order,
@@ -2154,6 +2167,8 @@ async def get_show_season(
     api_key = await get_user_tmdb_key(db, current_user.id)
     metadata_lang = await get_user_metadata_language(db, current_user.id)
 
+    season_owned_on_disc = False
+    season_disc_id = None
     try:
         if check_tmdb_key(api_key):
             import asyncio
@@ -2272,6 +2287,13 @@ async def get_show_season(
                     .distinct()
                 )
                 user_collected_eps |= {(r[0], r[1]) for r in tmdb_id_coll_q.all()}
+
+            # A season you own on disc: all its episodes are in your collection.
+            from core.physical import season_discs
+            season_disc_id = (await season_discs(db, current_user.id, series_tmdb_id)).get(season_number)
+            season_owned_on_disc = season_disc_id is not None
+            if season_owned_on_disc:
+                user_collected_eps |= {(season_number, ep.get("episode_number")) for ep in tmdb_episodes if ep.get("episode_number")}
 
             async def fetch_episode_imdb_rating(ep):
                 ep_num = ep.get("episode_number")
@@ -2416,8 +2438,10 @@ async def get_show_season(
                 )
                 collected_in_season = coll_q.scalar_one()
 
-            season_in_library = collected_in_season > 0
             aired_denom = total_aired_in_season if total_aired_in_season > 0 else total_in_season
+            if season_owned_on_disc:
+                collected_in_season = max(collected_in_season, aired_denom)
+            season_in_library = collected_in_season > 0
             season_collection_pct = min(100, int((collected_in_season / aired_denom) * 100)) if aired_denom > 0 else 0
 
             # Count unique episodes in this season that have been watched
@@ -2463,6 +2487,7 @@ async def get_show_season(
                 "season_watched": season_watched,
                 "season_watch_pct": season_watch_pct,
                 "season_in_library": season_in_library,
+                "season_disc_id": season_disc_id,
                 "season_collection_pct": season_collection_pct,
                 "season_user_rating": season_user_rating,
                 "show_in_lists": show_state.get("in_lists", []),
