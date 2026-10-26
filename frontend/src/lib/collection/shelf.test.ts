@@ -87,6 +87,15 @@ describe("box sets", () => {
     expect(hits(set, { ...noFilters, q: "chevy" }, kids)).toEqual([]);
   });
 
+  it("keeps a set of seasons and films whole under TV and Film", () => {
+    const set = disc("Batman: The Complete Animated Series", { is_set: true });
+    const items = [set, disc("Season 1", { parent_id: set.id, is_tv: true }), disc("Mask of the Phantasm", { parent_id: set.id })];
+    const kids = prepareSets(items);
+    const f = { ...noFilters, group: "kind", folder: "TV" };
+    expect(matches(set, f, kids)).toBe(true);
+    expect(hits(set, f, kids)).toEqual([]);
+  });
+
   it("puts a set in every folder its films are in", () => {
     const set = disc("Double Feature", { is_set: true, format: "Blu-ray" });
     const items = [set, disc("One", { parent_id: set.id, director: "John Landis" }), disc("Two", { parent_id: set.id, director: "George Roy Hill" })];

@@ -164,6 +164,8 @@ export function hits(i: Item, f: Filters, kids: Kids): Item[] {
     return h.length < k.length ? h : [];
   }
   if (!i.is_set || (!f.q && f.folder == null)) return [];
+  // A set of seasons and films is in both TV and Film, whole.
+  if (!f.q && f.group === "kind") return [];
   // Found by its own name: the whole set's the answer.
   if (f.q && f.folder == null && qMatch(i, f.q)) return [];
   const k = kids(i);

@@ -1,7 +1,7 @@
 ---
 // "On disc": your discs of a film or series, under the action buttons on its
 // page. Each shows your format icon and the edition, box set or (for a
-// series) season, linking to the disc in the collection. Discs owned before
+// series) season; the Collection button above opens them. Discs owned before
 // and sold are dimmed; on order, for sale and wish list are labelled.
 import badges from "../lib/badges.json";
 
@@ -41,12 +41,12 @@ const label = (d: Disc) => (seriesTitle ? seasonOf(d.title) : d.in_set || d.edit
       const state = discState[d.status];
       const text = label(d);
       return (
-        <a href={`/collection?item=${d.id}`} class:list={["disc-chip", { past: d.status === "sold", wish: d.status === "wishlist" }]}
+        <div class:list={["disc-chip", { past: d.status === "sold", wish: d.status === "wishlist" }]}
            title={[d.title, d.format, d.edition, d.in_set && `in ${d.in_set}`].filter(Boolean).join(" · ")}>
           {icon ? <img src={icon} alt={d.format} /> : <span class="disc-chip-fmt">{d.format ?? "Disc"}</span>}
           {text && <span class="disc-chip-set">{text}</span>}
           {state && <span class="disc-chip-state">{state}</span>}
-        </a>
+        </div>
       );
     })}
   </div>
@@ -55,8 +55,7 @@ const label = (d: Disc) => (seriesTitle ? seasonOf(d.title) : d.in_set || d.edit
 <style>
   .disc-row { display: flex; flex-direction: column; align-items: stretch; gap: 6px; margin-top: 1rem; padding: 0 4px; }
   .disc-row-label { color: #71717a; font-size: 10px; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; margin-bottom: -1px; }
-  .disc-chip { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 5px 10px 5px 6px; border-radius: 10px; background: #18181b; border: 1px solid #27272a; color: #d4d4d8; font-size: 12px; font-weight: 700; text-decoration: none; transition: border-color .15s; }
-  .disc-chip:hover { border-color: #52525b; }
+  .disc-chip { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 5px 10px 5px 6px; border-radius: 10px; background: #18181b; border: 1px solid #27272a; color: #d4d4d8; font-size: 12px; font-weight: 700; }
   .disc-chip img { flex: none; height: 22px; width: auto; border-radius: 3px; }
   .disc-chip-fmt { flex: none; padding: 2px 6px; border-radius: 5px; background: #27272a; font-size: 11px; font-weight: 900; }
   .disc-chip-set { flex: 1 1 auto; min-width: 0; color: #a1a1aa; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
