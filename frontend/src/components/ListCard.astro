@@ -15,9 +15,10 @@ interface Props {
   last_added?: string | null;
   preview_posters: { url: string; adult: boolean }[];
   username?: string; // for public/community lists
+  href?: string; // where the card leads, when it isn't a list page (the Watchlist)
 }
 
-const { id, name, description, privacy_level, item_count, movie_count = 0, show_count = 0, last_added, preview_posters = [], username } = Astro.props;
+const { id, name, description, privacy_level, item_count, movie_count = 0, show_count = 0, last_added, preview_posters = [], username, href } = Astro.props;
 
 const posterSrc = (path: string) => tmdbImageUrl(path, "w342") ?? "";
 const posters = preview_posters.slice(0, 6);
@@ -40,7 +41,7 @@ const added = ago(last_added);
 const split = [movie_count && `${n(movie_count)} ${movie_count === 1 ? "film" : "films"}`, show_count && `${n(show_count)} ${show_count === 1 ? "show" : "shows"}`].filter(Boolean);
 ---
 
-<a href={`/list/${id}`} class="lc">
+<a href={href ?? `/list/${id}`} class="lc">
   <div class="lc-strip">
     {backdrop && <img class="lc-backdrop" src={backdrop} alt="" aria-hidden="true" loading="lazy" />}
     <div class="lc-posters">

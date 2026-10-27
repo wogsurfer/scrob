@@ -9,20 +9,29 @@ Astro.response.headers.set("Cache-Control", "private, no-cache");
 
 let lists: UserList[] = [];
 let publicLists: PublicList[] = [];
+// The Watchlist stands in for the old "Movies" list (merged into it), first on the page.
+let watchlist: { count: number; posters: { url: string; adult: boolean }[] } | null = null;
 let error = "";
 
 try {
-  const [myData, pubData] = await Promise.all([
+  const [myData, pubData, films] = await Promise.all([
     api.lists.getAll(token!),
     api.lists.getPublic(token!),
+    api.watchlist.getAll(token!).catch(() => null),
   ]);
-  lists = myData.lists;
-  const preferredOrder = ["movies", "following", "watchlist tv", "ended & completed", "movies - recommendations"];
+  lists = myData.lists.filter((l) => l.name.toLowerCase() !== "movies");
+  if (films) {
+    watchlist = {
+      count: films.length,
+      posters: films.filter((f) => f.poster_path).slice(0, 6).map((f) => ({ url: f.poster_path!, adult: false })),
+    };
+  }
+  const preferredOrder = ["following", "watchlist tv", "ended & completed", "movies - recommendations"];
   lists.sort((a, b) => {
     const getOrder = (name: string) => {
       const normalized = name.toLowerCase();
       const index = preferredOrder.findIndex((entry) =>
-        entry === "movies" ? normalized === entry : entry === "movies - recommendations"
+        entry === "movies - recommendations"
           ? normalized.startsWith(entry)
           : normalized === entry
       );
@@ -41,9 +50,9 @@ try {
     <div class="flex flex-wrap items-end justify-between gap-4 mb-8">
       <div>
         <h1 class="text-3xl font-black text-zinc-100 tracking-tighter uppercase">Lists</h1>
-        {lists.length > 0 && (
+        {(lists.length > 0 || watchlist) && (
           <p class="mt-1 text-sm text-zinc-400">
-            {lists.length} {lists.length === 1 ? "list" : "lists"} · {lists.reduce((t, l) => t + l.item_count, 0).toLocaleString()} items
+            {lists.length + (watchlist ? 1 : 0)} {lists.length + (watchlist ? 1 : 0) === 1 ? "list" : "lists"} · {(lists.reduce((t, l) => t + l.item_count, 0) + (watchlist?.count ?? 0)).toLocaleString()} items
           </p>
         )}
       </div>
@@ -141,7 +150,7 @@ try {
     </div>
 
     <!-- Lists Grid -->
-    {lists.length === 0 && !error ? (
+    {lists.length === 0 && !watchlist && !error ? (
       <div class="text-center py-24 bg-zinc-900/20 border border-zinc-800/50 border-dashed rounded-3xl">
         <div class="text-5xl mb-4">📋</div>
         <h2 class="text-xl font-bold text-zinc-100 mb-2">No lists yet</h2>
@@ -155,6 +164,18 @@ try {
       </div>
     ) : (
       <div id="lists-grid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+        {watchlist && (
+          <ListCard
+            id={0}
+            href="/watchlist"
+            name="Watchlist"
+            description="Films you want to see"
+            privacy_level="private"
+            item_count={watchlist.count}
+            movie_count={watchlist.count}
+            preview_posters={watchlist.posters}
+          />
+        )}
         {lists.map((list) => (
           <div class="group relative" data-list-id={list.id}>
             <ListCard

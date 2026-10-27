@@ -175,7 +175,7 @@ private fun NextUpCard(item: NextUpItem, modifier: Modifier, onOpen: () -> Unit,
 private val dayFormat = DateTimeFormatter.ofPattern("EEEE d MMMM")
 
 @Composable
-private fun DayHeader(day: String, today: String?) {
+internal fun DayHeader(day: String, today: String?) {
     val date = runCatching { LocalDate.parse(day) }.getOrNull()
     val label = when {
         day == today -> "Today"
@@ -192,7 +192,7 @@ private fun DayHeader(day: String, today: String?) {
 }
 
 @Composable
-private fun UpcomingRow(ep: UpcomingEpisode, onOpen: () -> Unit) {
+internal fun UpcomingRow(ep: UpcomingEpisode, onOpen: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().clickable(onClick = onOpen).padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -214,5 +214,6 @@ private fun UpcomingRow(ep: UpcomingEpisode, onOpen: () -> Unit) {
             ep.airTime?.let { Text(it, fontWeight = FontWeight.Bold) }
             ep.network?.let { Text(it.uppercase(), color = Watchd.Faint, fontSize = 10.sp, fontWeight = FontWeight.Bold) }
         }
+        if (ep.watched) WatchedMark(true, Modifier.size(22.dp))
     }
 }

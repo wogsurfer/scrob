@@ -6,6 +6,11 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import app.watchd.ui.NowWatchingBar
@@ -15,6 +20,19 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Person
+import app.watchd.ui.CalendarScreen
+import app.watchd.ui.HistoryScreen
+import app.watchd.ui.ListScreen
+import app.watchd.ui.WatchlistScreen
+import app.watchd.ui.YouScreen
+import coil3.ImageLoader
+import coil3.compose.setSingletonImageLoaderFactory
+import coil3.map.Mapper
+import coil3.request.Options
+import coil3.request.crossfade
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -60,6 +78,17 @@ import kotlinx.serialization.Serializable
 @Serializable data class MovieRoute(val tmdbId: Int)
 @Serializable data class ShowRoute(val tmdbId: Int)
 @Serializable data class SeasonRoute(val showTmdbId: Int, val season: Int)
+@Serializable object CalendarRoute
+@Serializable object HistoryRoute
+@Serializable object YouRoute
+@Serializable object WatchlistRoute
+@Serializable data class ListRoute(val id: Int)
+
+/** Some poster paths come as TMDB's bare "/abc.jpg"; complete them. */
+private object TmdbPaths : Mapper<String, String> {
+    override fun map(data: String, options: Options): String? =
+        if (data.startsWith("/")) "https://image.tmdb.org/t/p/w500$data" else null
+}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -67,6 +96,9 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         val store = SessionStore(applicationContext)
         setContent {
+            setSingletonImageLoaderFactory { context ->
+                ImageLoader.Builder(context).components { add(TmdbPaths) }.crossfade(true).build()
+            }
             WatchdTheme {
                 val session by store.session.collectAsState(initial = null)
                 val scope = rememberCoroutineScope()
@@ -122,7 +154,13 @@ private fun SignedIn(session: Session, signOut: () -> Unit) {
                 Column {
                 app.sessions.firstOrNull()?.let { NowWatchingBar(it, openShow, openMovie) }
                 NavigationBar(containerColor = Watchd.Surface) {
-                    listOf(Triple(HomeRoute, "Home", Icons.Default.Home), Triple(SearchRoute, "Search", Icons.Default.Search)).forEach { (route, label, icon) ->
+                    listOf(
+                        Triple(HomeRoute, "Home", Icons.Default.Home),
+                        Triple(CalendarRoute, "Calendar", Icons.Default.CalendarMonth),
+                        Triple(SearchRoute, "Search", Icons.Default.Search),
+                        Triple(HistoryRoute, "History", Icons.Default.History),
+                        Triple(YouRoute, "You", Icons.Default.Person),
+                    ).forEach { (route, label, icon) ->
                         val selected = destination?.hasRoute(route::class) == true
                         NavigationBarItem(
                             selected = selected,
@@ -148,6 +186,11 @@ private fun SignedIn(session: Session, signOut: () -> Unit) {
             NavHost(nav, startDestination = HomeRoute, modifier = Modifier.padding(bottom = padding.calculateBottomPadding())) {
                 composable<HomeRoute> { DashboardScreen(openShow, openMovie) }
                 composable<SearchRoute> { SearchScreen(openShow, openMovie) }
+                composable<CalendarRoute> { CalendarScreen(openShow, openMovie) }
+                composable<HistoryRoute> { HistoryScreen(openShow, openMovie) }
+                composable<YouRoute> { YouScreen(openWatchlist = { nav.navigate(WatchlistRoute) }, openList = { nav.navigate(ListRoute(it)) }) }
+                composable<WatchlistRoute> { WatchlistScreen(onBack = { nav.popBackStack() }, openMovie = openMovie) }
+                composable<ListRoute> { ListScreen(it.toRoute<ListRoute>().id, onBack = { nav.popBackStack() }, openShow = openShow, openMovie = openMovie) }
                 composable<MovieRoute> { MovieScreen(it.toRoute<MovieRoute>().tmdbId, onBack = { nav.popBackStack() }, openMovie = openMovie) }
                 composable<ShowRoute> {
                     ShowScreen(it.toRoute<ShowRoute>().tmdbId, onBack = { nav.popBackStack() }, openSeason = { show, season -> nav.navigate(SeasonRoute(show, season)) })
@@ -156,6 +199,12 @@ private fun SignedIn(session: Session, signOut: () -> Unit) {
                     val route = it.toRoute<SeasonRoute>()
                     SeasonScreen(route.showTmdbId, route.season, onBack = { nav.popBackStack() })
                 }
+            }
+            // Behind the clock and battery on list pages, so content scrolls
+            // under a solid strip; film and show pages draw their own bar.
+            val detail = destination?.let { d -> d.hasRoute(MovieRoute::class) || d.hasRoute(ShowRoute::class) || d.hasRoute(SeasonRoute::class) } == true
+            if (!detail) {
+                Box(Modifier.fillMaxWidth().windowInsetsTopHeight(WindowInsets.statusBars).background(Watchd.Background.copy(alpha = 0.94f)))
             }
         }
     }

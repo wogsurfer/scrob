@@ -18,7 +18,7 @@ data class LoginResponse(
 )
 
 @Serializable
-data class User(val username: String, val displayName: String? = null)
+data class User(val id: Int = 0, val username: String, val displayName: String? = null)
 
 @Serializable
 data class NextUpResponse(val nextUp: List<NextUpItem> = emptyList())
@@ -266,4 +266,116 @@ data class Season(
     val episodes: List<Episode> = emptyList(),
     val seasonWatchPct: Int = 0,
     val seasonWatched: Boolean = false,
+)
+
+// ------------------------------------------------------------------ round 2
+
+@Serializable
+data class HistoryMedia(
+    val tmdbId: Int? = null,
+    val type: String = "movie",
+    val title: String? = null,
+    val posterPath: String? = null,
+    val releaseDate: String? = null,
+    val seasonNumber: Int? = null,
+    val episodeNumber: Int? = null,
+    val showTitle: String? = null,
+    val showPosterPath: String? = null,
+    val showTmdbId: Int? = null,
+)
+
+@Serializable
+data class HistoryEvent(
+    val id: Int,
+    val watchedAt: String? = null,
+    val watchSource: String? = null,
+    val media: HistoryMedia,
+)
+
+@Serializable
+data class HistoryPage(
+    val page: Int = 1,
+    val totalPages: Int = 1,
+    val totalResults: Int = 0,
+    val results: List<HistoryEvent> = emptyList(),
+)
+
+@Serializable
+data class PosterRef(val url: String? = null)
+
+@Serializable
+data class UserList(
+    val id: Int,
+    val name: String,
+    val description: String? = null,
+    val itemCount: Int = 0,
+    val previewPosters: List<PosterRef> = emptyList(),
+)
+
+@Serializable
+data class ListsResponse(val lists: List<UserList> = emptyList())
+
+@Serializable
+data class ListMedia(
+    val tmdbId: Int? = null,
+    val type: String = "movie",
+    val title: String? = null,
+    val posterPath: String? = null,
+    val releaseDate: String? = null,
+    val imdbRating: Double? = null,
+)
+
+@Serializable
+data class ListEntry(val id: Int, val media: ListMedia)
+
+@Serializable
+data class ListDetail(
+    val id: Int,
+    val name: String,
+    val description: String? = null,
+    val itemCount: Int = 0,
+    val items: List<ListEntry> = emptyList(),
+)
+
+@Serializable
+data class WatchlistMovie(
+    val tmdbId: Int,
+    val title: String? = null,
+    val year: Int? = null,
+    val posterPath: String? = null,
+    val imdbRating: Double? = null,
+    val runtime: Int? = null,
+    val releaseDate: String? = null,
+    val watched: Boolean = false,
+)
+
+@Serializable
+data class TvTotals(val minutes: Long = 0, val episodes: Int = 0, val shows: Int = 0)
+
+@Serializable
+data class FilmTotals(val minutes: Long = 0, val plays: Int = 0, val movies: Int = 0)
+
+@Serializable
+data class LibraryTotals(val shows: Int = 0, val movies: Int = 0)
+
+@Serializable
+data class Totals(
+    val tv: TvTotals = TvTotals(),
+    val movies: FilmTotals = FilmTotals(),
+    val library: LibraryTotals = LibraryTotals(),
+)
+
+@Serializable
+data class NamedCount(val name: String, val count: Int = 0)
+
+@Serializable
+data class MonthActivity(val month: String, val movies: Int = 0, val episodes: Int = 0)
+
+@Serializable
+data class ProfileStats(
+    val avgMovieRating: Double? = null,
+    val avgShowRating: Double? = null,
+    val topMovieGenres: List<NamedCount> = emptyList(),
+    val topShowGenres: List<NamedCount> = emptyList(),
+    val watchActivity: List<MonthActivity> = emptyList(),
 )
