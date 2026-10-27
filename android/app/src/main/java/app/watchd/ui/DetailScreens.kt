@@ -43,6 +43,9 @@ import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -171,8 +174,7 @@ fun MovieScreen(tmdbId: Int, onBack: () -> Unit, openMovie: (Int) -> Unit) {
             }
             if (movie.whereToWatch.isNotEmpty()) item { WhereToWatchRow(movie.whereToWatch) }
             if (movie.cast.isNotEmpty()) {
-                item { SectionTitle("Cast", Modifier.padding(top = 8.dp)) }
-                item { CastRow(movie.cast) }
+                item { CastSection(movie.cast) }
             }
             movie.collection?.takeIf { it.parts.size > 1 }?.let { collection ->
                 item { SectionTitle(collection.name ?: "Collection", Modifier.padding(top = 8.dp)) }
@@ -284,8 +286,7 @@ fun ShowScreen(tmdbId: Int, onBack: () -> Unit, openSeason: (Int, Int) -> Unit) 
                 }
             }
             if (show.cast.isNotEmpty()) {
-                item { SectionTitle("Cast", Modifier.padding(top = 8.dp)) }
-                item { CastRow(show.cast) }
+                item { CastSection(show.cast) }
             }
         }
     }
@@ -535,18 +536,60 @@ private fun WhereToWatchRow(services: List<WhereToWatch>) {
     }
 }
 
+/** "Mark Scout · 19 eps": the role, and for a show how much of it they're in. */
+private fun role(person: Person) = listOfNotNull(
+    person.character?.takeIf { it.isNotBlank() },
+    person.episodeCount?.takeIf { it > 0 }?.let { "$it ep${if (it == 1) "" else "s"}" },
+).joinToString(" · ")
+
+/** Cast heading with a See all that opens everyone, then the top-billed few. */
 @Composable
-private fun CastRow(cast: List<Person>) {
-    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        items(cast.take(20)) { person ->
-            Column(Modifier.width(96.dp)) {
+private fun CastSection(cast: List<Person>) {
+    var showAll by remember { mutableStateOf(false) }
+    Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        SectionTitle("Cast", Modifier.weight(1f))
+        if (cast.size > 5) {
+            TextButton(onClick = { showAll = true }, modifier = Modifier.padding(end = 8.dp)) {
+                Text("See all ${cast.size}", color = Watchd.Red, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        items(cast.take(12)) { person ->
+            Column(Modifier.width(76.dp)) {
                 AsyncImage(
                     model = person.profilePath, contentDescription = null, contentScale = ContentScale.Crop,
-                    modifier = Modifier.size(96.dp).clip(CircleShape).background(Watchd.Surface),
+                    modifier = Modifier.fillMaxWidth().aspectRatio(3f / 4f).clip(RoundedCornerShape(8.dp)).background(Watchd.Surface),
                 )
-                Text(person.name, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
-                person.character?.takeIf { it.isNotBlank() }?.let { Text(it, color = Watchd.Muted, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis) }
-                person.episodeCount?.takeIf { it > 0 }?.let { Text(plural(it, "episode"), color = Watchd.Faint, fontSize = 11.sp) }
+                Text(person.name, fontWeight = FontWeight.Bold, fontSize = 12.sp, lineHeight = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
+                Text(person.character.orEmpty(), color = Watchd.Muted, fontSize = 11.sp, lineHeight = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+    }
+    if (showAll) CastSheet(cast) { showAll = false }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CastSheet(cast: List<Person>, onDismiss: () -> Unit) {
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Watchd.Surface, contentColor = Watchd.Text) {
+        Text("Cast", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(start = 20.dp, bottom = 8.dp))
+        LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
+            items(cast) { person ->
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    AsyncImage(
+                        model = person.profilePath, contentDescription = null, contentScale = ContentScale.Crop,
+                        modifier = Modifier.size(44.dp).clip(CircleShape).background(Watchd.SurfaceHigh),
+                    )
+                    Column(Modifier.weight(1f)) {
+                        Text(person.name, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        role(person).takeIf { it.isNotEmpty() }?.let { Text(it, color = Watchd.Muted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                    }
+                }
             }
         }
     }
