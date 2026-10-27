@@ -59,6 +59,33 @@ def parse_tvmaze_airstamp(value: str | None):
         return None
 
 
+# TVMaze has no time for most streaming episodes and stamps them midday UTC,
+# which puts a Disney+ drop at 1pm in Malta when it really lands at 2am the
+# next morning. Each service's usual release, as (zone, hours after the
+# listed day's midnight there): Apple's evening-before drop is -3h Eastern.
+STREAMING_RELEASES = {
+    "disney+": ("America/Los_Angeles", 18),
+    "netflix": ("America/Los_Angeles", 0),
+    "apple tv": ("America/New_York", -3),
+    "apple tv+": ("America/New_York", -3),
+}
+
+
+def tvmaze_release(ep: dict, web_channel: str | None = None):
+    """When an episode lands in Malta: TVMaze's airstamp, or the streaming
+    service's usual release time when TVMaze only knows the day."""
+    release = STREAMING_RELEASES.get((web_channel or "").strip().lower())
+    if release and ep.get("airdate") and not ep.get("airtime"):
+        try:
+            day = date.fromisoformat(ep["airdate"])
+        except ValueError:
+            return parse_tvmaze_airstamp(ep.get("airstamp"))
+        zone, hours = release
+        local = datetime(day.year, day.month, day.day, tzinfo=ZoneInfo(zone))
+        return (local + timedelta(hours=hours)).astimezone(MALTA_TZ)
+    return parse_tvmaze_airstamp(ep.get("airstamp"))
+
+
 def normalise_title(value: str | None) -> str:
     if not value:
         return ""
@@ -177,7 +204,11 @@ async def _fetch_tvmaze(show_title: str) -> dict | None:
 
             response.raise_for_status()
 
-            return {"tvmaze_id": tvmaze_id, "episodes": response.json()}
+            return {
+                "tvmaze_id": tvmaze_id,
+                "web_channel": (show_data.get("webChannel") or {}).get("name"),
+                "episodes": response.json(),
+            }
 
     except Exception as e:
         print(
@@ -220,17 +251,19 @@ def _refresh_tvmaze_once(key: str, show_title: str) -> asyncio.Task:
     return task
 
 
-async def _cached_tvmaze_episodes(show_title: str) -> list:
+async def _cached_tvmaze_show(show_title: str) -> dict:
     await _load_tvmaze_cache()
     key = normalise_title(show_title)
     hit = _tvmaze_memory.get(key)
     if hit:
-        if datetime.utcnow() - hit[0] > _TVMAZE_FRESH:
+        # Entries saved before the web channel was kept are refreshed too.
+        stale = "web_channel" not in hit[1] and hit[1].get("episodes")
+        if stale or datetime.utcnow() - hit[0] > _TVMAZE_FRESH:
             _refresh_tvmaze_once(key, show_title)
-        return hit[1].get("episodes") or []
+        return hit[1]
     # Shielded so a cancelled page request doesn't abort a fetch others may share.
     data = await asyncio.shield(_refresh_tvmaze_once(key, show_title))
-    return (data or {}).get("episodes") or []
+    return data or {}
 
 
 async def get_tvmaze_episodes(
@@ -252,15 +285,14 @@ async def get_tvmaze_episodes(
     if not show_title:
         return []
 
-    episodes = await _cached_tvmaze_episodes(show_title)
+    show = await _cached_tvmaze_show(show_title)
+    web_channel = show.get("web_channel")
 
     results = []
 
-    for ep in episodes:
+    for ep in show.get("episodes") or []:
 
-        airstamp = parse_tvmaze_airstamp(
-            ep.get("airstamp")
-        )
+        airstamp = tvmaze_release(ep, web_channel)
 
         if not airstamp:
             continue
