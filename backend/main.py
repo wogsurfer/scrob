@@ -384,6 +384,31 @@ async def _physical_ratings_refresher():
         await asyncio.sleep(6 * 3600)
 
 
+async def _episode_details_refresher():
+    """Keep recent and upcoming episodes' titles, synopses and stills current
+    (see core.episode_refresh): a few minutes after start-up, then every six hours."""
+    import logging
+    from db import AsyncSessionLocal
+    from core.episode_refresh import refresh_recent_episodes
+    from models.users import User
+    from routers.media import get_user_tmdb_key
+
+    log = logging.getLogger("uvicorn.error")
+    await asyncio.sleep(180)
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                user_id = (await db.execute(select(User.id).order_by(User.id).limit(1))).scalar_one_or_none()
+                api_key = await get_user_tmdb_key(db, user_id) if user_id else None
+                if api_key:
+                    count = await refresh_recent_episodes(db, api_key)
+                    await db.commit()
+                    log.info(f"Episode details: {count} recent episodes refreshed")
+        except Exception as e:
+            log.error(f"Episode details refresh error: {e}", exc_info=True)
+        await asyncio.sleep(6 * 3600)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from core.tmdb import start_http_client, close_http_client
@@ -419,10 +444,12 @@ async def lifespan(app: FastAPI):
     watchlist_task = asyncio.create_task(_watchlist_poller())
     manual_session_task = asyncio.create_task(_manual_session_completer())
     ratings_task = asyncio.create_task(_physical_ratings_refresher())
+    episodes_task = asyncio.create_task(_episode_details_refresher())
 
     yield
 
     ratings_task.cancel()
+    episodes_task.cancel()
 
     scheduler_task.cancel()
     watchlist_task.cancel()

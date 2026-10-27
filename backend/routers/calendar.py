@@ -68,6 +68,8 @@ STREAMING_RELEASES = {
     "netflix": ("America/Los_Angeles", 0),
     "apple tv": ("America/New_York", -3),
     "apple tv+": ("America/New_York", -3),
+    "paramount+": ("America/New_York", 3),
+    "paramount+ with showtime": ("America/New_York", 3),
 }
 
 
@@ -122,6 +124,8 @@ _TVMAZE_FRESH = timedelta(hours=6)
 _tvmaze_memory: dict[str, tuple[datetime, dict]] = {}
 _tvmaze_inflight: dict[str, asyncio.Task] = {}
 _tvmaze_limit = asyncio.Semaphore(4)
+_tvmaze_pace_lock = asyncio.Lock()
+_tvmaze_next_slot = 0.0
 _tvmaze_loaded = False
 _tvmaze_load_lock = asyncio.Lock()
 
@@ -148,11 +152,29 @@ async def _load_tvmaze_cache():
         _tvmaze_loaded = True
 
 
+async def _tvmaze_pace():
+    """Start requests at most every half second (TVMaze's 20 per 10 seconds).
+    Past that, TVMaze drops connections rather than answering 429."""
+    global _tvmaze_next_slot
+    async with _tvmaze_pace_lock:
+        wait = _tvmaze_next_slot - time.monotonic()
+        _tvmaze_next_slot = max(_tvmaze_next_slot, time.monotonic()) + 0.5
+    if wait > 0:
+        await asyncio.sleep(wait)
+
+
 async def _tvmaze_get(client: httpx.AsyncClient, url: str, params: dict | None = None):
     response = None
     for attempt in range(4):
-        async with _tvmaze_limit:
-            response = await client.get(url, params=params)
+        await _tvmaze_pace()
+        try:
+            async with _tvmaze_limit:
+                response = await client.get(url, params=params)
+        except httpx.TransportError:
+            if attempt == 3:
+                raise
+            await asyncio.sleep(2 * (attempt + 1))
+            continue
         if response.status_code != 429:
             return response
         await asyncio.sleep(float(response.headers.get("Retry-After") or 2 * (attempt + 1)))

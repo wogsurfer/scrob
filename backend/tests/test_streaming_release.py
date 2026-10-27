@@ -21,6 +21,7 @@ class StreamingReleaseTests(unittest.TestCase):
     def test_netflix_and_apple(self):
         self.assertEqual(tvmaze_release(self.ep("2026-11-13"), "Netflix"), malta(2026, 11, 13, 9, 0))
         self.assertEqual(tvmaze_release(self.ep("2026-11-13"), "Apple TV"), malta(2026, 11, 13, 3, 0))
+        self.assertEqual(tvmaze_release(self.ep("2026-10-30"), "Paramount+"), malta(2026, 10, 30, 8, 0))
 
     def test_known_time_or_other_channel_uses_the_airstamp(self):
         timed = {"airdate": "2026-10-27", "airtime": "21:00", "airstamp": "2026-10-28T01:00:00+00:00"}
