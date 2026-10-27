@@ -28,7 +28,8 @@ from routers.media import format_media, get_user_tmdb_key, check_tmdb_key, enric
 
 from dependencies import get_current_user
 from core.episode_badges import season_badges
-from core.awards import TV_FAMILIES, credited, family as award_family, join_names, name_tv_awards, topic, topic_jobs
+from core import award_data
+from core.awards import TV_FAMILIES, credited, family as award_family, join_names, match_group, name_tv_awards, topic, topic_jobs, tv_record_rows
 from core import source_work, wikidata
 from core import tmdb
 from core.config import settings
@@ -2958,8 +2959,28 @@ async def _name_award_nominees(awards: list[dict], tmdb_id: int, tmdb_key: str |
     TVDB lacks), then directors, writers and other crew from the credits of
     the episode named in the details ("For episode "Swing"")."""
     named = await _name_actors(awards, tmdb_id, tmdb_key)
-    named = name_tv_awards(named, await wikidata.tv_award_people(tmdb_id))
+    on_record = tv_record_rows(await _emmy_records(tmdb_id, tmdb_key))
+    # Wikidata's copies of nominations on record would only be added twice.
+    wd_rows = [w for w in await wikidata.tv_award_people(tmdb_id) if match_group(w, on_record, set()) is None]
+    named = name_tv_awards(named, on_record + wd_rows)
     return await _name_crew(named, tmdb_id, tmdb_key)
+
+
+async def _emmy_records(tmdb_id: int, tmdb_key: str | None) -> list[dict]:
+    """The show's Primetime Emmy nominations on record (core.award_data)."""
+    if not await award_data.ensure_loaded():
+        return []
+    try:
+        show = await tmdb.get_show(tmdb_id, api_key=tmdb_key)
+    except Exception:
+        return []
+    year = lambda d: int(d[:4]) if d and d[:4].isdigit() else None
+    ended = (show.get("status") or "").lower() in {"ended", "canceled"}
+    return award_data.show_records(
+        {show.get("name"), show.get("original_name")} - {None},
+        year(show.get("first_air_date")),
+        year(show.get("last_air_date")) if ended else None,
+    )
 
 
 async def _name_crew(named: list[dict], tmdb_id: int, tmdb_key: str | None) -> list[dict]:
