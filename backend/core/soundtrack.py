@@ -8,9 +8,10 @@ listing}} in the title's Wikipedia article is used instead.
 
 Soundtrack albums mix songs with score and dialogue clips, so tracks are
 dropped when they're performed or written by the title's composer (score),
-or when they're short and performed by its cast or written by its writers
-(dialogue, like the K-Billy links on Reservoir Dogs). Results are cached in
-memory and on disk.
+when they're another film's score (no words, played by a film composer, like
+the Morricone and Bacalov pieces on Kill Bill), or when they're short and
+performed by its cast or written by its writers (dialogue, like the K-Billy
+links on Reservoir Dogs). Results are cached in memory and on disk.
 """
 
 import asyncio
@@ -27,6 +28,9 @@ _MB = "https://musicbrainz.org/ws/2"
 _HEADERS = source_work._HEADERS
 _MAX_ALBUMS = 3
 _COMPOSER_JOBS = {"Original Music Composer", "Composer", "Music"}
+# Scoring this many titles on TMDB makes someone a film composer.
+_FILM_COMPOSER_CREDITS = 15
+_COMPOSER_TTL = 90 * 24 * 3600
 _WRITING_JOBS = {"Director", "Writer", "Screenplay", "Story", "Creator", "Teleplay"}
 # Album titles that aren't the songs used in the title.
 _NOT_SONGS = re.compile(r"\b(score|game|trailer|inspired|karaoke|tribute|covers?)\b", re.I)
@@ -68,6 +72,8 @@ def album_matches(album_title: str, title: str, kind: str) -> bool:
     it's from the series, so a same-named film's album doesn't match."""
     clean = album_title.replace("’", "'").strip()
     name = title.replace("’", "'").strip()
+    # "Quentin Tarantino's Inglourious Basterds: ...", "Disney's ..."
+    clean = re.sub(r"^[^:(]{2,40}?'s\s+(?=" + re.escape(name) + ")", "", clean, flags=re.I)
     if not clean.lower().startswith(name.lower()):
         return False
     rest = clean[len(name):].strip()
@@ -78,18 +84,23 @@ def album_matches(album_title: str, title: str, kind: str) -> bool:
     return kind != "tv" or bool(_TV_HINT.search(rest))
 
 
-def is_song(track: dict, composers: set[str], cast: set[str], writing: set[str]) -> bool:
+def is_song(track: dict, composers: set[str], cast: set[str], writing: set[str],
+            film_composers: frozenset[str] = frozenset()) -> bool:
     """Whether a track is a song rather than score or a dialogue clip.
 
-    `track` has "performers" and "writers" (names) and "length" (seconds or
-    None); the sets are the title's composers, cast and writers/directors,
-    as normalised names.
+    `track` has "performers" and "writers" (names), "length" (seconds or
+    None), and from MusicBrainz "words" (True, False for an instrumental, or
+    missing when unknown) and "score_work"; the sets are the title's
+    composers, cast and writers/directors, and film composers in general, as
+    normalised names.
     """
     performers = _names(track.get("performers"))
     writers = {_norm(w) for w in track.get("writers") or [] if w}
     length = track.get("length")
     if performers & composers or (writers and writers <= composers):
         return False  # score
+    if track.get("score_work") or (not track.get("words") and (performers | writers) & film_composers):
+        return False  # another film's score
     if length is not None and length < 30:
         return False  # a sting or a few seconds of dialogue
     people = _names(track.get("performers"), whole=False)
@@ -157,12 +168,17 @@ def _mb_track(track: dict) -> dict:
                 writers.append(name)
     credit = track.get("artist-credit") or rec.get("artist-credit") or []
     length = track.get("length") or rec.get("length")
+    works = [rel["work"] for rel in rec.get("relations") or [] if rel.get("type") == "performance" and rel.get("work")]
+    # A work's language says whether it has words: "zxx" is none.
+    languages = {lang for w in works for lang in (w.get("languages") or [w.get("language")]) if lang}
     return {
         "title": track.get("title") or rec.get("title"),
         "artist": "".join(a.get("name", "") + a.get("joinphrase", "") for a in credit).strip(),
         "performers": [a.get("name") for a in credit],
         "writers": writers,
         "length": round(length / 1000) if length else None,
+        "words": bool(languages - {"zxx"}) if languages else None,
+        "score_work": any(w.get("type") == "Soundtrack" for w in works),
     }
 
 
@@ -292,7 +308,45 @@ async def _meta(kind: str, tmdb_id: int, api_key: str | None) -> dict:
     }
 
 
-def _songs(albums: list[dict], meta: dict) -> list[dict]:
+_composer_cache: dict[str, bool] = {}
+
+
+async def _is_film_composer(name: str, api_key: str | None) -> bool:
+    """Whether TMDB's match for the name is someone who scores films (known
+    for sound, with many credits as a title's composer)."""
+    key = _norm(name)
+    if key in _composer_cache:
+        return _composer_cache[key]
+    hit = disk_cache.load("film_composer", key, _COMPOSER_TTL)
+    if hit:
+        _composer_cache[key] = hit[1]
+        return hit[1]
+    try:
+        people = (await tmdb.search_people(name, api_key=api_key)).get("results") or []
+        person = next((p for p in people if _norm(p.get("name") or "") == key), None)
+        answer = False
+        if person and person.get("known_for_department") == "Sound":
+            crew = ((await tmdb.get_person(person["id"], api_key=api_key)).get("combined_credits") or {}).get("crew") or []
+            answer = len({c.get("id") for c in crew if c.get("job") in _COMPOSER_JOBS}) >= _FILM_COMPOSER_CREDITS
+    except Exception:
+        return False  # ask again next time
+    _composer_cache[key] = answer
+    disk_cache.save("film_composer", key, answer)
+    return answer
+
+
+async def _film_composers(albums: list[dict], api_key: str | None) -> frozenset[str]:
+    """Which performers and writers of tracks without known words are film
+    composers."""
+    names = {
+        p for a in albums for t in a["tracks"] if not t.get("words")
+        for p in [*(t.get("performers") or []), *(t.get("writers") or [])] if p
+    }
+    found = await asyncio.gather(*(_is_film_composer(n, api_key) for n in names))
+    return frozenset(_norm(n) for n, yes in zip(names, found) if yes)
+
+
+def _songs(albums: list[dict], meta: dict, film_composers: frozenset[str] = frozenset()) -> list[dict]:
     """Albums with only their songs, each song listed once across albums,
     and empty albums dropped."""
     seen: set[tuple[str, str]] = set()
@@ -303,7 +357,7 @@ def _songs(albums: list[dict], meta: dict) -> list[dict]:
             t = split_dialogue(t, meta["cast"], meta["writing"])
             t["writers"] = [w for w in t["writers"] if not w.startswith("[")]  # "[anonymous]", "[traditional]"
             key = (_norm(t["title"] or ""), _norm(t["artist"] or ""))
-            if not t["title"] or key in seen or not is_song(t, meta["composers"], meta["cast"], meta["writing"]):
+            if not t["title"] or key in seen or not is_song(t, meta["composers"], meta["cast"], meta["writing"], film_composers):
                 continue
             seen.add(key)
             songs.append({k: t[k] for k in ("title", "artist", "writers", "length")})
@@ -314,11 +368,13 @@ def _songs(albums: list[dict], meta: dict) -> list[dict]:
 
 async def _lookup(kind: str, tmdb_id: int, api_key: str | None) -> dict:
     meta = await _meta(kind, tmdb_id, api_key)
-    albums = _songs(await _musicbrainz_albums(meta), meta) if meta["title"] and meta["first_year"] else []
+    found = await _musicbrainz_albums(meta) if meta["title"] and meta["first_year"] else []
+    albums = _songs(found, meta, await _film_composers(found, api_key))
     source = "MusicBrainz"
     if not albums:
         wikitext = await source_work.wikipedia_article(kind, tmdb_id, lead_only=False)
-        albums = _songs(parse_track_listings(wikitext or ""), meta)
+        found = parse_track_listings(wikitext or "")
+        albums = _songs(found, meta, await _film_composers(found, api_key))
         source = "Wikipedia"
     return {"albums": albums, "source": source if albums else None}
 
@@ -327,7 +383,7 @@ async def soundtrack(kind: str, tmdb_id: int, api_key: str | None) -> dict:
     """{"albums": [{"title", "year", "tracks": [{"title", "artist",
     "writers", "length"}]}], "source"} for a "movie" or "tv" title."""
     key = f"{kind}_{tmdb_id}"
-    hit = _cache.get(key) or disk_cache.load("soundtrack", key, _TTL)
+    hit = _cache.get(key) or disk_cache.load("soundtrack_v2", key, _TTL)
     if hit:
         ttl = _TTL if hit[1].get("albums") else _EMPTY_TTL
         if time.time() - hit[0] < ttl:
@@ -344,5 +400,5 @@ async def soundtrack(kind: str, tmdb_id: int, api_key: str | None) -> dict:
     finally:
         _inflight.pop(key, None)
     _cache[key] = (time.time(), result)
-    disk_cache.save("soundtrack", key, result)
+    disk_cache.save("soundtrack_v2", key, result)
     return result

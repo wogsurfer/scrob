@@ -12,6 +12,8 @@ class AlbumMatchTests(unittest.TestCase):
         self.assertTrue(album_matches("Reservoir Dogs: Music From the Original Motion Picture Soundtrack", "Reservoir Dogs", "movie"))
         self.assertTrue(album_matches("Top Gun", "Top Gun", "movie"))
         self.assertTrue(album_matches("Guardians of the Galaxy: Awesome Mix, Vol. 1", "Guardians of the Galaxy", "movie"))
+        self.assertTrue(album_matches("Quentin Tarantino’s Inglourious Basterds: Motion Picture Soundtrack", "Inglourious Basterds", "movie"))
+        self.assertFalse(album_matches("Quentin Tarantino’s Other Film", "Inglourious Basterds", "movie"))
 
     def test_other_albums_dont_match(self):
         self.assertFalse(album_matches("Guardians of the Galaxy: Original Score", "Guardians of the Galaxy", "movie"))
@@ -34,6 +36,20 @@ class IsSongTests(unittest.TestCase):
 
     def test_song(self):
         self.assertTrue(self.check(performers=["Stealers Wheel"], writers=["Gerry Rafferty", "Joe Egan"]))
+
+    def test_another_films_score(self):
+        film = names("Ennio Morricone", "Bernard Herrmann")
+        check = lambda **t: is_song({"performers": [], "writers": [], "length": 200, **t}, self.composers, self.cast, self.writing, film)
+        # No words (or none known) and played by a film composer: score.
+        self.assertFalse(check(performers=["Ennio Morricone"], words=False))
+        self.assertFalse(check(performers=["Bernard Herrmann"]))
+        self.assertFalse(check(performers=["The Film Studio Orchestra"], writers=["Ennio Morricone"]))
+        # A song a film composer wrote, sung by someone else, stays.
+        self.assertTrue(check(performers=["Joan Baez"], writers=["Ennio Morricone"], words=True))
+        # A popular instrumental stays.
+        self.assertTrue(check(performers=["Tomoyasu Hotei"], words=False))
+        # A work MusicBrainz files as a soundtrack piece is score.
+        self.assertFalse(check(performers=["The RZA"], score_work=True))
 
     def test_score_by_the_composer_even_as_a_duo(self):
         self.assertFalse(self.check(performers=["Kyle Dixon & Michael Stein"]))
