@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -86,12 +87,7 @@ fun SearchScreen(openShow: (Int) -> Unit, openMovie: (Int) -> Unit) {
                 Column(Modifier.clickable { if (item.type == "series") openShow(item.tmdbId!!) else openMovie(item.tmdbId!!) }) {
                     Box {
                         Poster(item.posterPath, Modifier.fillMaxWidth())
-                        if (item.watched) {
-                            Icon(
-                                Icons.Default.CheckCircle, contentDescription = "Watched", tint = Watchd.Red,
-                                modifier = Modifier.align(Alignment.TopEnd).padding(6.dp),
-                            )
-                        }
+                        if (item.watched) WatchedMark(true, Modifier.align(Alignment.TopEnd).padding(6.dp).size(26.dp))
                     }
                     Text(item.title.orEmpty(), fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
                     Text(

@@ -15,14 +15,16 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -31,7 +33,9 @@ import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.Circle
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -39,73 +43,116 @@ import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.watchd.data.CollectionPart
 import app.watchd.data.Episode
+import app.watchd.data.NextUpItem
 import app.watchd.data.Person
+import app.watchd.data.Show
+import app.watchd.data.WhereToWatch
 import app.watchd.ui.theme.Watchd
 import coil3.compose.AsyncImage
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
+
+private val longDate = DateTimeFormatter.ofPattern("d MMM yyyy")
+
+private fun plural(n: Int, word: String) = "$n $word${if (n == 1) "" else "s"}"
 
 // ------------------------------------------------------------------ film
 
 @Composable
-fun MovieScreen(tmdbId: Int, onBack: () -> Unit) {
+fun MovieScreen(tmdbId: Int, onBack: () -> Unit, openMovie: (Int) -> Unit) {
     val (state, reload) = rememberLoad(tmdbId) { movie(tmdbId) }
     val app = LocalApp.current
-    val scope = rememberCoroutineScope()
+    val haptics = LocalHapticFeedback.current
+    val list = rememberLazyListState()
     LoadContent(state, reload) { movie ->
         var watched by remember(movie) { mutableStateOf(movie.watched) }
+        var plays by remember(movie) { mutableStateOf(movie.playCount) }
         var inWatchlist by remember(movie) { mutableStateOf(movie.inWatchlist) }
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
+        DetailScaffold(movie.title, list, onBack) {
             item {
                 DetailHeader(
                     backdrop = movie.backdropPath, poster = movie.posterPath, title = movie.title,
-                    facts = listOfNotNull(year(movie.releaseDate), movie.runtime?.let { "${it / 60}h ${it % 60}m" }, movie.ageRating),
-                    imdb = movie.imdbRating, onBack = onBack,
+                    facts = listOfNotNull(year(movie.releaseDate), movie.runtime?.takeIf { it > 0 }?.let { "${it / 60}h ${it % 60}m" }, movie.ageRating),
                 )
             }
+            item { RatingsRow(movie.imdbRating, movie.tmdbRating, movie.userRating) }
             item {
-                Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    ToggleButton(watched, if (watched) "Watched" else "Mark watched", Icons.Default.Check) {
-                        scope.launch {
-                            runCatching {
-                                if (watched) app.api.unwatch(movie.tmdbId, "movie") else app.api.markWatched(movie.tmdbId, "movie")
-                            }.onSuccess { watched = !watched }
-                        }
+                Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    WatchedButton(watched, if (watched) (if (plays > 1) "Watched · ${plays}×" else "Watched") else "Mark watched") {
+                        haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                        val was = watched
+                        watched = !was
+                        if (!was) plays += 1
+                        app.act(
+                            if (was) "Removed from history" else "Marked watched",
+                            action = { if (was) unwatch(movie.tmdbId, "movie") else markWatched(movie.tmdbId, "movie") },
+                            onFail = { watched = was; if (!was) plays -= 1 },
+                            undo = if (was) null else ({ unwatch(movie.tmdbId, "movie") }),
+                            onUndo = { watched = false; plays = (plays - 1).coerceAtLeast(0) },
+                        )
                     }
                     ToggleButton(inWatchlist, "Watchlist", if (inWatchlist) Icons.Default.Bookmark else Icons.Default.BookmarkBorder) {
-                        scope.launch {
-                            runCatching {
-                                if (inWatchlist) app.api.removeFromWatchlist(movie.tmdbId) else app.api.addToWatchlist(movie.tmdbId)
-                            }.onSuccess { inWatchlist = !inWatchlist }
-                        }
+                        haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                        val was = inWatchlist
+                        inWatchlist = !was
+                        app.act(
+                            if (was) "Removed from watchlist" else "Added to watchlist",
+                            action = { if (was) removeFromWatchlist(movie.tmdbId) else addToWatchlist(movie.tmdbId) },
+                            onFail = { inWatchlist = was },
+                            undo = { if (was) addToWatchlist(movie.tmdbId) else removeFromWatchlist(movie.tmdbId) },
+                            onUndo = { inWatchlist = was },
+                        )
                     }
                 }
             }
+            movie.watchHistory.mapNotNull { it.watchedAt }.maxOrNull()?.let { last ->
+                item { Text("Last watched ${formatDate(last)}", color = Watchd.Faint, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp)) }
+            }
             item { Overview(movie.tagline, movie.overview, movie.genres) }
             val directors = movie.crew.filter { it.job == "Director" }.map { it.name }.distinct()
-            if (directors.isNotEmpty()) {
-                item { Credit("Directed by", directors.joinToString(", ")) }
+            val writers = movie.crew.filter { it.job in setOf("Screenplay", "Writer") }.map { it.name }.distinct()
+            if (directors.isNotEmpty() || writers.isNotEmpty()) {
+                item {
+                    Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                        if (directors.isNotEmpty()) Credit("Directed by", directors.take(2).joinToString(", "), Modifier.weight(1f))
+                        if (writers.isNotEmpty()) Credit("Written by", writers.take(2).joinToString(", "), Modifier.weight(1f))
+                    }
+                }
             }
+            if (movie.whereToWatch.isNotEmpty()) item { WhereToWatchRow(movie.whereToWatch) }
             if (movie.cast.isNotEmpty()) {
                 item { SectionTitle("Cast", Modifier.padding(top = 8.dp)) }
                 item { CastRow(movie.cast) }
+            }
+            movie.collection?.takeIf { it.parts.size > 1 }?.let { collection ->
+                item { SectionTitle(collection.name ?: "Collection", Modifier.padding(top = 8.dp)) }
+                item { CollectionRow(collection.parts, current = movie.tmdbId, openMovie = openMovie) }
             }
         }
     }
@@ -113,22 +160,36 @@ fun MovieScreen(tmdbId: Int, onBack: () -> Unit) {
 
 // ------------------------------------------------------------------ show
 
+private data class ShowPage(val show: Show, val next: NextUpItem?)
+
 @Composable
 fun ShowScreen(tmdbId: Int, onBack: () -> Unit, openSeason: (Int, Int) -> Unit) {
-    val (state, reload) = rememberLoad(tmdbId) { show(tmdbId) }
-    LoadContent(state, reload) { show ->
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
+    val (state, reload) = rememberLoad(tmdbId) {
+        coroutineScope {
+            val show = async { show(tmdbId) }
+            val next = async { runCatching { nextUp(limit = 500).nextUp.firstOrNull { it.showTmdbId == tmdbId } }.getOrNull() }
+            ShowPage(show.await(), next.await())
+        }
+    }
+    val app = LocalApp.current
+    val haptics = LocalHapticFeedback.current
+    val list = rememberLazyListState()
+    LoadContent(state, reload) { page ->
+        val show = page.show
+        // Seasons ticked or unticked here, ahead of the next reload.
+        val seasonWatched = remember(show) { mutableStateMapOf<Int, Boolean>() }
+        DetailScaffold(show.title, list, onBack) {
             item {
                 DetailHeader(
                     backdrop = show.backdropPath, poster = show.posterPath, title = show.title,
                     facts = listOfNotNull(
-                        year(show.firstAirDate)?.let { start -> if (show.status == "Ended") "$start–${year(show.lastAirDate) ?: ""}" else start },
+                        year(show.firstAirDate)?.let { start -> if (show.status == "Ended" || show.status == "Canceled") "$start–${year(show.lastAirDate) ?: ""}" else start },
                         show.networks.firstOrNull()?.name, show.ageRating,
                     ),
-                    imdb = show.imdbRating, onBack = onBack,
                 )
             }
-            if (show.watchPct > 0) {
+            item { RatingsRow(show.imdbRating, show.tmdbRating, show.userRating) }
+            if (show.watchPct in 1..99) {
                 item {
                     Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                         Text("${show.watchPct}% watched", color = Watchd.Muted, fontSize = 13.sp)
@@ -136,12 +197,32 @@ fun ShowScreen(tmdbId: Int, onBack: () -> Unit, openSeason: (Int, Int) -> Unit) 
                     }
                 }
             }
+            page.next?.let { next ->
+                item {
+                    NextEpisodeCard(next, onOpen = { next.seasonNumber?.let { openSeason(show.tmdbId, it) } }) {
+                        haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                        app.act(
+                            "Marked ${episodeCode(next.seasonNumber, next.episodeNumber)} watched",
+                            action = { markWatched(next.tmdbId, "episode") },
+                            onFail = {},
+                            undo = { unwatch(next.tmdbId, "episode") },
+                            onDone = reload,
+                        )
+                    }
+                }
+            }
             item { Overview(show.tagline, show.overview, show.genres) }
+            if (show.createdBy.isNotEmpty()) {
+                item { Credit("Created by", show.createdBy.joinToString(", ") { it.name }, Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
+            }
+            if (show.whereToWatch.isNotEmpty()) item { WhereToWatchRow(show.whereToWatch) }
             item { SectionTitle("Seasons", Modifier.padding(top = 8.dp)) }
             items(show.seasonsMeta.sortedBy { if (it.seasonNumber == 0) Int.MAX_VALUE else it.seasonNumber }, key = { it.seasonNumber }) { season ->
                 val seasonState = show.seasonStates[season.seasonNumber.toString()]
+                val upcoming = season.episodeCount == 0 || runCatching { LocalDate.parse(season.airDate).isAfter(LocalDate.now()) }.getOrDefault(false)
+                val watched = seasonWatched[season.seasonNumber] ?: (seasonState?.watched == true)
                 Row(
-                    Modifier.fillMaxWidth().clickable { openSeason(show.tmdbId, season.seasonNumber) }.padding(horizontal = 16.dp, vertical = 8.dp),
+                    Modifier.fillMaxWidth().clickable { openSeason(show.tmdbId, season.seasonNumber) }.padding(start = 16.dp, top = 8.dp, bottom = 8.dp, end = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
@@ -149,14 +230,56 @@ fun ShowScreen(tmdbId: Int, onBack: () -> Unit, openSeason: (Int, Int) -> Unit) 
                     Column(Modifier.weight(1f)) {
                         Text(season.name ?: "Season ${season.seasonNumber}", fontWeight = FontWeight.Bold)
                         Text(
-                            listOfNotNull(year(season.airDate), "${season.episodeCount} episodes").joinToString(" · "),
-                            color = Watchd.Muted, fontSize = 13.sp,
+                            if (upcoming) listOfNotNull("Coming soon", season.airDate?.let { formatDate(it) }.takeIf { season.airDate != null }).joinToString(" · ")
+                            else listOfNotNull(year(season.airDate), plural(season.episodeCount, "episode")).joinToString(" · "),
+                            color = if (upcoming) Watchd.Red else Watchd.Muted, fontSize = 13.sp,
                         )
-                        if (seasonState != null && seasonState.watchPct > 0) Progress(seasonState.watchPct)
+                        val pct = if (watched) 100 else seasonState?.watchPct ?: 0
+                        if (pct > 0) Progress(pct)
                     }
-                    if (seasonState?.watched == true) Icon(Icons.Default.CheckCircle, contentDescription = "Watched", tint = Watchd.Red)
+                    if (!upcoming) {
+                        WatchedTick(watched) {
+                            haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                            seasonWatched[season.seasonNumber] = !watched
+                            val name = season.name ?: "Season ${season.seasonNumber}"
+                            app.act(
+                                if (watched) "$name unmarked" else "$name marked watched",
+                                action = { if (watched) unwatchSeason(show.tmdbId, season.seasonNumber) else markSeasonWatched(show.tmdbId, season.seasonNumber) },
+                                onFail = { seasonWatched[season.seasonNumber] = watched },
+                                undo = { if (watched) markSeasonWatched(show.tmdbId, season.seasonNumber) else unwatchSeason(show.tmdbId, season.seasonNumber) },
+                                onUndo = { seasonWatched[season.seasonNumber] = watched },
+                            )
+                        }
+                    }
                 }
             }
+            if (show.cast.isNotEmpty()) {
+                item { SectionTitle("Cast", Modifier.padding(top = 8.dp)) }
+                item { CastRow(show.cast) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NextEpisodeCard(next: NextUpItem, onOpen: () -> Unit, onWatched: () -> Unit) {
+    Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Text("UP NEXT", style = MaterialTheme.typography.labelSmall, color = Watchd.Red, modifier = Modifier.padding(bottom = 8.dp))
+        Row(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Watchd.Surface).clickable(onClick = onOpen).padding(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            AsyncImage(
+                model = next.posterPath ?: next.showBackdropPath, contentDescription = null, contentScale = ContentScale.Crop,
+                modifier = Modifier.width(120.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(8.dp)).background(Watchd.SurfaceHigh),
+            )
+            Column(Modifier.weight(1f)) {
+                Text(episodeCode(next.seasonNumber, next.episodeNumber), color = Watchd.Red, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                Text(next.title.orEmpty(), fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text("${next.showEpisodesWatched} of ${next.showEpisodesTotal} watched", color = Watchd.Faint, fontSize = 12.sp)
+            }
+            WatchedTick(false, onClick = onWatched)
         }
     }
 }
@@ -166,26 +289,72 @@ fun ShowScreen(tmdbId: Int, onBack: () -> Unit, openSeason: (Int, Int) -> Unit) 
 @Composable
 fun SeasonScreen(showTmdbId: Int, seasonNumber: Int, onBack: () -> Unit) {
     val (state, reload) = rememberLoad(showTmdbId to seasonNumber) { season(showTmdbId, seasonNumber) }
+    val app = LocalApp.current
+    val haptics = LocalHapticFeedback.current
+    val list = rememberLazyListState()
     LoadContent(state, reload) { season ->
-        LazyColumn(Modifier.fillMaxSize().statusBarsPadding(), contentPadding = PaddingValues(bottom = 32.dp)) {
+        val watched = remember(season) { mutableStateMapOf<Int, Boolean>().apply { season.episodes.forEach { put(it.tmdbId, it.watched) } } }
+        val aired = season.episodes.filter { !isFuture(it.airDate) }
+        val done = aired.count { watched[it.tmdbId] == true }
+        val title = season.name ?: "Season $seasonNumber"
+        DetailScaffold(title, list, onBack, header = false) {
             item {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(8.dp)) {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-                    Text(season.name ?: "Season $seasonNumber", style = MaterialTheme.typography.headlineSmall)
+                Row(
+                    Modifier.statusBarsPadding().padding(start = 16.dp, end = 16.dp, top = 64.dp, bottom = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalAlignment = Alignment.Bottom,
+                ) {
+                    Poster(season.posterPath, Modifier.width(96.dp))
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(title, style = MaterialTheme.typography.headlineSmall)
+                        Text("$done of ${aired.size} watched", color = Watchd.Muted, fontSize = 13.sp)
+                        if (aired.isNotEmpty()) Progress(done * 100 / aired.size)
+                    }
                 }
             }
-            items(season.episodes, key = { it.tmdbId }) { EpisodeRow(it) }
+            if (aired.isNotEmpty()) {
+                item {
+                    val all = done == aired.size
+                    WatchedButton(all, if (all) "Season watched" else "Mark season watched", Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                        haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                        val before = aired.associate { it.tmdbId to (watched[it.tmdbId] == true) }
+                        aired.forEach { watched[it.tmdbId] = !all }
+                        app.act(
+                            if (all) "$title unmarked" else "$title marked watched",
+                            action = { if (all) unwatchSeason(showTmdbId, seasonNumber) else markSeasonWatched(showTmdbId, seasonNumber) },
+                            onFail = { watched.putAll(before) },
+                            undo = { if (all) markSeasonWatched(showTmdbId, seasonNumber) else unwatchSeason(showTmdbId, seasonNumber) },
+                            onUndo = { watched.putAll(before) },
+                        )
+                    }
+                }
+            }
+            if (!season.overview.isNullOrBlank()) {
+                item { Text(season.overview, color = Watchd.Muted, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
+            }
+            items(season.episodes, key = { it.tmdbId }) { episode ->
+                EpisodeRow(episode, watched[episode.tmdbId] == true) {
+                    haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                    val was = watched[episode.tmdbId] == true
+                    watched[episode.tmdbId] = !was
+                    app.act(
+                        if (was) "Unmarked ${episodeCode(seasonNumber, episode.episodeNumber)}" else "Marked ${episodeCode(seasonNumber, episode.episodeNumber)} watched",
+                        action = { if (was) unwatch(episode.tmdbId, "episode") else markWatched(episode.tmdbId, "episode") },
+                        onFail = { watched[episode.tmdbId] = was },
+                        undo = { if (was) markWatched(episode.tmdbId, "episode") else unwatch(episode.tmdbId, "episode") },
+                        onUndo = { watched[episode.tmdbId] = was },
+                    )
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun EpisodeRow(episode: Episode) {
-    val app = LocalApp.current
-    val scope = rememberCoroutineScope()
-    var watched by remember(episode) { mutableStateOf(episode.watched) }
+private fun EpisodeRow(episode: Episode, watched: Boolean, onToggle: () -> Unit) {
     var expanded by remember { mutableStateOf(false) }
-    Column(Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(horizontal = 16.dp, vertical = 10.dp)) {
+    val future = isFuture(episode.airDate)
+    Column(Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(start = 16.dp, end = 4.dp, top = 10.dp, bottom = 10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             AsyncImage(
                 model = episode.posterPath, contentDescription = null, contentScale = ContentScale.Crop,
@@ -195,35 +364,50 @@ private fun EpisodeRow(episode: Episode) {
                 Text("Episode ${episode.episodeNumber}", color = Watchd.Red, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                 Text(episode.title.orEmpty(), fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(
-                    listOfNotNull(episode.airDate, episode.runtime?.let { "$it min" }).joinToString(" · "),
+                    listOfNotNull(episode.airDate?.let { formatDate(it) }, episode.runtime?.let { "$it min" }).joinToString(" · "),
                     color = Watchd.Faint, fontSize = 12.sp,
                 )
                 episode.badge?.let { Text(it.uppercase(), color = Watchd.Red, style = MaterialTheme.typography.labelSmall) }
             }
-            IconButton(onClick = {
-                scope.launch {
-                    runCatching {
-                        if (watched) app.api.unwatch(episode.tmdbId, "episode") else app.api.markWatched(episode.tmdbId, "episode")
-                    }.onSuccess { watched = !watched }
-                }
-            }) {
-                Icon(
-                    if (watched) Icons.Default.CheckCircle else Icons.Outlined.Circle,
-                    contentDescription = if (watched) "Watched" else "Mark watched",
-                    tint = if (watched) Watchd.Red else Watchd.Faint,
-                )
-            }
+            if (!future) WatchedTick(watched, onClick = onToggle)
         }
         if (expanded && !episode.overview.isNullOrBlank()) {
-            Text(episode.overview, color = Watchd.Muted, modifier = Modifier.padding(top = 8.dp))
+            Text(episode.overview, color = Watchd.Muted, modifier = Modifier.padding(top = 8.dp, end = 12.dp))
         }
     }
 }
 
 // ------------------------------------------------------------------ shared pieces
 
+/**
+ * A detail page: the list under a top bar that is clear over the backdrop
+ * and fills in, with the title, once the page scrolls.
+ */
 @Composable
-private fun DetailHeader(backdrop: String?, poster: String?, title: String, facts: List<String>, imdb: Double?, onBack: () -> Unit) {
+private fun DetailScaffold(title: String, list: LazyListState, onBack: () -> Unit, header: Boolean = true, content: LazyListScope.() -> Unit) {
+    val solid by remember {
+        derivedStateOf { if (!header || list.firstVisibleItemIndex > 0) 1f else (list.firstVisibleItemScrollOffset / 500f).coerceIn(0f, 1f) }
+    }
+    Box(Modifier.fillMaxSize()) {
+        LazyColumn(Modifier.fillMaxSize(), state = list, contentPadding = PaddingValues(bottom = 32.dp), content = content)
+        Row(
+            Modifier.fillMaxWidth().background(Watchd.Background.copy(alpha = solid)).statusBarsPadding().height(56.dp).padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(
+                onClick = onBack,
+                colors = IconButtonDefaults.iconButtonColors(containerColor = Color.Black.copy(alpha = 0.5f * (1 - solid))),
+            ) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White) }
+            Text(
+                title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = 8.dp).alpha(if (header) solid else 1f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun DetailHeader(backdrop: String?, poster: String?, title: String, facts: List<String>) {
     // The poster overlaps the bottom of the backdrop, which fades into the page.
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val backdropHeight = maxWidth * 10 / 16
@@ -233,13 +417,8 @@ private fun DetailHeader(backdrop: String?, poster: String?, title: String, fact
         )
         Box(
             Modifier.fillMaxWidth().height(backdropHeight)
-                .background(Brush.verticalGradient(0f to Color.Black.copy(alpha = 0.35f), 0.45f to Color.Transparent, 1f to Watchd.Background)),
+                .background(Brush.verticalGradient(0f to Color.Black.copy(alpha = 0.45f), 0.4f to Color.Transparent, 1f to Watchd.Background)),
         )
-        IconButton(
-            onClick = onBack,
-            colors = IconButtonDefaults.iconButtonColors(containerColor = Color.Black.copy(alpha = 0.5f)),
-            modifier = Modifier.statusBarsPadding().padding(8.dp),
-        ) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White) }
         Row(
             Modifier.padding(start = 16.dp, end = 16.dp, top = backdropHeight - 64.dp),
             verticalAlignment = Alignment.Bottom,
@@ -249,7 +428,31 @@ private fun DetailHeader(backdrop: String?, poster: String?, title: String, fact
             Column(Modifier.weight(1f).padding(bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(title, style = MaterialTheme.typography.headlineSmall)
                 if (facts.isNotEmpty()) Text(facts.joinToString(" · "), color = Watchd.Muted, fontSize = 13.sp)
-                ImdbBadge(imdb)
+            }
+        }
+    }
+}
+
+/** IMDb, TMDB and your own rating, side by side. */
+@Composable
+private fun RatingsRow(imdb: Double?, tmdb: Double?, mine: Double?) {
+    if ((imdb ?: 0.0) <= 0 && (tmdb ?: 0.0) <= 0 && mine == null) return
+    Row(
+        Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(20.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ImdbBadge(imdb)
+        if ((tmdb ?: 0.0) > 0) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("TMDB", color = Color(0xFF01B4E4), fontWeight = FontWeight.Black, fontSize = 11.sp)
+                Text("%.1f".format(tmdb), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            }
+        }
+        if (mine != null) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Icon(Icons.Default.Star, contentDescription = null, tint = Watchd.Red, modifier = Modifier.size(16.dp))
+                Text("You  ${if (mine % 1.0 == 0.0) mine.toInt() else mine}", fontWeight = FontWeight.Bold, fontSize = 13.sp)
             }
         }
     }
@@ -275,10 +478,29 @@ private fun Overview(tagline: String?, overview: String?, genres: List<String>) 
 }
 
 @Composable
-private fun Credit(label: String, value: String) {
-    Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+private fun Credit(label: String, value: String, modifier: Modifier = Modifier) {
+    Column(modifier) {
         Text(label.uppercase(), style = MaterialTheme.typography.labelSmall, color = Watchd.Faint)
         Text(value, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+private fun WhereToWatchRow(services: List<WhereToWatch>) {
+    Column(Modifier.padding(vertical = 8.dp)) {
+        Text("WHERE TO WATCH", style = MaterialTheme.typography.labelSmall, color = Watchd.Faint, modifier = Modifier.padding(horizontal = 16.dp))
+        LazyRow(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            items(services.distinctBy { it.name }) { service ->
+                Row(
+                    Modifier.clip(RoundedCornerShape(10.dp)).background(Watchd.Surface).padding(end = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    AsyncImage(service.logo, contentDescription = null, modifier = Modifier.size(36.dp).clip(RoundedCornerShape(10.dp)))
+                    Text(service.name, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                }
+            }
+        }
     }
 }
 
@@ -292,16 +514,53 @@ private fun CastRow(cast: List<Person>) {
                     modifier = Modifier.size(96.dp).clip(CircleShape).background(Watchd.Surface),
                 )
                 Text(person.name, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
-                person.character?.let { Text(it, color = Watchd.Faint, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+                person.character?.takeIf { it.isNotBlank() }?.let { Text(it, color = Watchd.Muted, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+                person.episodeCount?.takeIf { it > 0 }?.let { Text(plural(it, "episode"), color = Watchd.Faint, fontSize = 11.sp) }
             }
         }
     }
 }
 
 @Composable
-private fun ToggleButton(active: Boolean, label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
+private fun CollectionRow(parts: List<CollectionPart>, current: Int, openMovie: (Int) -> Unit) {
+    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        items(parts.sortedBy { it.releaseDate ?: "9999" }, key = { it.tmdbId }) { part ->
+            Column(Modifier.width(110.dp).clickable(enabled = part.tmdbId != current) { openMovie(part.tmdbId) }) {
+                Box {
+                    Poster(part.posterPath, Modifier.fillMaxWidth().alpha(if (part.tmdbId == current) 0.45f else 1f))
+                    if (part.watched) WatchedMark(true, Modifier.align(Alignment.TopEnd).padding(6.dp).size(24.dp))
+                }
+                Text(part.title.orEmpty(), fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
+                year(part.releaseDate)?.let { Text(it, color = Watchd.Faint, fontSize = 12.sp) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WatchedTick(watched: Boolean, onClick: () -> Unit) {
+    IconButton(onClick = onClick, modifier = Modifier.size(52.dp)) { WatchedMark(watched, Modifier.size(32.dp)) }
+}
+
+/** Mark watched / Watched, with the W: red once watched. */
+@Composable
+private fun WatchedButton(watched: Boolean, label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     FilledTonalButton(
         onClick = onClick,
+        modifier = modifier,
+        colors = ButtonDefaults.filledTonalButtonColors(containerColor = Watchd.Surface, contentColor = Color.White),
+    ) {
+        WatchedMark(watched, Modifier.size(20.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(label)
+    }
+}
+
+@Composable
+private fun ToggleButton(active: Boolean, label: String, icon: ImageVector, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    FilledTonalButton(
+        onClick = onClick,
+        modifier = modifier,
         colors = ButtonDefaults.filledTonalButtonColors(
             containerColor = if (active) Watchd.Red else Watchd.Surface,
             contentColor = Color.White,
@@ -321,3 +580,11 @@ private fun Progress(pct: Int) {
         modifier = Modifier.fillMaxWidth().padding(top = 6.dp).height(4.dp).clip(CircleShape),
     )
 }
+
+private fun isFuture(date: String?) =
+    runCatching { LocalDate.parse(date).isAfter(LocalDate.now()) }.getOrDefault(false)
+
+/** "2024-03-12" or "2024-03-12T20:15:00" as "12 Mar 2024". */
+private fun formatDate(value: String): String = runCatching {
+    if (value.length > 10) LocalDateTime.parse(value.take(19)).toLocalDate().format(longDate) else LocalDate.parse(value).format(longDate)
+}.getOrDefault(value)

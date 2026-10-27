@@ -32,7 +32,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -71,6 +74,10 @@ fun DashboardScreen(openShow: (Int) -> Unit, openMovie: (Int) -> Unit) {
     }
     var refreshing by remember { mutableStateOf(false) }
     if (state !is Load.Loading) refreshing = false
+    val app = LocalApp.current
+    val haptics = LocalHapticFeedback.current
+    // Ticked cards leave at once; the reload then brings each show's next episode.
+    val ticked = remember { mutableStateListOf<Int>() }
 
     PullToRefreshBox(isRefreshing = refreshing, onRefresh = { refreshing = true; reload() }) {
         LoadContent(state, reload) { data ->
@@ -78,12 +85,24 @@ fun DashboardScreen(openShow: (Int) -> Unit, openMovie: (Int) -> Unit) {
                 item { Spacer(Modifier.statusBarsPadding().height(8.dp)) }
                 item { SectionTitle("Next Up") }
                 item {
-                    if (data.nextUp.nextUp.isEmpty()) {
+                    val nextUp = data.nextUp.nextUp.filter { it.tmdbId !in ticked }
+                    if (nextUp.isEmpty()) {
                         Text("You're all caught up.", color = Watchd.Muted, modifier = Modifier.padding(horizontal = 16.dp))
                     }
                     LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        items(data.nextUp.nextUp, key = { it.tmdbId }) { item ->
-                            NextUpCard(item, onOpen = { item.showTmdbId?.let(openShow) }, onWatched = reload)
+                        items(nextUp, key = { it.tmdbId }) { item ->
+                            NextUpCard(item, Modifier.animateItem(), onOpen = { item.showTmdbId?.let(openShow) }) {
+                                haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                                ticked.add(item.tmdbId)
+                                app.act(
+                                    "${item.showTitle.orEmpty()} ${episodeCode(item.seasonNumber, item.episodeNumber)} watched",
+                                    action = { markWatched(item.tmdbId, "episode") },
+                                    onFail = { ticked.remove(item.tmdbId) },
+                                    undo = { unwatch(item.tmdbId, "episode") },
+                                    onUndo = { ticked.remove(item.tmdbId) },
+                                    onDone = reload,
+                                )
+                            }
                         }
                     }
                 }
@@ -104,11 +123,8 @@ fun DashboardScreen(openShow: (Int) -> Unit, openMovie: (Int) -> Unit) {
 }
 
 @Composable
-private fun NextUpCard(item: NextUpItem, onOpen: () -> Unit, onWatched: () -> Unit) {
-    val app = LocalApp.current
-    val scope = rememberCoroutineScope()
-    var marking by remember { mutableStateOf(false) }
-    Column(Modifier.width(300.dp).clip(RoundedCornerShape(12.dp)).background(Watchd.Surface).clickable(onClick = onOpen)) {
+private fun NextUpCard(item: NextUpItem, modifier: Modifier, onOpen: () -> Unit, onWatched: () -> Unit) {
+    Column(modifier.width(300.dp).clip(RoundedCornerShape(12.dp)).background(Watchd.Surface).clickable(onClick = onOpen)) {
         Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
             AsyncImage(
                 model = item.posterPath ?: item.showBackdropPath,
@@ -125,18 +141,9 @@ private fun NextUpCard(item: NextUpItem, onOpen: () -> Unit, onWatched: () -> Un
                 )
             }
             IconButton(
-                onClick = {
-                    marking = true
-                    scope.launch {
-                        runCatching { app.api.markWatched(item.tmdbId, "episode") }
-                        marking = false
-                        onWatched()
-                    }
-                },
-                enabled = !marking,
-                colors = IconButtonDefaults.iconButtonColors(containerColor = Color.Black.copy(alpha = 0.6f)),
-                modifier = Modifier.align(Alignment.TopEnd).padding(8.dp).size(36.dp),
-            ) { Icon(Icons.Default.Check, contentDescription = "Mark watched", tint = if (marking) Watchd.Faint else Color.White) }
+                onClick = onWatched,
+                modifier = Modifier.align(Alignment.TopEnd).padding(4.dp).size(52.dp),
+            ) { WatchedMark(false, Modifier.size(34.dp)) }
         }
         Column(Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {

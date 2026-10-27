@@ -56,6 +56,17 @@ class Api(server: String, private val token: String?) {
         send(request("history").post(body))
     }
 
+    suspend fun markSeasonWatched(showTmdbId: Int, season: Int) {
+        val body = buildJsonObject {
+            put("series_tmdb_id", showTmdbId)
+            put("season_number", season)
+        }.toString().toRequestBody("application/json".toMediaType())
+        send(request("history/season").post(body))
+    }
+
+    suspend fun unwatchSeason(showTmdbId: Int, season: Int) =
+        send(request("history/season", "series_tmdb_id" to "$showTmdbId", "season_number" to "$season").delete())
+
     suspend fun unwatch(tmdbId: Int, mediaType: String) =
         send(request("history/item", "tmdb_id" to "$tmdbId", "media_type" to mediaType).delete())
 

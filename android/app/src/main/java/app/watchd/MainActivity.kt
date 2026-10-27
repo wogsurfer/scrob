@@ -15,6 +15,9 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -76,7 +79,9 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun SignedIn(session: Session, signOut: () -> Unit) {
-    val app = remember(session) { AppContext(Api(session.server, session.token), signOut) }
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    val app = remember(session) { AppContext(Api(session.server, session.token), signOut, snackbar, scope) }
     val nav = rememberNavController()
     val entry by nav.currentBackStackEntryAsState()
     val destination = entry?.destination
@@ -86,6 +91,11 @@ private fun SignedIn(session: Session, signOut: () -> Unit) {
     CompositionLocalProvider(LocalApp provides app) {
         Scaffold(
             containerColor = Watchd.Background,
+            snackbarHost = {
+                SnackbarHost(snackbar) {
+                    Snackbar(it, containerColor = Watchd.SurfaceHigh, contentColor = Watchd.Text, actionColor = Watchd.Red)
+                }
+            },
             bottomBar = {
                 NavigationBar(containerColor = Watchd.Surface) {
                     listOf(Triple(HomeRoute, "Home", Icons.Default.Home), Triple(SearchRoute, "Search", Icons.Default.Search)).forEach { (route, label, icon) ->
@@ -113,7 +123,7 @@ private fun SignedIn(session: Session, signOut: () -> Unit) {
             NavHost(nav, startDestination = HomeRoute, modifier = Modifier.padding(bottom = padding.calculateBottomPadding())) {
                 composable<HomeRoute> { DashboardScreen(openShow, openMovie) }
                 composable<SearchRoute> { SearchScreen(openShow, openMovie) }
-                composable<MovieRoute> { MovieScreen(it.toRoute<MovieRoute>().tmdbId, onBack = { nav.popBackStack() }) }
+                composable<MovieRoute> { MovieScreen(it.toRoute<MovieRoute>().tmdbId, onBack = { nav.popBackStack() }, openMovie = openMovie) }
                 composable<ShowRoute> {
                     ShowScreen(it.toRoute<ShowRoute>().tmdbId, onBack = { nav.popBackStack() }, openSeason = { show, season -> nav.navigate(SeasonRoute(show, season)) })
                 }

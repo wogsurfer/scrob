@@ -1,6 +1,10 @@
 package app.watchd.ui
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.res.painterResource
+import app.watchd.R
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,6 +16,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -33,9 +40,54 @@ import app.watchd.data.Api
 import app.watchd.data.SignedOut
 import app.watchd.ui.theme.Watchd
 import coil3.compose.AsyncImage
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 
-/** The signed-in API, and what to do when the token stops working. */
-class AppContext(val api: Api, val signOut: () -> Unit)
+/** The signed-in API, what to do when the token stops working, and the
+ *  snackbar that confirms actions. */
+class AppContext(
+    val api: Api,
+    val signOut: () -> Unit,
+    val snackbar: SnackbarHostState,
+    private val scope: CoroutineScope,
+) {
+    /**
+     * Sends a change the screen has already shown (so a tick is instant).
+     * On success, [message] is confirmed with an Undo that runs [undo] and
+     * then [onUndo]; on failure [onFail] puts the screen back.
+     */
+    fun act(
+        message: String?,
+        action: suspend Api.() -> Unit,
+        onFail: () -> Unit,
+        undo: (suspend Api.() -> Unit)? = null,
+        onUndo: () -> Unit = {},
+        onDone: () -> Unit = {},
+    ) {
+        scope.launch {
+            try {
+                api.action()
+            } catch (e: SignedOut) {
+                signOut()
+                return@launch
+            } catch (e: Exception) {
+                onFail()
+                snackbar.currentSnackbarData?.dismiss()
+                snackbar.showSnackbar("Couldn't reach Watchd")
+                return@launch
+            }
+            onDone()
+            if (message == null) return@launch
+            snackbar.currentSnackbarData?.dismiss()
+            val result = snackbar.showSnackbar(message, actionLabel = if (undo != null) "Undo" else null, duration = SnackbarDuration.Short)
+            if (result == SnackbarResult.ActionPerformed && undo != null) {
+                onUndo()
+                runCatching { api.undo() }
+                onDone()
+            }
+        }
+    }
+}
 
 val LocalApp = compositionLocalOf<AppContext> { error("No AppContext") }
 
@@ -120,6 +172,16 @@ fun ImdbBadge(rating: Double?) {
         )
         Text("%.1f".format(rating), fontWeight = FontWeight.Bold, fontSize = 13.sp)
     }
+}
+
+/** The Watchd W, as on the site: red when watched, white when not. */
+@Composable
+fun WatchedMark(watched: Boolean, modifier: Modifier = Modifier.size(28.dp)) {
+    Image(
+        painterResource(if (watched) R.drawable.watched_on else R.drawable.watched_off),
+        contentDescription = if (watched) "Watched" else "Not watched",
+        modifier = modifier,
+    )
 }
 
 fun episodeCode(season: Int?, episode: Int?) =

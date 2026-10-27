@@ -92,7 +92,26 @@ data class Person(
     val character: String? = null,
     val job: String? = null,
     val profilePath: String? = null,
+    val episodeCount: Int? = null,
 )
+
+@Serializable
+data class WhereToWatch(val type: String? = null, val name: String, val logo: String? = null)
+
+@Serializable
+data class CollectionPart(
+    val tmdbId: Int,
+    val title: String? = null,
+    val posterPath: String? = null,
+    val releaseDate: String? = null,
+    val watched: Boolean = false,
+)
+
+@Serializable
+data class FilmCollection(val name: String? = null, val parts: List<CollectionPart> = emptyList())
+
+@Serializable
+data class WatchEvent(val watchedAt: String? = null)
 
 @Serializable
 data class Movie(
@@ -115,6 +134,9 @@ data class Movie(
     val inLibrary: Boolean = false,
     val cast: List<Person> = emptyList(),
     val crew: List<Person> = emptyList(),
+    val whereToWatch: List<WhereToWatch> = emptyList(),
+    val collection: FilmCollection? = null,
+    val watchHistory: List<WatchEvent> = emptyList(),
 )
 
 @Serializable
@@ -158,6 +180,9 @@ data class Show(
     val watchPct: Int = 0,
     val seasonsMeta: List<SeasonMeta> = emptyList(),
     val seasonStates: Map<String, SeasonState> = emptyMap(),
+    val cast: List<Person> = emptyList(),
+    val createdBy: List<Person> = emptyList(),
+    val whereToWatch: List<WhereToWatch> = emptyList(),
 )
 
 @Serializable
@@ -185,4 +210,5 @@ data class Season(
     val airDate: String? = null,
     val episodes: List<Episode> = emptyList(),
     val seasonWatchPct: Int = 0,
+    val seasonWatched: Boolean = false,
 )
