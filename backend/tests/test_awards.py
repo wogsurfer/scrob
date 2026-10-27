@@ -200,6 +200,29 @@ class TvNamingTests(unittest.TestCase):
         self.assertTrue(globe["name_inferred"])
 
 
+class PersonOwnAwardsTests(unittest.TestCase):
+    def row(self, category, work_type="movie", work_id=1):
+        return {"category_name": category, "work_type": work_type, "work_tmdb_id": work_id}
+
+    def test_actor_keeps_acting_but_not_the_films_awards(self):
+        movies = {1: {"cast": True, "jobs": set()}}
+        self.assertTrue(awards._theirs(self.row("Best Actress"), movies, {}))
+        self.assertFalse(awards._theirs(self.row("Best Picture"), movies, {}))
+        # No title given, and never behind the camera.
+        self.assertFalse(awards._theirs(self.row("Best Picture", None, None), movies, {}))
+        self.assertFalse(awards._theirs(self.row("Best Original Screenplay"), movies, {}))
+        # Narration, an ensemble award or a special award are still personal.
+        self.assertTrue(awards._theirs(self.row("Outstanding Narrator"), movies, {}))
+        self.assertTrue(awards._theirs(self.row("Golden Globes"), movies, {}))
+        self.assertTrue(awards._theirs(self.row("Special Award"), movies, {}))
+
+    def test_actor_who_produced_keeps_best_picture(self):
+        movies = {1: {"cast": True, "jobs": {"Producer"}}, 2: {"cast": True, "jobs": set()}}
+        self.assertTrue(awards._theirs(self.row("Best Picture"), movies, {}))
+        self.assertFalse(awards._theirs(self.row("Best Picture", "movie", 2), movies, {}))
+        self.assertTrue(awards._theirs(self.row("Outstanding Drama Series", "series", 9), {}, {9: {"cast": False, "jobs": {"Executive Producer"}}}))
+
+
 class CharacterMatchTests(unittest.TestCase):
     # (character, actor, episodes) as _show_roles returns them
     roles = [

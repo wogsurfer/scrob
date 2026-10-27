@@ -477,7 +477,7 @@ async def _series_title_index(tvdb_key: str) -> dict[str, list[tuple[dict, dict,
 
 async def person_awards(person_id: int, tvdb_key: str, tmdb_key: str | None) -> list[dict]:
     """A person's Oscar, Golden Globe, BAFTA and Emmy nominations and wins."""
-    hit = _person_cache.get(person_id) or disk_cache.load("person_awards", person_id, _TTL)
+    hit = _person_cache.get(person_id) or disk_cache.load("person_awards_v2", person_id, _TTL)
     if hit and time.time() - hit[0] < _TTL:
         _person_cache[person_id] = hit
         return hit[1]
@@ -603,13 +603,38 @@ async def person_awards(person_id: int, tvdb_key: str, tmdb_key: str | None) -> 
             "work_tmdb_id": work_id,
         })
 
-    rows = _dedupe(rows, "work_title")
+    rows = _dedupe([r for r in rows if _theirs(r, movies, shows)], "work_title")
     _person_cache[person_id] = (time.time(), rows)
-    disk_cache.save("person_awards", person_id, rows)
+    disk_cache.save("person_awards_v2", person_id, rows)
     return rows
 
 
 _PLAYED = re.compile(r'For playing', re.I)
+
+
+# Categories that honour a production as a whole.
+_PRODUCTION = re.compile(r"picture|\bfilm\b|series|program|special(?! award| achievement)|movie|miniseries|anthology", re.I)
+# Performances role_kind doesn't call acting.
+_PERFORMING = re.compile(r"narrat|host|ensemble|voice", re.I)
+
+
+def _theirs(row: dict, movies: dict[int, dict], shows: dict[int, dict]) -> bool:
+    """Whether an award is the person's own. Performances always are; awards
+    for the production itself or a behind-the-camera job (best picture,
+    writing...) only where they're credited behind the camera on that title,
+    so an actor doesn't collect the film's awards. Anything else (a special
+    award, say) stays."""
+    category = row["category_name"] or ""
+    if role_kind(category) == "acting" or _PERFORMING.search(category):
+        return True
+    if not (role_kind(category) or topic_jobs(category) or _PRODUCTION.search(category)):
+        return True
+    credits = movies if row.get("work_type") == "movie" else shows if row.get("work_type") == "series" else None
+    credit = credits.get(row.get("work_tmdb_id")) if credits is not None else None
+    if credit is not None:
+        return bool(credit["jobs"] - {None})
+    # No title to check against: theirs if they work behind the camera at all.
+    return any(c["jobs"] - {None} for c in (*movies.values(), *shows.values()))
 
 
 def _person_row(award: dict, title: str, work_type: str, work_id: int) -> dict:
