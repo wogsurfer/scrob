@@ -38,6 +38,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.watchd.data.Api
 import app.watchd.data.SignedOut
+import app.watchd.data.WatchSession
+import app.watchd.data.WatchTarget
 import app.watchd.ui.theme.Watchd
 import coil3.compose.AsyncImage
 import kotlinx.coroutines.CoroutineScope
@@ -51,6 +53,27 @@ class AppContext(
     val snackbar: SnackbarHostState,
     private val scope: CoroutineScope,
 ) {
+    /** Running check-ins, for the Now watching bar. */
+    var sessions by mutableStateOf<List<WatchSession>>(emptyList())
+        private set
+
+    /** The Watch sheet's film or episode, and what to refresh after a change. */
+    var watchSheet by mutableStateOf<Pair<WatchTarget, () -> Unit>?>(null)
+
+    fun openWatchSheet(target: WatchTarget, onChanged: () -> Unit = {}) {
+        watchSheet = target to onChanged
+    }
+
+    fun refreshSessions() {
+        scope.launch {
+            try {
+                sessions = api.sessions()
+            } catch (e: SignedOut) {
+                signOut()
+            } catch (_: Exception) {
+            }
+        }
+    }
     /**
      * Sends a change the screen has already shown (so a tick is instant).
      * On success, [message] is confirmed with an Undo that runs [undo] and

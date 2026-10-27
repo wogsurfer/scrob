@@ -69,7 +69,9 @@ import app.watchd.data.Episode
 import app.watchd.data.NextUpItem
 import app.watchd.data.Person
 import app.watchd.data.Show
+import app.watchd.data.WatchTarget
 import app.watchd.data.WhereToWatch
+import androidx.compose.material.icons.filled.PlayArrow
 import app.watchd.ui.theme.Watchd
 import coil3.compose.AsyncImage
 import kotlinx.coroutines.async
@@ -105,19 +107,33 @@ fun MovieScreen(tmdbId: Int, onBack: () -> Unit, openMovie: (Int) -> Unit) {
             item {
                 Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     WatchedButton(watched, if (watched) (if (plays > 1) "Watched · ${plays}×" else "Watched") else "Mark watched") {
+                        // Once watched, the button opens the plays (add a rewatch,
+                        // remove one) rather than wiping the history in one tap.
+                        if (watched) {
+                            app.openWatchSheet(WatchTarget(movie.tmdbId, "movie", movie.title, runtime = movie.runtime), reload)
+                            return@WatchedButton
+                        }
                         haptics.performHapticFeedback(HapticFeedbackType.Confirm)
-                        val was = watched
-                        watched = !was
-                        if (!was) plays += 1
+                        watched = true
+                        plays += 1
                         app.act(
-                            if (was) "Removed from history" else "Marked watched",
-                            action = { if (was) unwatch(movie.tmdbId, "movie") else markWatched(movie.tmdbId, "movie") },
-                            onFail = { watched = was; if (!was) plays -= 1 },
-                            undo = if (was) null else ({ unwatch(movie.tmdbId, "movie") }),
+                            "Marked watched",
+                            action = { markWatched(movie.tmdbId, "movie") },
+                            onFail = { watched = false; plays -= 1 },
+                            undo = { unwatch(movie.tmdbId, "movie") },
                             onUndo = { watched = false; plays = (plays - 1).coerceAtLeast(0) },
                         )
                     }
-                    ToggleButton(inWatchlist, "Watchlist", if (inWatchlist) Icons.Default.Bookmark else Icons.Default.BookmarkBorder) {
+                    FilledTonalButton(
+                        onClick = { app.openWatchSheet(WatchTarget(movie.tmdbId, "movie", movie.title, runtime = movie.runtime), reload) },
+                        colors = ButtonDefaults.filledTonalButtonColors(containerColor = Watchd.Surface, contentColor = Color.White),
+                    ) {
+                        Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Check in")
+                    }
+                    IconButton(
+                        onClick = {
                         haptics.performHapticFeedback(HapticFeedbackType.Confirm)
                         val was = inWatchlist
                         inWatchlist = !was
@@ -127,6 +143,14 @@ fun MovieScreen(tmdbId: Int, onBack: () -> Unit, openMovie: (Int) -> Unit) {
                             onFail = { inWatchlist = was },
                             undo = { if (was) addToWatchlist(movie.tmdbId) else removeFromWatchlist(movie.tmdbId) },
                             onUndo = { inWatchlist = was },
+                        )
+                        },
+                        colors = IconButtonDefaults.iconButtonColors(containerColor = Watchd.Surface),
+                    ) {
+                        Icon(
+                            if (inWatchlist) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                            contentDescription = if (inWatchlist) "Remove from watchlist" else "Add to watchlist",
+                            tint = if (inWatchlist) Watchd.Red else Color.White,
                         )
                     }
                 }
@@ -199,7 +223,13 @@ fun ShowScreen(tmdbId: Int, onBack: () -> Unit, openSeason: (Int, Int) -> Unit) 
             }
             page.next?.let { next ->
                 item {
-                    NextEpisodeCard(next, onOpen = { next.seasonNumber?.let { openSeason(show.tmdbId, it) } }) {
+                    NextEpisodeCard(
+                        next,
+                        onOpen = { next.seasonNumber?.let { openSeason(show.tmdbId, it) } },
+                        onLongPress = {
+                            app.openWatchSheet(WatchTarget(next.tmdbId, "episode", next.title, show.tmdbId, next.seasonNumber, next.episodeNumber), reload)
+                        },
+                    ) {
                         haptics.performHapticFeedback(HapticFeedbackType.Confirm)
                         app.act(
                             "Marked ${episodeCode(next.seasonNumber, next.episodeNumber)} watched",
@@ -262,7 +292,7 @@ fun ShowScreen(tmdbId: Int, onBack: () -> Unit, openSeason: (Int, Int) -> Unit) 
 }
 
 @Composable
-private fun NextEpisodeCard(next: NextUpItem, onOpen: () -> Unit, onWatched: () -> Unit) {
+private fun NextEpisodeCard(next: NextUpItem, onOpen: () -> Unit, onLongPress: () -> Unit, onWatched: () -> Unit) {
     Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
         Text("UP NEXT", style = MaterialTheme.typography.labelSmall, color = Watchd.Red, modifier = Modifier.padding(bottom = 8.dp))
         Row(
@@ -279,7 +309,7 @@ private fun NextEpisodeCard(next: NextUpItem, onOpen: () -> Unit, onWatched: () 
                 Text(next.title.orEmpty(), fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text("${next.showEpisodesWatched} of ${next.showEpisodesTotal} watched", color = Watchd.Faint, fontSize = 12.sp)
             }
-            WatchedTick(false, onClick = onWatched)
+            WatchButton(false, onTap = onWatched, onLongPress = onLongPress)
         }
     }
 }
@@ -333,7 +363,8 @@ fun SeasonScreen(showTmdbId: Int, seasonNumber: Int, onBack: () -> Unit) {
                 item { Text(season.overview, color = Watchd.Muted, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
             }
             items(season.episodes, key = { it.tmdbId }) { episode ->
-                EpisodeRow(episode, watched[episode.tmdbId] == true) {
+                val target = WatchTarget(episode.tmdbId, "episode", episode.title, showTmdbId, seasonNumber, episode.episodeNumber, episode.runtime)
+                EpisodeRow(episode, watched[episode.tmdbId] == true, onLongPress = { app.openWatchSheet(target, reload) }) {
                     haptics.performHapticFeedback(HapticFeedbackType.Confirm)
                     val was = watched[episode.tmdbId] == true
                     watched[episode.tmdbId] = !was
@@ -351,7 +382,7 @@ fun SeasonScreen(showTmdbId: Int, seasonNumber: Int, onBack: () -> Unit) {
 }
 
 @Composable
-private fun EpisodeRow(episode: Episode, watched: Boolean, onToggle: () -> Unit) {
+private fun EpisodeRow(episode: Episode, watched: Boolean, onLongPress: () -> Unit, onToggle: () -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     val future = isFuture(episode.airDate)
     Column(Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(start = 16.dp, end = 4.dp, top = 10.dp, bottom = 10.dp)) {
@@ -369,7 +400,7 @@ private fun EpisodeRow(episode: Episode, watched: Boolean, onToggle: () -> Unit)
                 )
                 episode.badge?.let { Text(it.uppercase(), color = Watchd.Red, style = MaterialTheme.typography.labelSmall) }
             }
-            if (!future) WatchedTick(watched, onClick = onToggle)
+            if (!future) WatchButton(watched, onTap = onToggle, onLongPress = onLongPress)
         }
         if (expanded && !episode.overview.isNullOrBlank()) {
             Text(episode.overview, color = Watchd.Muted, modifier = Modifier.padding(top = 8.dp, end = 12.dp))

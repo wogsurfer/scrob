@@ -53,6 +53,7 @@ import app.watchd.data.NextUpItem
 import app.watchd.data.NextUpResponse
 import app.watchd.data.Upcoming
 import app.watchd.data.UpcomingEpisode
+import app.watchd.data.WatchTarget
 import app.watchd.ui.theme.Watchd
 import coil3.compose.AsyncImage
 import kotlinx.coroutines.async
@@ -91,7 +92,16 @@ fun DashboardScreen(openShow: (Int) -> Unit, openMovie: (Int) -> Unit) {
                     }
                     LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         items(nextUp, key = { it.tmdbId }) { item ->
-                            NextUpCard(item, Modifier.animateItem(), onOpen = { item.showTmdbId?.let(openShow) }) {
+                            NextUpCard(
+                                item, Modifier.animateItem(),
+                                onOpen = { item.showTmdbId?.let(openShow) },
+                                onLongPress = {
+                                    app.openWatchSheet(
+                                        WatchTarget(item.tmdbId, "episode", item.title, item.showTmdbId, item.seasonNumber, item.episodeNumber),
+                                        reload,
+                                    )
+                                },
+                            ) {
                                 haptics.performHapticFeedback(HapticFeedbackType.Confirm)
                                 ticked.add(item.tmdbId)
                                 app.act(
@@ -123,7 +133,7 @@ fun DashboardScreen(openShow: (Int) -> Unit, openMovie: (Int) -> Unit) {
 }
 
 @Composable
-private fun NextUpCard(item: NextUpItem, modifier: Modifier, onOpen: () -> Unit, onWatched: () -> Unit) {
+private fun NextUpCard(item: NextUpItem, modifier: Modifier, onOpen: () -> Unit, onLongPress: () -> Unit, onWatched: () -> Unit) {
     Column(modifier.width(300.dp).clip(RoundedCornerShape(12.dp)).background(Watchd.Surface).clickable(onClick = onOpen)) {
         Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
             AsyncImage(
@@ -140,10 +150,9 @@ private fun NextUpCard(item: NextUpItem, modifier: Modifier, onOpen: () -> Unit,
                     fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
             }
-            IconButton(
-                onClick = onWatched,
-                modifier = Modifier.align(Alignment.TopEnd).padding(4.dp).size(52.dp),
-            ) { WatchedMark(false, Modifier.size(34.dp)) }
+            Box(Modifier.align(Alignment.TopEnd).padding(2.dp)) {
+                WatchButton(false, size = 34.dp, onTap = onWatched, onLongPress = onLongPress)
+            }
         }
         Column(Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {

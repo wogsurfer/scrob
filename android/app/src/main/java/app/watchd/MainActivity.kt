@@ -5,6 +5,12 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.runtime.LaunchedEffect
+import androidx.lifecycle.compose.LifecycleResumeEffect
+import app.watchd.ui.NowWatchingBar
+import app.watchd.ui.WatchSheet
+import kotlinx.coroutines.delay
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -88,7 +94,23 @@ private fun SignedIn(session: Session, signOut: () -> Unit) {
     val openShow: (Int) -> Unit = { nav.navigate(ShowRoute(it)) }
     val openMovie: (Int) -> Unit = { nav.navigate(MovieRoute(it)) }
 
+    // Check-ins started or ended elsewhere (the site, or Watchd finishing
+    // one) show up when the app comes back and once a minute.
+    LifecycleResumeEffect(app) {
+        app.refreshSessions()
+        onPauseOrDispose {}
+    }
+    LaunchedEffect(app) {
+        while (true) {
+            delay(60_000)
+            app.refreshSessions()
+        }
+    }
+
     CompositionLocalProvider(LocalApp provides app) {
+        app.watchSheet?.let { (target, onChanged) ->
+            WatchSheet(target, onChanged, onDismiss = { app.watchSheet = null })
+        }
         Scaffold(
             containerColor = Watchd.Background,
             snackbarHost = {
@@ -97,6 +119,8 @@ private fun SignedIn(session: Session, signOut: () -> Unit) {
                 }
             },
             bottomBar = {
+                Column {
+                app.sessions.firstOrNull()?.let { NowWatchingBar(it, openShow, openMovie) }
                 NavigationBar(containerColor = Watchd.Surface) {
                     listOf(Triple(HomeRoute, "Home", Icons.Default.Home), Triple(SearchRoute, "Search", Icons.Default.Search)).forEach { (route, label, icon) ->
                         val selected = destination?.hasRoute(route::class) == true
@@ -117,6 +141,7 @@ private fun SignedIn(session: Session, signOut: () -> Unit) {
                             ),
                         )
                     }
+                }
                 }
             },
         ) { padding ->

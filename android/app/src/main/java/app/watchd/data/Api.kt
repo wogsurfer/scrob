@@ -17,6 +17,9 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
+import kotlinx.serialization.json.JsonNull
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 import java.util.concurrent.TimeUnit
 
 /** The token is missing, expired or revoked: sign in again. */
@@ -55,6 +58,62 @@ class Api(server: String, private val token: String?) {
         }.toString().toRequestBody("application/json".toMediaType())
         send(request("history").post(body))
     }
+
+    /**
+     * Logs a play of [target]. [watchedAt] is UTC; null with [unknownDate]
+     * records it without a date, null without it means now.
+     */
+    suspend fun logWatch(target: WatchTarget, source: String?, watchedAt: LocalDateTime? = null, unknownDate: Boolean = false) {
+        val body = buildJsonObject {
+            put("tmdb_id", target.tmdbId)
+            put("media_type", target.mediaType)
+            put("completed", true)
+            when {
+                unknownDate -> put("watched_at", JsonNull)
+                watchedAt != null -> put("watched_at", watchedAt.format(utcMinutes))
+            }
+            source?.let { put("watch_source", it) }
+            target.showTmdbId?.let { put("series_tmdb_id", it) }
+            target.season?.let { put("season_number", it) }
+            target.episode?.let { put("episode_number", it) }
+        }
+        send(request("history").post(body.toString().toRequestBody(jsonType)))
+    }
+
+    suspend fun plays(target: WatchTarget): List<Play> =
+        get("history/item-events", "tmdb_id" to "${target.tmdbId}", "media_type" to target.mediaType)
+
+    suspend fun deletePlay(id: Int) = send(request("history/event/$id").delete())
+
+    /** Checks in: a "Watch now" session that records the watch when it ends. */
+    suspend fun checkIn(target: WatchTarget, source: String?) {
+        val body = buildJsonObject {
+            put("tmdb_id", target.tmdbId)
+            put("media_type", target.mediaType)
+            target.title?.let { put("title", it) }
+            target.runtime?.let { put("runtime", it) }
+            source?.let { put("watch_source", it) }
+            target.showTmdbId?.let { put("show_tmdb_id", it) }
+            target.season?.let { put("season_number", it) }
+            target.episode?.let { put("episode_number", it) }
+        }
+        send(request("history/session/start").post(body.toString().toRequestBody(jsonType)))
+    }
+
+    suspend fun sessions(): List<WatchSession> = get("history/session/active")
+
+    suspend fun pauseSession(session: WatchSession, pause: Boolean) {
+        val body = buildJsonObject {
+            put("progress_seconds", session.elapsedSeconds().toInt())
+            put("state", if (pause) "paused" else "playing")
+        }
+        send(request("history/session/${session.sessionKey}").patch(body.toString().toRequestBody(jsonType)))
+    }
+
+    suspend fun finishSession(session: WatchSession) =
+        send(request("history/session/${session.sessionKey}/complete").post(ByteArray(0).toRequestBody()))
+
+    suspend fun cancelSession(session: WatchSession) = send(request("history/session/${session.sessionKey}").delete())
 
     suspend fun markSeasonWatched(showTmdbId: Int, season: Int) {
         val body = buildJsonObject {
@@ -119,6 +178,9 @@ class Api(server: String, private val token: String?) {
     }.getOrNull()
 
     companion object {
+        private val jsonType = "application/json".toMediaType()
+        private val utcMinutes = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm")
+
         val client: OkHttpClient = OkHttpClient.Builder()
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)

@@ -2,6 +2,10 @@ package app.watchd.data
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import java.time.Duration
+import java.time.Instant
+import java.time.LocalDateTime
+import java.time.ZoneOffset
 
 // The backend's JSON is snake_case; Api's Json maps it onto these names.
 // Only the fields the app shows are listed; the rest are ignored.
@@ -112,6 +116,57 @@ data class FilmCollection(val name: String? = null, val parts: List<CollectionPa
 
 @Serializable
 data class WatchEvent(val watchedAt: String? = null)
+
+/** Where a play was watched; the backend accepts exactly these. */
+val WATCH_SOURCES = listOf(
+    "Cinema", "4K", "Blu-ray", "DVD", "TV", "Cable", "VHS",
+    "Netflix", "Amazon", "Disney+", "AppleTV", "PLEX", "YouTube", "Digital file",
+)
+
+/** A film or episode to log or check in to. */
+data class WatchTarget(
+    val tmdbId: Int,
+    val mediaType: String,
+    val title: String?,
+    val showTmdbId: Int? = null,
+    val season: Int? = null,
+    val episode: Int? = null,
+    val runtime: Int? = null,
+)
+
+@Serializable
+data class Play(val id: Int, val watchedAt: String? = null, val watchSource: String? = null)
+
+@Serializable
+data class SessionMedia(
+    val tmdbId: Int? = null,
+    val type: String = "movie",
+    val title: String? = null,
+    val posterPath: String? = null,
+    val showTitle: String? = null,
+    val showTmdbId: Int? = null,
+    val seasonNumber: Int? = null,
+    val episodeNumber: Int? = null,
+)
+
+/** A running check-in ("Watch now" session). */
+@Serializable
+data class WatchSession(
+    val sessionKey: String,
+    val state: String = "playing",
+    val progressSeconds: Int = 0,
+    val updatedAt: String,
+    val watchSource: String? = null,
+    val runtime: Int? = null,
+    val media: SessionMedia,
+) {
+    /** Seconds watched so far: the saved progress, plus the time since if playing. */
+    fun elapsedSeconds(now: Instant = Instant.now()): Long {
+        if (state != "playing") return progressSeconds.toLong()
+        val since = runCatching { LocalDateTime.parse(updatedAt.take(19)).toInstant(ZoneOffset.UTC) }.getOrNull() ?: return progressSeconds.toLong()
+        return progressSeconds + Duration.between(since, now).seconds.coerceAtLeast(0)
+    }
+}
 
 @Serializable
 data class Movie(
