@@ -2,7 +2,8 @@ import { defineMiddleware } from "astro:middleware";
 import { api } from "./lib/api";
 
 const PUBLIC_ROUTES = ["/login", "/register", "/logout", "/oidc-callback", "/oidc-start", "/site.webmanifest", "/favicon.ico", "/favicon.svg", "/apple-touch-icon.png", "/sw.js", "/offline.html"];
-const PUBLIC_PREFIXES = ["/auth/activate/", "/forgot-password", "/reset-password/", "/api/proxy/webhooks/", "/api/proxy/auth/has-users", "/api/proxy/auth/bootstrap-restore", "/api/proxy/media/stream/", "/api/proxy/radarr-compat/", "/api/proxy/sonarr-compat/"];
+// The Android app signs in through the proxy (the backend rate-limits it).
+const PUBLIC_PREFIXES = ["/auth/activate/", "/forgot-password", "/reset-password/", "/api/proxy/webhooks/", "/api/proxy/auth/has-users", "/api/proxy/auth/bootstrap-restore", "/api/proxy/auth/login", "/api/proxy/auth/2fa/verify-login","/api/proxy/media/stream/", "/api/proxy/radarr-compat/", "/api/proxy/sonarr-compat/"];
 
 // Security headers added to every response.
 // CSP is intentionally omitted — Astro's define:vars emits inline <script>
@@ -20,8 +21,12 @@ export const onRequest = defineMiddleware(async (context, next) => {
   
   // Skip auth for static assets and public routes
   const isStaticAsset = /\.(js|css|woff2?|ico|png|svg|webp|jpg|jpeg|webmanifest|json|xml)$/.test(pathname);
+  // The Android app sends its token as a Bearer header instead of a cookie;
+  // the proxy passes it on and the backend checks it.
+  const isAppRequest =
+    pathname.startsWith("/api/proxy/") && /^Bearer\s+\S/i.test(context.request.headers.get("Authorization") ?? "");
   const isPublicRoute =
-    isStaticAsset || PUBLIC_ROUTES.includes(pathname) || PUBLIC_PREFIXES.some(p => pathname.startsWith(p));
+    isStaticAsset || isAppRequest || PUBLIC_ROUTES.includes(pathname) || PUBLIC_PREFIXES.some(p => pathname.startsWith(p));
 
   if (token) {
     try {

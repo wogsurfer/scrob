@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Watchd is reached over the home network or Tailscale (which encrypts it),
+     at an address chosen at sign-in, so plain HTTP is allowed. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>
