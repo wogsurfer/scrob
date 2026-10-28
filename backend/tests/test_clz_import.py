@@ -3,7 +3,7 @@ import unittest
 from datetime import date
 
 from core.clz_import import parse_clz, parse_date
-from routers.physical import clean_product_title
+from routers.physical import clean_product_title, _franchise_sort
 
 EXPORT = """<?xml version="1.0" encoding="UTF-8"?>
 <movieinfo>
@@ -122,6 +122,11 @@ class ClzImportTests(unittest.TestCase):
         self.assertEqual(clean_product_title("Warner Home Video - Wonder Woman [BLU-RAY]", "SDS"), "Wonder Woman")
         self.assertEqual(clean_product_title("Arrow Video - The Thing (Blu-ray)", "Arrow Video"), "The Thing")
         self.assertEqual(clean_product_title("Spider-Man: No Way Home [Blu-ray]"), "Spider-Man: No Way Home")
+
+    def test_franchise_sort_drops_the(self):
+        self.assertEqual(_franchise_sort({"franchise": "The Avengers", "auto_sort": "The Avengers 03"}), "Avengers 03")
+        self.assertEqual(_franchise_sort({"franchise": "Rambo", "auto_sort": "Rambo 02"}), "Rambo 02")
+        self.assertIsNone(_franchise_sort({"auto_sort": "Alien 01"}))
 
 
 if __name__ == "__main__":

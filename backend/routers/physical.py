@@ -104,6 +104,13 @@ def _remove_files(stored: str | None) -> None:
             path.unlink()
 
 
+def _franchise_sort(specs: dict) -> str | None:
+    """Where a franchise film files, without a leading article, as Collectorz
+    files titles: "The Avengers 03" -> "Avengers 03"."""
+    auto = specs.get("auto_sort") if specs.get("franchise") else None
+    return re.sub(r"^(?:the|a|an)\s+", "", auto, flags=re.I) if auto else None
+
+
 def _summary(item: PhysicalItem, plays: dict[int, int], poster: str | None = None) -> dict:
     specs = item.specs or {}
     # Plays are counted per film TMDB id; a series id is a different title.
@@ -113,8 +120,10 @@ def _summary(item: PhysicalItem, plays: dict[int, int], poster: str | None = Non
         "id": item.id,
         "status": item.status,
         "title": item.title,
-        # A sort title typed in, else one filing it in its franchise.
-        "sort_title": item.sort_title or specs.get("auto_sort") or item.title,
+        # A film in a franchise files with the rest of it ("Avengers 03"), ahead
+        # of Collectorz's sort title, which drops "The" and so split series
+        # in two; otherwise the sort title, else the title.
+        "sort_title": _franchise_sort(specs) or item.sort_title or item.title,
         "own_sort": bool(item.sort_title),
         "franchise": specs.get("franchise"),
         "title_extension": specs.get("title_extension"),
