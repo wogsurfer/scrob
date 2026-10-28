@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -162,7 +163,8 @@ private fun HeroHeader(header: Header?, openCollection: () -> Unit) {
     Box(Modifier.fillMaxWidth().clipToBounds()) {
         val posters = header?.posters.orEmpty()
         if (posters.isNotEmpty()) {
-            Column(Modifier.matchParentSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            // Full-size rows from the top; the header crops whatever runs past its foot.
+            Column(Modifier.matchParentSize().wrapContentHeight(Alignment.Top, unbounded = true), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 posters.chunked(6).take(4).forEach { row ->
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         row.forEach { poster ->
