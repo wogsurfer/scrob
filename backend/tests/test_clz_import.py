@@ -3,7 +3,7 @@ import unittest
 from datetime import date
 
 from core.clz_import import parse_clz, parse_date
-from routers.physical import clean_product_title, _franchise_sort
+from routers.physical import clean_product_title, _franchise_sort, _shelf_sort
 
 EXPORT = """<?xml version="1.0" encoding="UTF-8"?>
 <movieinfo>
@@ -127,6 +127,20 @@ class ClzImportTests(unittest.TestCase):
         self.assertEqual(_franchise_sort({"franchise": "The Avengers", "auto_sort": "The Avengers 03"}), "Avengers 03")
         self.assertEqual(_franchise_sort({"franchise": "Rambo", "auto_sort": "Rambo 02"}), "Rambo 02")
         self.assertIsNone(_franchise_sort({"auto_sort": "Alien 01"}))
+
+    def test_same_names_go_by_year(self):
+        began = {"Wonder Woman": 2017}
+        keys = sorted([
+            _shelf_sort({"sort_title": "Wonder Woman 02", "franchise": "Wonder Woman", "release_year": 2020}, began),
+            _shelf_sort({"sort_title": "Wonder Woman", "release_year": 2009}, began),
+            _shelf_sort({"sort_title": "Wonder Woman 01", "franchise": "Wonder Woman", "release_year": 2017}, began),
+        ])
+        self.assertEqual(keys, ["Wonder Woman 2009", "Wonder Woman 2017 01", "Wonder Woman 2017 02"])
+        self.assertEqual(_shelf_sort({"sort_title": "Avengers 03", "franchise": "The Avengers"}, {"The Avengers": 2012}), "Avengers 2012 03")
+        # Collectorz's extras on a sort title don't separate namesakes.
+        self.assertEqual(_shelf_sort({"title": "Wonder Woman", "sort_title": "Wonder Woman: DC Universe Animated Original Movie #4", "release_year": 2009}, {}), "Wonder Woman 2009")
+        self.assertEqual(_shelf_sort({"title": "Black Widow", "sort_title": "Black Widow 1987", "release_year": 1987}, {}), "Black Widow 1987")
+        self.assertEqual(_shelf_sort({"title": "The Marvels", "sort_title": "Marvels", "release_year": 2023}, {}), "The Marvels 2023")
 
 
 if __name__ == "__main__":

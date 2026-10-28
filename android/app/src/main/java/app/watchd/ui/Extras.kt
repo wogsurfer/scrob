@@ -392,6 +392,20 @@ private fun Biography(text: String) {
 
 private data class Shelf(val items: List<PhysicalItem>, val stats: app.watchd.data.PhysicalStats)
 
+/**
+ * Where a disc files, as on the site's shelf: the server's sort title (which
+ * carries the year, so films of the same name go in order), read without a
+ * leading article and with "&" as "and"; titles starting with punctuation
+ * ("The 'Burbs") go first.
+ */
+private fun shelfKey(item: PhysicalItem): String {
+    val text = (item.sortTitle ?: item.title).orEmpty().replace("&", " and ")
+        .replace(Regex("^(the|a|an)\\s+", RegexOption.IGNORE_CASE), "").replace(Regex("^[¡¿]+"), "")
+        .replace(Regex("\\s+"), " ").trim().lowercase()
+    val first = text.firstOrNull()
+    return if (first != null && !first.isLetterOrDigit()) "0 $text" else "1 $text"
+}
+
 private val SHELVES = listOf("All", "4K UHD", "Blu-ray", "Blu-ray 3D", "Sets", "Wishlist")
 
 @Composable
@@ -414,7 +428,7 @@ fun CollectionScreen(onBack: () -> Unit, openDisc: (Int) -> Unit, addDisc: () ->
                 "All" -> item.status != "wishlist"
                 else -> item.status != "wishlist" && (item.format == shelf || inSet.any { it.format == shelf })
             } && (q.isEmpty() || item.title.orEmpty().lowercase().contains(q) || inSet.any { it.title.orEmpty().lowercase().contains(q) })
-        }.sortedBy { (it.sortTitle ?: it.title).orEmpty().lowercase() }
+        }.sortedWith(compareBy<PhysicalItem> { shelfKey(it) }.thenBy { it.title.orEmpty() })
 
         LazyVerticalGrid(
             columns = GridCells.Fixed(columns), modifier = Modifier.fillMaxSize(),

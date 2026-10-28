@@ -225,13 +225,42 @@ async def list_items(
     plays = await _watched_tmdb_ids(db, current_user.id)
     # A franchise you have one film of isn't filed as one.
     franchises = Counter((i.specs or {}).get("franchise") for i, _ in rows if not i.is_set)
+    # The year each franchise began, for filing it among films of the same name.
+    began: dict[str, int] = {}
+    for i, _ in rows:
+        fr = (i.specs or {}).get("franchise")
+        if fr and not i.is_set and franchises[fr] >= 2 and i.release_year:
+            began[fr] = min(began.get(fr, 9999), i.release_year)
     summaries = []
     for i, poster in rows:
         data = _summary(i, plays, poster)
         _drop_lone_franchise(data, franchises[data["franchise"]], i)
+        data["sort_title"] = _shelf_sort(data, began)
         # Empty fields are left out: it's the whole collection in one response.
         summaries.append({k: v for k, v in data.items() if v not in (None, "", [], False)})
     return {"items": summaries}
+
+
+def _shelf_sort(data: dict, began: dict[str, int]) -> str:
+    """The sort title with the year in it, so films of the same name go in
+    the order they came out ("Black Widow 1987", "Black Widow 2021"), and a
+    franchise files by the year it began with its films in order after it
+    ("Wonder Woman 2009", then "Wonder Woman 2017 01", "Wonder Woman 2017 02")."""
+    title = data["sort_title"]
+    fr = data.get("franchise")
+    if fr and fr in began:
+        base = re.sub(r"^(?:the|a|an)\s+", "", fr, flags=re.I)
+        place = title[len(base):].strip() if title.lower().startswith(base.lower()) else ""
+        return f"{base} {began[fr]} {place}".strip()
+    # Collectorz's sort title is often the title plus extras ("Wonder Woman:
+    # DC Universe Animated Original Movie #4", "Black Widow 1987"), which would
+    # keep a film from its namesakes; the title itself files it.
+    own = data.get("title") or title
+    bare = re.sub(r"^(?:the|a|an)\s+", "", own, flags=re.I).lower()
+    if not data.get("is_set") and bare and title.lower().startswith(bare):
+        title = own
+    year = data.get("release_year")
+    return f"{title} {year}" if year else title
 
 
 def _drop_lone_franchise(data: dict, films_in_it: int, item: PhysicalItem) -> None:
