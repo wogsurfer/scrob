@@ -119,6 +119,10 @@ html.light :where(.coll-list) td:first-child { background: #fff; box-shadow: ins
 .coll-card.selected .coll-cover { border-color: #e50914; }
 .coll-nocover { display: grid; place-items: center; height: 100%; padding: 10px; color: #a1a1aa; font-size: 13px; font-weight: 800; text-align: center; }
 .coll-fmt { position: absolute; left: 6px; top: 6px; padding: 1px 6px; border-radius: 4px; font-size: 9px; font-weight: 900; letter-spacing: .06em; box-shadow: 0 1px 3px rgba(0, 0, 0, .6); }
+/* Top left: NEW (never edited) above the format badge. */
+.coll-tl { position: absolute; left: 6px; top: 6px; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
+.coll-tl .coll-fmt { position: static; }
+.coll-new { padding: 1px 6px; border-radius: 4px; font-size: 9px; font-weight: 900; letter-spacing: .06em; background: #22c55e; color: #052e16; box-shadow: 0 1px 3px rgba(0, 0, 0, .6); }
 .coll-fmt-uhd { background: #000; color: #fff; border: 1px solid #52525b; }
 .coll-fmt-bd { background: #0a5cc2; color: #fff; }
 .coll-fmt-three-d { background: #0d9488; color: #fff; }

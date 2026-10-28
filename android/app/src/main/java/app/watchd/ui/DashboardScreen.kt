@@ -86,7 +86,7 @@ fun DashboardScreen(openShow: (Int) -> Unit, openMovie: (Int) -> Unit, openColle
         }
     }
     // The header loads on its own, so a slow stat never holds up Next Up.
-    val (header) = rememberLoad("header") {
+    val (header, reloadHeader) = rememberLoad("header") {
         coroutineScope {
             val hero = async { runCatching { hero().posters }.getOrDefault(emptyList()) }
             val totals = async { runCatching { totals() }.getOrNull() }
@@ -101,7 +101,7 @@ fun DashboardScreen(openShow: (Int) -> Unit, openMovie: (Int) -> Unit, openColle
     // Ticked cards leave at once; the reload then brings each show's next episode.
     val ticked = remember { mutableStateListOf<Int>() }
 
-    PullToRefreshBox(isRefreshing = refreshing, onRefresh = { refreshing = true; reload() }) {
+    PullToRefreshBox(isRefreshing = refreshing, onRefresh = { refreshing = true; reload(); reloadHeader() }) {
         LoadContent(state, reload) { data ->
             LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
                 item { HeroHeader((header as? Load.Ready)?.value, openCollection) }

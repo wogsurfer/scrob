@@ -470,6 +470,7 @@ data class PhysicalItem(
     val seen: Boolean = false,
     val parentId: Int? = null,
     val isSet: Boolean = false,
+    val unedited: Boolean = false,
 )
 
 @Serializable

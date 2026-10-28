@@ -448,6 +448,13 @@ fun CollectionScreen(onBack: () -> Unit, openDisc: (Int) -> Unit) {
                     Box {
                         Poster(item.cover, Modifier.fillMaxWidth())
                         if (item.seen) WatchedMark(true, Modifier.align(Alignment.TopEnd).padding(5.dp).size(22.dp))
+                        // As on the site: never edited, no cover scan or details yet.
+                        if (item.unedited) {
+                            Text(
+                                "NEW", fontWeight = FontWeight.Black, fontSize = 10.sp, letterSpacing = 0.6.sp, color = Color(0xFF052E16),
+                                modifier = Modifier.align(Alignment.TopStart).padding(5.dp).clip(RoundedCornerShape(4.dp)).background(Color(0xFF22C55E)).padding(horizontal = 5.dp, vertical = 1.dp),
+                            )
+                        }
                         if (item.format == "4K UHD") {
                             Text(
                                 "4K", fontWeight = FontWeight.Black, fontSize = 10.sp, color = Color.White,

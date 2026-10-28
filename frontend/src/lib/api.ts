@@ -1045,6 +1045,8 @@ export interface PhysicalSummary {
   position?: number;
   tags?: string[];
   date_added?: string;
+  // Never edited: no cover scan of its own yet.
+  unedited?: boolean;
   cover?: string;
   // Shown as optional columns in the list view.
   original_title?: string;

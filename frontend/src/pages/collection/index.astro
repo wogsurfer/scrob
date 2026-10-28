@@ -247,7 +247,7 @@ const wishlist = items.filter((i) => i.status === "wishlist" && !i.parent_id).le
       const sub = h.length ? `Includes ${h.map((x) => x.title).join(", ")}` : [i.release_year, i.edition].filter(Boolean).join(" · ");
       return `<button type="button" class="coll-card${i.is_set ? " is-set" : ""}${i.id === state.selected ? " selected" : ""}" data-id="${i.id}" title="${esc(i.title)}${i.is_set ? ` · ${esc(k.map((x) => x.title).join(", "))}` : i.edition ? ` · ${esc(i.edition)}` : ""}">
         <span class="coll-cover">${i.cover ? `<img src="${i.cover}" alt="" loading="lazy" decoding="async" />` : `<span class="coll-nocover">${esc(i.title)}</span>`}
-          <span class="coll-fmt coll-fmt-${formatClass(i.format)}">${esc(formatLabel(i.format))}</span>
+          <span class="coll-tl">${i.unedited ? `<span class="coll-new" title="Never edited: no cover scan or details yet">NEW</span>` : ""}<span class="coll-fmt coll-fmt-${formatClass(i.format)}">${esc(formatLabel(i.format))}</span></span>
           ${status === "owned" ? `<img class="coll-w" src="${seen}" alt="${i.seen ? "Seen" : "Not seen"}" />` : ""}
           ${i.is_set ? `<span class="coll-set">${esc(setSize(k))}</span>` : ""}
         </span>

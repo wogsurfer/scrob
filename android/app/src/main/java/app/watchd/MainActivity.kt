@@ -262,6 +262,10 @@ private fun SignedIn(session: Session, incoming: Intent?, onHandled: () -> Unit,
                         NavigationBarItem(
                             selected = selected,
                             onClick = {
+                                // Already in this tab (or it's Home, which is always beneath):
+                                // go back to its main page rather than restoring the page
+                                // opened from it, such as the disc collection from Home.
+                                if (nav.popBackStack(route, inclusive = false)) return@NavigationBarItem
                                 nav.navigate(route) {
                                     popUpTo(nav.graph.findStartDestination().id) { saveState = true }
                                     launchSingleTop = true

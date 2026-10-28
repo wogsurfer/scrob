@@ -177,6 +177,9 @@ def _summary(item: PhysicalItem, plays: dict[int, int], poster: str | None = Non
         "position": item.position,
         "tags": item.tags or [],
         "date_added": item.date_added,
+        # Never filled in: recent Collectorz imports come without a cover
+        # scan of their own (and often no edition or distributor).
+        "unedited": not item.edited_locally and not item.cover_front and item.parent_id is None,
         "cover": (
             _cover_url(item.cover_front, thumb=True)
             or _cover_url((item.specs or {}).get("poster_image"), thumb=True)
