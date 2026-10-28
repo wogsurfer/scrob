@@ -257,7 +257,7 @@ private fun watchTime(minutes: Long): String {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun YouScreen(openWatchlist: () -> Unit, openList: (Int) -> Unit) {
+fun YouScreen(openWatchlist: () -> Unit, openList: (Int) -> Unit, openCollection: () -> Unit) {
     val app = LocalApp.current
     val (state, reload) = rememberLoad(Unit) {
         coroutineScope {
@@ -320,6 +320,7 @@ fun YouScreen(openWatchlist: () -> Unit, openList: (Int) -> Unit) {
             }
             item { SectionTitle("Collections", Modifier.padding(top = 8.dp)) }
             item { LinkRow("Watchlist", "Films you want to see", null, openWatchlist) }
+            item { LinkRow("Disc collection", "%,d films · %,d series on disc".format(you.totals.library.movies, you.totals.library.shows), null, openCollection) }
             items(you.lists, key = { "list-${it.id}" }) { list ->
                 LinkRow(list.name, "%,d titles".format(list.itemCount), list.previewPosters.firstOrNull()?.url) { openList(list.id) }
             }

@@ -28,9 +28,15 @@ import app.watchd.ui.HistoryScreen
 import app.watchd.ui.ListScreen
 import app.watchd.ui.WatchlistScreen
 import app.watchd.ui.YouScreen
+import app.watchd.ui.PersonScreen
+import app.watchd.ui.CollectionScreen
+import app.watchd.ui.DiscScreen
 import coil3.ImageLoader
 import coil3.compose.setSingletonImageLoaderFactory
 import coil3.map.Mapper
+import coil3.network.okhttp.OkHttpNetworkFetcherFactory
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.OkHttpClient
 import coil3.request.Options
 import coil3.request.crossfade
 import androidx.compose.material.icons.filled.Search
@@ -83,12 +89,39 @@ import kotlinx.serialization.Serializable
 @Serializable object YouRoute
 @Serializable object WatchlistRoute
 @Serializable data class ListRoute(val id: Int)
+@Serializable data class PersonRoute(val id: Int)
+@Serializable object CollectionRoute
+@Serializable data class DiscRoute(val id: Int)
 
-/** Some poster paths come as TMDB's bare "/abc.jpg"; complete them. */
-private object TmdbPaths : Mapper<String, String> {
-    override fun map(data: String, options: Options): String? =
-        if (data.startsWith("/")) "https://image.tmdb.org/t/p/w500$data" else null
+/** The signed-in server and token, for images Watchd serves itself. */
+private object ImageAuth {
+    @Volatile var server: String? = null
+    @Volatile var token: String? = null
 }
+
+/**
+ * Bare paths: Watchd's own images ("/api/proxy/physical/covers/…", your
+ * disc covers) come from the server; any other "/abc.jpg" is TMDB's.
+ */
+private object ImagePaths : Mapper<String, String> {
+    override fun map(data: String, options: Options): String? = when {
+        data.startsWith("/api/") -> ImageAuth.server?.let { it.trimEnd('/') + data }
+        data.startsWith("/") -> "https://image.tmdb.org/t/p/w500$data"
+        else -> null
+    }
+}
+
+/** Sends the token with requests to the Watchd server (its covers need it). */
+private val imageClient = OkHttpClient.Builder().addInterceptor { chain ->
+    val request = chain.request()
+    val server = ImageAuth.server?.toHttpUrlOrNull()
+    val token = ImageAuth.token
+    if (server != null && token != null && request.url.host == server.host && request.url.port == server.port) {
+        chain.proceed(request.newBuilder().header("Authorization", "Bearer $token").build())
+    } else {
+        chain.proceed(request)
+    }
+}.build()
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -97,7 +130,10 @@ class MainActivity : ComponentActivity() {
         val store = SessionStore(applicationContext)
         setContent {
             setSingletonImageLoaderFactory { context ->
-                ImageLoader.Builder(context).components { add(TmdbPaths) }.crossfade(true).build()
+                ImageLoader.Builder(context).components {
+                    add(ImagePaths)
+                    add(OkHttpNetworkFetcherFactory(callFactory = { imageClient }))
+                }.crossfade(true).build()
             }
             WatchdTheme {
                 val session by store.session.collectAsState(initial = null)
@@ -120,11 +156,14 @@ private fun SignedIn(session: Session, signOut: () -> Unit) {
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val app = remember(session) { AppContext(Api(session.server, session.token), signOut, snackbar, scope) }
+    ImageAuth.server = session.server
+    ImageAuth.token = session.token
     val nav = rememberNavController()
     val entry by nav.currentBackStackEntryAsState()
     val destination = entry?.destination
     val openShow: (Int) -> Unit = { nav.navigate(ShowRoute(it)) }
     val openMovie: (Int) -> Unit = { nav.navigate(MovieRoute(it)) }
+    val openPerson: (Int) -> Unit = { nav.navigate(PersonRoute(it)) }
 
     // Check-ins started or ended elsewhere (the site, or Watchd finishing
     // one) show up when the app comes back and once a minute.
@@ -188,12 +227,15 @@ private fun SignedIn(session: Session, signOut: () -> Unit) {
                 composable<SearchRoute> { SearchScreen(openShow, openMovie) }
                 composable<CalendarRoute> { CalendarScreen(openShow, openMovie) }
                 composable<HistoryRoute> { HistoryScreen(openShow, openMovie) }
-                composable<YouRoute> { YouScreen(openWatchlist = { nav.navigate(WatchlistRoute) }, openList = { nav.navigate(ListRoute(it)) }) }
+                composable<YouRoute> { YouScreen(openWatchlist = { nav.navigate(WatchlistRoute) }, openList = { nav.navigate(ListRoute(it)) }, openCollection = { nav.navigate(CollectionRoute) }) }
+                composable<PersonRoute> { PersonScreen(it.toRoute<PersonRoute>().id, onBack = { nav.popBackStack() }, openShow = openShow, openMovie = openMovie) }
+                composable<CollectionRoute> { CollectionScreen(onBack = { nav.popBackStack() }, openDisc = { nav.navigate(DiscRoute(it)) }) }
+                composable<DiscRoute> { DiscScreen(it.toRoute<DiscRoute>().id, onBack = { nav.popBackStack() }, openDisc = { id -> nav.navigate(DiscRoute(id)) }, openShow = openShow, openMovie = openMovie) }
                 composable<WatchlistRoute> { WatchlistScreen(onBack = { nav.popBackStack() }, openMovie = openMovie) }
                 composable<ListRoute> { ListScreen(it.toRoute<ListRoute>().id, onBack = { nav.popBackStack() }, openShow = openShow, openMovie = openMovie) }
-                composable<MovieRoute> { MovieScreen(it.toRoute<MovieRoute>().tmdbId, onBack = { nav.popBackStack() }, openMovie = openMovie) }
+                composable<MovieRoute> { MovieScreen(it.toRoute<MovieRoute>().tmdbId, onBack = { nav.popBackStack() }, openMovie = openMovie, openPerson = openPerson) }
                 composable<ShowRoute> {
-                    ShowScreen(it.toRoute<ShowRoute>().tmdbId, onBack = { nav.popBackStack() }, openSeason = { show, season -> nav.navigate(SeasonRoute(show, season)) })
+                    ShowScreen(it.toRoute<ShowRoute>().tmdbId, onBack = { nav.popBackStack() }, openSeason = { show, season -> nav.navigate(SeasonRoute(show, season)) }, openPerson = openPerson)
                 }
                 composable<SeasonRoute> {
                     val route = it.toRoute<SeasonRoute>()
@@ -202,7 +244,7 @@ private fun SignedIn(session: Session, signOut: () -> Unit) {
             }
             // Behind the clock and battery on list pages, so content scrolls
             // under a solid strip; film and show pages draw their own bar.
-            val detail = destination?.let { d -> d.hasRoute(MovieRoute::class) || d.hasRoute(ShowRoute::class) || d.hasRoute(SeasonRoute::class) } == true
+            val detail = destination?.let { d -> d.hasRoute(MovieRoute::class) || d.hasRoute(ShowRoute::class) || d.hasRoute(SeasonRoute::class) || d.hasRoute(DiscRoute::class) } == true
             if (!detail) {
                 Box(Modifier.fillMaxWidth().windowInsetsTopHeight(WindowInsets.statusBars).background(Watchd.Background.copy(alpha = 0.94f)))
             }

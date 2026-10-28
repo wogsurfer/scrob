@@ -192,6 +192,7 @@ data class Movie(
     val whereToWatch: List<WhereToWatch> = emptyList(),
     val collection: FilmCollection? = null,
     val watchHistory: List<WatchEvent> = emptyList(),
+    val discs: List<Disc> = emptyList(),
 )
 
 @Serializable
@@ -217,6 +218,8 @@ data class Network(val name: String)
 @Serializable
 data class Show(
     val tmdbId: Int,
+    val tvdbId: Int? = null,
+    val discs: List<Disc> = emptyList(),
     val title: String,
     val overview: String? = null,
     val tagline: String? = null,
@@ -378,4 +381,207 @@ data class ProfileStats(
     val topMovieGenres: List<NamedCount> = emptyList(),
     val topShowGenres: List<NamedCount> = emptyList(),
     val watchActivity: List<MonthActivity> = emptyList(),
+)
+
+// ------------------------------------------------------------------ round 3
+
+@Serializable
+data class Award(
+    val awardName: String,
+    val categoryName: String,
+    val year: String? = null,
+    val isWinner: Boolean = false,
+    val details: String? = null,
+    val personName: String? = null,
+    val nameInferred: Boolean = false,
+    val workTitle: String? = null,
+    val workType: String? = null,
+    val workTmdbId: Int? = null,
+)
+
+@Serializable
+data class AwardsResponse(val awards: List<Award> = emptyList(), val pending: Boolean = false)
+
+@Serializable
+data class Track(val title: String, val artist: String? = null, val length: Int? = null)
+
+@Serializable
+data class Album(val title: String? = null, val year: Int? = null, val tracks: List<Track> = emptyList())
+
+@Serializable
+data class SoundtrackResponse(val albums: List<Album> = emptyList())
+
+@Serializable
+data class Disc(
+    val id: Int,
+    val title: String? = null,
+    val releaseYear: Int? = null,
+    val status: String? = null,
+    val format: String? = null,
+    val edition: String? = null,
+    val inSet: String? = null,
+)
+
+@Serializable
+data class PersonCredit(
+    val tmdbId: Int,
+    val type: String = "movie",
+    val title: String? = null,
+    val posterPath: String? = null,
+    val releaseDate: String? = null,
+    val character: String? = null,
+    val job: String? = null,
+    val watched: Boolean = false,
+)
+
+@Serializable
+data class PersonDetail(
+    val tmdbId: Int,
+    val name: String,
+    val biography: String? = null,
+    val profilePath: String? = null,
+    val birthday: String? = null,
+    val deathday: String? = null,
+    val placeOfBirth: String? = null,
+    val knownForDepartment: String? = null,
+    val credits: List<PersonCredit> = emptyList(),
+    val totalCredits: Int = 0,
+    val creditCounts: Map<String, Int> = emptyMap(),
+    val watchedCreditCounts: Map<String, Int> = emptyMap(),
+    val page: Int = 1,
+    val pageSize: Int = 20,
+)
+
+@Serializable
+data class PhysicalItem(
+    val id: Int,
+    val status: String? = null,
+    val title: String? = null,
+    val sortTitle: String? = null,
+    val tmdbId: Int? = null,
+    val tmdbKind: String? = null,
+    val releaseYear: Int? = null,
+    val format: String? = null,
+    val edition: String? = null,
+    val cover: String? = null,
+    val seen: Boolean = false,
+    val parentId: Int? = null,
+    val isSet: Boolean = false,
+)
+
+@Serializable
+data class PhysicalItems(val items: List<PhysicalItem> = emptyList())
+
+@Serializable
+data class PhysicalStats(
+    val owned: Int = 0,
+    val titles: Int = 0,
+    val discs: Int = 0,
+    val films: Int = 0,
+    val tv: Int = 0,
+    val seen: Int = 0,
+    val unseen: Int = 0,
+    val wishlist: Int = 0,
+    val formats: List<NamedCount> = emptyList(),
+)
+
+// ------------------------------------------------------------------ a disc in the collection
+
+@Serializable
+data class DiscContent(
+    val id: Int,
+    val title: String? = null,
+    val releaseYear: Int? = null,
+    val format: String? = null,
+    val seen: Boolean = false,
+    val cover: String? = null,
+)
+
+@Serializable
+data class DiscParent(
+    val id: Int,
+    val title: String? = null,
+    val cover: String? = null,
+    val format: String? = null,
+    val edition: String? = null,
+    val barcode: String? = null,
+    val location: String? = null,
+    val purchaseDate: String? = null,
+    val purchasePrice: Double? = null,
+    val store: String? = null,
+    val condition: String? = null,
+    val distributor: String? = null,
+)
+
+@Serializable
+data class OtherEdition(val id: Int, val format: String? = null, val edition: String? = null, val status: String? = null)
+
+@Serializable
+data class DiscCast(val name: String, val character: String? = null)
+
+@Serializable
+data class DiscOnDisc(val title: String? = null, val format: String? = null, val features: List<String> = emptyList())
+
+@Serializable
+data class DiscSpecs(
+    val cast: List<DiscCast> = emptyList(),
+    val plot: String? = null,
+    val tagline: String? = null,
+    val discs: List<DiscOnDisc> = emptyList(),
+    val features: List<String> = emptyList(),
+    val extraFeatures: String? = null,
+)
+
+@Serializable
+data class DiscDetail(
+    val id: Int,
+    val status: String? = null,
+    val title: String,
+    val titleExtension: String? = null,
+    val tmdbId: Int? = null,
+    val tmdbKind: String? = null,
+    val releaseYear: Int? = null,
+    val format: String? = null,
+    val edition: String? = null,
+    val distributor: String? = null,
+    val barcode: String? = null,
+    val `package`: String? = null,
+    val discCount: Int? = null,
+    val discReleaseDate: String? = null,
+    val runtime: Int? = null,
+    val purchaseDate: String? = null,
+    val purchasePrice: Double? = null,
+    val store: String? = null,
+    val condition: String? = null,
+    val location: String? = null,
+    val myRating: Double? = null,
+    val seen: Boolean = false,
+    val plays: Int = 0,
+    val genres: List<String> = emptyList(),
+    val regions: List<String> = emptyList(),
+    val audienceRating: String? = null,
+    val imdbRating: Double? = null,
+    val director: String? = null,
+    val writer: String? = null,
+    val composer: String? = null,
+    val country: String? = null,
+    val language: String? = null,
+    val studios: List<String> = emptyList(),
+    val ratios: List<String> = emptyList(),
+    val audio: List<String> = emptyList(),
+    val subtitles: List<String> = emptyList(),
+    val hdr: String? = null,
+    val extras: List<String> = emptyList(),
+    val notes: String? = null,
+    val isSet: Boolean = false,
+    val tags: List<String> = emptyList(),
+    val dateAdded: String? = null,
+    val coverFull: String? = null,
+    val cover: String? = null,
+    val backdrop: String? = null,
+    val lastWatched: String? = null,
+    val contents: List<DiscContent> = emptyList(),
+    val parent: DiscParent? = null,
+    val otherEditions: List<OtherEdition> = emptyList(),
+    val specs: DiscSpecs? = null,
 )

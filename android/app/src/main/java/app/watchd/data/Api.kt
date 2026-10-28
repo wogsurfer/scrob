@@ -56,6 +56,16 @@ class Api(server: String, private val token: String?) {
     suspend fun watchlist(): List<WatchlistMovie> = get("watchlist")
     suspend fun totals(): Totals = get("dashboard/stats")
     suspend fun profileStats(userId: Int): ProfileStats = get("profile/$userId/stats")
+    suspend fun filmAwards(tmdbId: Int): AwardsResponse = get("awards/movie/$tmdbId")
+    suspend fun showAwards(tvdbId: Int, tmdbId: Int): AwardsResponse = get("shows/tvdb/$tvdbId/awards", "tmdb_id" to "$tmdbId")
+    suspend fun personAwards(personId: Int): AwardsResponse = get("awards/person/$personId")
+    /** [kind] is "movie" or "tv". */
+    suspend fun soundtrack(kind: String, tmdbId: Int): SoundtrackResponse = get("soundtrack/$kind/$tmdbId")
+    suspend fun person(id: Int, page: Int = 1, category: String = "all"): PersonDetail =
+        get("media/person/$id", "page" to "$page", "category" to category)
+    suspend fun discItems(): PhysicalItems = get("physical/items")
+    suspend fun discStats(): PhysicalStats = get("physical/stats")
+    suspend fun disc(id: Int): DiscDetail = get("physical/items/$id")
 
     /** Marks a film or an episode watched now; [mediaType] is "movie" or "episode". */
     suspend fun markWatched(tmdbId: Int, mediaType: String) {

@@ -90,8 +90,10 @@ private fun plural(n: Int, word: String) = "$n $word${if (n == 1) "" else "s"}"
 // ------------------------------------------------------------------ film
 
 @Composable
-fun MovieScreen(tmdbId: Int, onBack: () -> Unit, openMovie: (Int) -> Unit) {
+fun MovieScreen(tmdbId: Int, onBack: () -> Unit, openMovie: (Int) -> Unit, openPerson: (Int) -> Unit) {
     val (state, reload) = rememberLoad(tmdbId) { movie(tmdbId) }
+    val awards = rememberAwards(tmdbId) { filmAwards(tmdbId).awards }
+    val soundtrack = rememberSoundtrack("movie", tmdbId)
     val app = LocalApp.current
     val haptics = LocalHapticFeedback.current
     val list = rememberLazyListState()
@@ -161,6 +163,7 @@ fun MovieScreen(tmdbId: Int, onBack: () -> Unit, openMovie: (Int) -> Unit) {
             movie.watchHistory.mapNotNull { it.watchedAt }.maxOrNull()?.let { last ->
                 item { Text("Last watched ${formatDate(last)}", color = Watchd.Faint, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp)) }
             }
+            if (movie.discs.isNotEmpty()) item { OnDisc(movie.discs) }
             item { Overview(movie.tagline, movie.overview, movie.genres) }
             val directors = movie.crew.filter { it.job == "Director" }.map { it.name }.distinct()
             val writers = movie.crew.filter { it.job in setOf("Screenplay", "Writer") }.map { it.name }.distinct()
@@ -174,12 +177,14 @@ fun MovieScreen(tmdbId: Int, onBack: () -> Unit, openMovie: (Int) -> Unit) {
             }
             if (movie.whereToWatch.isNotEmpty()) item { WhereToWatchRow(movie.whereToWatch) }
             if (movie.cast.isNotEmpty()) {
-                item { CastSection(movie.cast) }
+                item { CastSection(movie.cast, openPerson) }
             }
             movie.collection?.takeIf { it.parts.size > 1 }?.let { collection ->
                 item { SectionTitle(collection.name ?: "Collection", Modifier.padding(top = 8.dp)) }
                 item { CollectionRow(collection.parts, current = movie.tmdbId, openMovie = openMovie) }
             }
+            item { AwardsSection(awards) }
+            item { SoundtrackSection(soundtrack) }
         }
     }
 }
@@ -189,7 +194,7 @@ fun MovieScreen(tmdbId: Int, onBack: () -> Unit, openMovie: (Int) -> Unit) {
 private data class ShowPage(val show: Show, val next: NextUpItem?)
 
 @Composable
-fun ShowScreen(tmdbId: Int, onBack: () -> Unit, openSeason: (Int, Int) -> Unit) {
+fun ShowScreen(tmdbId: Int, onBack: () -> Unit, openSeason: (Int, Int) -> Unit, openPerson: (Int) -> Unit) {
     val (state, reload) = rememberLoad(tmdbId) {
         coroutineScope {
             val show = async { show(tmdbId) }
@@ -200,6 +205,9 @@ fun ShowScreen(tmdbId: Int, onBack: () -> Unit, openSeason: (Int, Int) -> Unit) 
     val app = LocalApp.current
     val haptics = LocalHapticFeedback.current
     val list = rememberLazyListState()
+    val soundtrack = rememberSoundtrack("tv", tmdbId)
+    val tvdbId = (state as? Load.Ready)?.value?.show?.tvdbId
+    val awards = rememberAwards(tvdbId ?: 0) { tvdbId?.let { showAwards(it, tmdbId).awards } ?: emptyList() }
     LoadContent(state, reload) { page ->
         val show = page.show
         // Seasons ticked or unticked here, ahead of the next reload.
@@ -215,6 +223,7 @@ fun ShowScreen(tmdbId: Int, onBack: () -> Unit, openSeason: (Int, Int) -> Unit) 
                 )
             }
             item { RatingsRow(show.imdbRating, show.tmdbRating, show.userRating) }
+            if (show.discs.isNotEmpty()) item { OnDisc(show.discs) }
             if (show.watchPct in 1..99) {
                 item {
                     Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
@@ -286,8 +295,10 @@ fun ShowScreen(tmdbId: Int, onBack: () -> Unit, openSeason: (Int, Int) -> Unit) 
                 }
             }
             if (show.cast.isNotEmpty()) {
-                item { CastSection(show.cast) }
+                item { CastSection(show.cast, openPerson) }
             }
+            item { AwardsSection(awards) }
+            item { SoundtrackSection(soundtrack) }
         }
     }
 }
@@ -416,7 +427,7 @@ private fun EpisodeRow(episode: Episode, watched: Boolean, onLongPress: () -> Un
  * and fills in, with the title, once the page scrolls.
  */
 @Composable
-private fun DetailScaffold(title: String, list: LazyListState, onBack: () -> Unit, header: Boolean = true, content: LazyListScope.() -> Unit) {
+internal fun DetailScaffold(title: String, list: LazyListState, onBack: () -> Unit, header: Boolean = true, content: LazyListScope.() -> Unit) {
     val solid by remember {
         derivedStateOf { if (!header || list.firstVisibleItemIndex > 0) 1f else (list.firstVisibleItemScrollOffset / 500f).coerceIn(0f, 1f) }
     }
@@ -439,7 +450,7 @@ private fun DetailScaffold(title: String, list: LazyListState, onBack: () -> Uni
 }
 
 @Composable
-private fun DetailHeader(backdrop: String?, poster: String?, title: String, facts: List<String>) {
+internal fun DetailHeader(backdrop: String?, poster: String?, title: String, facts: List<String>) {
     // The poster overlaps the bottom of the backdrop, which fades into the page.
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val backdropHeight = maxWidth * 10 / 16
@@ -510,7 +521,7 @@ private fun Overview(tagline: String?, overview: String?, genres: List<String>) 
 }
 
 @Composable
-private fun Credit(label: String, value: String, modifier: Modifier = Modifier) {
+internal fun Credit(label: String, value: String, modifier: Modifier = Modifier) {
     Column(modifier) {
         Text(label.uppercase(), style = MaterialTheme.typography.labelSmall, color = Watchd.Faint)
         Text(value, fontWeight = FontWeight.Bold)
@@ -544,7 +555,7 @@ private fun role(person: Person) = listOfNotNull(
 
 /** Cast heading with a See all that opens everyone, then the top-billed few. */
 @Composable
-private fun CastSection(cast: List<Person>) {
+private fun CastSection(cast: List<Person>, openPerson: (Int) -> Unit) {
     var showAll by remember { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         SectionTitle("Cast", Modifier.weight(1f))
@@ -556,7 +567,7 @@ private fun CastSection(cast: List<Person>) {
     }
     LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         items(cast.take(12)) { person ->
-            Column(Modifier.width(76.dp)) {
+            Column(Modifier.width(76.dp).clickable(enabled = person.tmdbId != null) { person.tmdbId?.let(openPerson) }) {
                 AsyncImage(
                     model = person.profilePath, contentDescription = null, contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxWidth().aspectRatio(3f / 4f).clip(RoundedCornerShape(8.dp)).background(Watchd.Surface),
@@ -566,18 +577,18 @@ private fun CastSection(cast: List<Person>) {
             }
         }
     }
-    if (showAll) CastSheet(cast) { showAll = false }
+    if (showAll) CastSheet(cast, openPerson = { showAll = false; openPerson(it) }) { showAll = false }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CastSheet(cast: List<Person>, onDismiss: () -> Unit) {
+private fun CastSheet(cast: List<Person>, openPerson: (Int) -> Unit, onDismiss: () -> Unit) {
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Watchd.Surface, contentColor = Watchd.Text) {
         Text("Cast", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(start = 20.dp, bottom = 8.dp))
         LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
             items(cast) { person ->
                 Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp),
+                    Modifier.fillMaxWidth().clickable(enabled = person.tmdbId != null) { person.tmdbId?.let(openPerson) }.padding(horizontal = 20.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
