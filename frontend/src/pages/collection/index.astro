@@ -241,17 +241,6 @@ const wishlist = items.filter((i) => i.status === "wishlist" && !i.parent_id).le
       folderList.innerHTML = li(status === "wishlist" ? "[Whole wish list]" : "[Whole collection]", total, null) + entries.map(([v, c]) => li(v, c, v)).join("");
     }
 
-    // The format's own logo on a white tag in the cover's top right corner
-    // (the Ultra HD Blu-ray, Blu-ray and DVD marks); text for anything else.
-    const FORMAT_LOGOS: Record<string, string> = { "4K UHD": "/logos/4k.svg", "Blu-ray": "/logos/bluray.svg", "Blu-ray 3D": "/logos/bluray.svg", DVD: "/logos/dvd.svg", VHS: "/logos/vhs.svg" };
-    function formatLogo(format?: string | null) {
-      if (!format) return "";
-      const src = FORMAT_LOGOS[format];
-      return src
-        ? `<span class="coll-fmt-logo" title="${esc(format)}"><img src="${src}" alt="${esc(format)}" />${format === "Blu-ray 3D" ? "<b>3D</b>" : ""}</span>`
-        : `<span class="coll-fmt-logo coll-fmt-text">${esc(formatLabel(format))}</span>`;
-    }
-
     function card(i: PhysicalSummary) {
       const seen = i.seen ? icons.red : icons.white;
       const k = kids(i);
@@ -260,7 +249,6 @@ const wishlist = items.filter((i) => i.status === "wishlist" && !i.parent_id).le
       return `<button type="button" class="coll-card${i.is_set ? " is-set" : ""}${i.id === state.selected ? " selected" : ""}" data-id="${i.id}" title="${esc(i.title)}${i.is_set ? ` · ${esc(k.map((x) => x.title).join(", "))}` : i.edition ? ` · ${esc(i.edition)}` : ""}">
         <span class="coll-cover">${i.cover ? `<img src="${i.cover}" alt="" loading="lazy" decoding="async" />` : `<span class="coll-nocover">${esc(i.title)}</span>`}
           ${i.unedited ? `<span class="coll-new" title="Never edited: no cover scan or details yet">NEW</span>` : ""}
-          ${formatLogo(i.format)}
           ${status === "owned" ? `<img class="coll-w" src="${seen}" alt="${i.seen ? "Seen" : "Not seen"}" />` : ""}
           ${i.is_set ? `<span class="coll-set">${esc(setSize(k))}</span>` : ""}
         </span>

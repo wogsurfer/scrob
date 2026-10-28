@@ -457,12 +457,6 @@ fun CollectionScreen(onBack: () -> Unit, openDisc: (Int) -> Unit, addDisc: () ->
                                 modifier = Modifier.align(Alignment.TopStart).padding(5.dp).clip(RoundedCornerShape(4.dp)).background(Color(0xFF22C55E)).padding(horizontal = 5.dp, vertical = 1.dp),
                             )
                         }
-                        if (item.format == "4K UHD") {
-                            Text(
-                                "4K", fontWeight = FontWeight.Black, fontSize = 10.sp, color = Color.White,
-                                modifier = Modifier.align(Alignment.BottomStart).padding(5.dp).clip(RoundedCornerShape(4.dp)).background(Color.Black.copy(alpha = 0.75f)).padding(horizontal = 5.dp, vertical = 1.dp),
-                            )
-                        }
                     }
                     Text(item.title.orEmpty(), fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
                     Text(
