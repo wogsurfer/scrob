@@ -57,6 +57,9 @@ class AppContext(
     var sessions by mutableStateOf<List<WatchSession>>(emptyList())
         private set
 
+    /** Text shared into the app, for Search to start with. */
+    var searchPrefill by mutableStateOf<String?>(null)
+
     /** The Watch sheet's film or episode, and what to refresh after a change. */
     var watchSheet by mutableStateOf<Pair<WatchTarget, () -> Unit>?>(null)
 

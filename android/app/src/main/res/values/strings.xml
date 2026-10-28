@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">Watchd</string>
+    <string name="share_label">Open in Watchd</string>
+    <string name="channel_episodes">New episodes</string>
 </resources>

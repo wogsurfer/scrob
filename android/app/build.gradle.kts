@@ -49,5 +49,6 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.serialization.json)
     implementation(libs.datastore.preferences)
+    implementation(libs.work.runtime)
     debugImplementation(libs.compose.ui.tooling)
 }

@@ -967,10 +967,12 @@ async def list_media_years(
 @router.get("/find-by-imdb")
 async def find_by_imdb(
     imdb_id: str = Query(...),
+    kind: str = Query("tv", pattern="^(tv|any)$"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Resolve an IMDB ID to a TMDB TV show via the TMDB /find endpoint."""
+    """Resolve an IMDB ID to a TMDB TV show via the TMDB /find endpoint;
+    kind=any (the Android app's Share) also returns films, each with its type."""
     imdb_id = imdb_id.strip()
     if not imdb_id.startswith("tt"):
         raise HTTPException(status_code=400, detail="Invalid IMDB ID — must start with 'tt'")
@@ -981,7 +983,7 @@ async def find_by_imdb(
         data = await tmdb.find_by_external_id(imdb_id, "imdb_id", api_key=tmdb_key)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"TMDB lookup failed: {e}")
-    return [
+    shows = [
         {
             "tmdb_id": r["id"],
             "title": r.get("name") or r.get("original_name"),
@@ -990,6 +992,19 @@ async def find_by_imdb(
         }
         for r in data.get("tv_results", [])
     ]
+    if kind == "tv":
+        return shows
+    films = [
+        {
+            "tmdb_id": r["id"],
+            "type": "movie",
+            "title": r.get("title") or r.get("original_title"),
+            "release_date": r.get("release_date"),
+            "poster_path": tmdb.poster_url(r.get("poster_path")),
+        }
+        for r in data.get("movie_results", [])
+    ]
+    return films + [{**s, "type": "series"} for s in shows]
 
 
 @router.get("/search-tvdb")

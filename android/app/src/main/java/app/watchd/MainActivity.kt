@@ -4,6 +4,17 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import android.Manifest
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.background
@@ -124,9 +135,18 @@ private val imageClient = OkHttpClient.Builder().addInterceptor { chain ->
 }.build()
 
 class MainActivity : ComponentActivity() {
+    /** A notification tap or a Share waiting to be opened. */
+    private var incoming by mutableStateOf<Intent?>(null)
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        incoming = intent
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        if (savedInstanceState == null) incoming = intent
         val store = SessionStore(applicationContext)
         setContent {
             setSingletonImageLoaderFactory { context ->
@@ -143,7 +163,7 @@ class MainActivity : ComponentActivity() {
                     else -> if (s.token == null) {
                         LoginScreen(s.server) { server, token -> scope.launch { store.signIn(server, token) } }
                     } else {
-                        SignedIn(s) { scope.launch { store.signOut() } }
+                        SignedIn(s, incoming, onHandled = { incoming = null }) { scope.launch { store.signOut() } }
                     }
                 }
             }
@@ -152,7 +172,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun SignedIn(session: Session, signOut: () -> Unit) {
+private fun SignedIn(session: Session, incoming: Intent?, onHandled: () -> Unit, signOut: () -> Unit) {
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val app = remember(session) { AppContext(Api(session.server, session.token), signOut, snackbar, scope) }
@@ -164,6 +184,42 @@ private fun SignedIn(session: Session, signOut: () -> Unit) {
     val openShow: (Int) -> Unit = { nav.navigate(ShowRoute(it)) }
     val openMovie: (Int) -> Unit = { nav.navigate(MovieRoute(it)) }
     val openPerson: (Int) -> Unit = { nav.navigate(PersonRoute(it)) }
+    val context = LocalContext.current
+
+    // New-episode notifications: ask once (Android 13+), then check every 15 minutes.
+    val askNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    LaunchedEffect(Unit) {
+        NewEpisodesWorker.schedule(context)
+        val prefs = context.getSharedPreferences("app", Context.MODE_PRIVATE)
+        if (Build.VERSION.SDK_INT >= 33 && !prefs.getBoolean("asked_notifications", false) &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            prefs.edit().putBoolean("asked_notifications", true).apply()
+            askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
+    // A tapped notification opens its show; a Share opens the film or show
+    // it links to, or searches for the text.
+    LaunchedEffect(incoming) {
+        val intent = incoming ?: return@LaunchedEffect
+        // Cleared only once handled: clearing it first would cancel the IMDb lookup.
+        val show = intent.getIntExtra(NewEpisodesWorker.EXTRA_SHOW, 0)
+        if (show > 0) {
+            openShow(show)
+        } else if (intent.action == Intent.ACTION_SEND) {
+            val text = listOfNotNull(intent.getStringExtra(Intent.EXTRA_TEXT), intent.getStringExtra(Intent.EXTRA_SUBJECT)).joinToString(" ")
+            when (val target = shareTarget(text, app.api)) {
+                is ShareTarget.Film -> openMovie(target.tmdbId)
+                is ShareTarget.Show -> openShow(target.tmdbId)
+                is ShareTarget.Search -> {
+                    app.searchPrefill = target.query
+                    nav.navigate(SearchRoute) { launchSingleTop = true }
+                }
+            }
+        }
+        onHandled()
+    }
 
     // Check-ins started or ended elsewhere (the site, or Watchd finishing
     // one) show up when the app comes back and once a minute.

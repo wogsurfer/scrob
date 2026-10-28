@@ -66,6 +66,8 @@ class Api(server: String, private val token: String?) {
     suspend fun discItems(): PhysicalItems = get("physical/items")
     suspend fun discStats(): PhysicalStats = get("physical/stats")
     suspend fun disc(id: Int): DiscDetail = get("physical/items/$id")
+    /** Films and shows with this IMDb id ("tt0266697"). */
+    suspend fun findImdb(imdbId: String): List<FoundTitle> = get("media/find-by-imdb", "imdb_id" to imdbId, "kind" to "any")
 
     /** Marks a film or an episode watched now; [mediaType] is "movie" or "episode". */
     suspend fun markWatched(tmdbId: Int, mediaType: String) {

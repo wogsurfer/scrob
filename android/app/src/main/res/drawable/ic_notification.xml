@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A plain W for the status bar (notification icons are drawn in one colour). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M2,4h3.2l2.3,10.2L10.4,4h3.2l2.9,10.2L18.8,4H22l-4.2,16h-3l-2.8,-9.6L9.2,20h-3z" />
+</vector>

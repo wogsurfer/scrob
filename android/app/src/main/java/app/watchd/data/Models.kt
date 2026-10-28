@@ -585,3 +585,8 @@ data class DiscDetail(
     val otherEditions: List<OtherEdition> = emptyList(),
     val specs: DiscSpecs? = null,
 )
+
+// ------------------------------------------------------------------ round 4
+
+@Serializable
+data class FoundTitle(val tmdbId: Int, val type: String = "series", val title: String? = null)
