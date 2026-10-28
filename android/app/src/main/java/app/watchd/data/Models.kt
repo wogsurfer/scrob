@@ -315,6 +315,10 @@ data class UserList(
     val name: String,
     val description: String? = null,
     val itemCount: Int = 0,
+    val movieCount: Int = 0,
+    val showCount: Int = 0,
+    val lastAdded: String? = null,
+    val privacyLevel: String? = null,
     val previewPosters: List<PosterRef> = emptyList(),
 )
 
@@ -600,3 +604,6 @@ data class Hero(val posters: List<String> = emptyList())
 
 @Serializable
 data class PipelineHealth(val status: String = "unknown", val problems: Int = 0)
+
+@Serializable
+data class Count(val count: Int = 0)

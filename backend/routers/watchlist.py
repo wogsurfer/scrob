@@ -159,6 +159,16 @@ async def get_watchlist(
         await enrich_with_state(db, current_user.id, items)
     return items
 
+@router.get("/count")
+async def watchlist_count(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    # How many films, without sending the whole list (it runs past 1,500).
+    count = await db.scalar(select(func.count()).select_from(MovieWatchlist).where(MovieWatchlist.user_id == current_user.id))
+    return {"count": count or 0}
+
+
 @router.post("")
 async def add_to_watchlist(
     tmdb_id: int,

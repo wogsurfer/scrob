@@ -7,13 +7,14 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFi
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import func, case, or_
+from sqlalchemy import func, case, or_, cast as sa_cast, Text
 from sqlalchemy.orm import aliased
 from datetime import date as DateType, timedelta as TimeDelta
 from typing import Optional
 
 from db import get_db, AsyncSessionLocal
 from core import tmdb as tmdb_client
+from core import tvdb_genres
 from core.translations import upsert_media_translation, upsert_show_translation
 
 from dependencies import get_current_user, get_optional_user
@@ -992,8 +993,13 @@ async def get_user_stats(
 
     # ── Genre Activity ───────────────────────────────────────────────────────
     # Movies Genres
+    # TVDB's genres, which name each one singly; a title not looked up on
+    # TVDB yet counts with its TMDB genres in TVDB's words meanwhile.
+    def _tmdb_names(genres_list):
+        return [g["name"] if isinstance(g, dict) else g for g in genres_list or []]
+
     movie_genres_q = await db.execute(
-        select(Media.tmdb_data["genres"])
+        select(Media.tmdb_data["imdb_id"].astext, Media.tmdb_data["genres"], func.count())
         .join(WatchEvent, WatchEvent.media_id == Media.id)
         .where(
             WatchEvent.user_id == user_id,
@@ -1001,17 +1007,19 @@ async def get_user_stats(
             Media.tmdb_data["genres"].isnot(None),
             *date_filters
         )
+        .group_by(Media.id)
     )
     movie_genre_counts = {}
-    for (genres_list,) in movie_genres_q.all():
-        if genres_list:
-            for g in genres_list:
-                name = g["name"] if isinstance(g, dict) else g
-                movie_genre_counts[name] = movie_genre_counts.get(name, 0) + 1
+    movie_titles = []
+    for imdb_id, genres_list, plays in movie_genres_q.all():
+        movie_titles.append(("movie", imdb_id))
+        for name in tvdb_genres.cached("movie", imdb_id) or tvdb_genres.from_tmdb(_tmdb_names(genres_list)):
+            movie_genre_counts[name] = movie_genre_counts.get(name, 0) + plays
 
     # Shows Genres
+    show_tvdb_id = func.coalesce(sa_cast(ShowModel.tvdb_id, Text), ShowModel.tmdb_data["external_ids"]["tvdb_id"].astext)
     show_genres_q = await db.execute(
-        select(ShowModel.tmdb_data["genres"])
+        select(show_tvdb_id, ShowModel.tmdb_data["genres"], func.count())
         .join(Media, Media.show_id == ShowModel.id)
         .join(WatchEvent, WatchEvent.media_id == Media.id)
         .where(
@@ -1020,13 +1028,16 @@ async def get_user_stats(
             ShowModel.tmdb_data["genres"].isnot(None),
             *date_filters
         )
+        .group_by(ShowModel.id)
     )
     show_genre_counts = {}
-    for (genres_list,) in show_genres_q.all():
-        if genres_list:
-            for g in genres_list:
-                name = g["name"] if isinstance(g, dict) else g
-                show_genre_counts[name] = show_genre_counts.get(name, 0) + 1
+    show_titles = []
+    for tvdb_id, genres_list, plays in show_genres_q.all():
+        show_titles.append(("series", tvdb_id))
+        for name in tvdb_genres.cached("series", tvdb_id) or tvdb_genres.from_tmdb(_tmdb_names(genres_list)):
+            show_genre_counts[name] = show_genre_counts.get(name, 0) + plays
+    from routers.shows import get_user_tvdb_key
+    tvdb_genres.fill(show_titles + movie_titles, await get_user_tvdb_key(db, user_id))
 
     top_movie_genres = sorted(
         [{"name": k, "count": v} for k, v in movie_genre_counts.items()],

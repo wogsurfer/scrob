@@ -58,6 +58,7 @@ class Api(server: String, private val token: String?) {
     suspend fun hero(): Hero = get("dashboard/hero")
     suspend fun pipelineHealth(): PipelineHealth = get("pipeline/health")
     suspend fun watchlistPreview(): List<WatchlistMovie> = get("dashboard/watchlist")
+    suspend fun watchlistCount(): Int = get<Count>("watchlist/count").count
     suspend fun profileStats(userId: Int): ProfileStats = get("profile/$userId/stats")
     suspend fun filmAwards(tmdbId: Int): AwardsResponse = get("awards/movie/$tmdbId")
     suspend fun showAwards(tvdbId: Int, tmdbId: Int): AwardsResponse = get("shows/tvdb/$tvdbId/awards", "tmdb_id" to "$tmdbId")

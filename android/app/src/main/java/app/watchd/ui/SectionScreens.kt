@@ -47,6 +47,21 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.zIndex
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.blur
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.border
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -246,7 +261,7 @@ private fun HistoryRow(event: HistoryEvent, openShow: (Int) -> Unit, openMovie: 
 
 // ------------------------------------------------------------------ you
 
-private data class You(val name: String, val totals: app.watchd.data.Totals, val stats: app.watchd.data.ProfileStats?, val lists: List<app.watchd.data.UserList>, val watchlistPoster: String?)
+private data class You(val name: String, val totals: app.watchd.data.Totals, val stats: app.watchd.data.ProfileStats?, val lists: List<app.watchd.data.UserList>, val watchlistPosters: List<String>, val watchlistCount: Int?)
 
 /** "504d 0h": days and hours of watching. */
 private fun watchTime(minutes: Long): String {
@@ -274,8 +289,9 @@ fun YouScreen(openWatchlist: () -> Unit, openList: (Int) -> Unit) {
                         .sortedWith(compareBy({ order.indexOf(it.name.lowercase()).let { i -> if (i < 0) order.size else i } }, { it.name.lowercase() }))
                 }.getOrDefault(emptyList())
             }
-            val poster = async { runCatching { watchlistPreview().firstOrNull { it.posterPath != null }?.posterPath }.getOrNull() }
-            You(me.displayName ?: me.username, totals.await(), stats.await(), lists.await(), poster.await())
+            val poster = async { runCatching { watchlistPreview().mapNotNull { it.posterPath }.take(6) }.getOrDefault(emptyList()) }
+            val count = async { runCatching { watchlistCount() }.getOrNull() }
+            You(me.displayName ?: me.username, totals.await(), stats.await(), lists.await(), poster.await(), count.await())
         }
     }
     LoadContent(state, reload) { you ->
@@ -289,12 +305,13 @@ fun YouScreen(openWatchlist: () -> Unit, openList: (Int) -> Unit) {
             }
             item {
                 Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    StatTile("On disc", "%,d".format(you.totals.library.movies), "films · %,d series".format(you.totals.library.shows), Modifier.weight(1f))
+                    StatTile("On disc", "%,d".format(you.totals.library.movies), "%,d series".format(you.totals.library.shows), Modifier.weight(1f), unit = "films")
                     StatTile(
                         "Average rating",
                         you.stats?.avgMovieRating?.let { "%.1f".format(it) } ?: "–",
-                        you.stats?.avgShowRating?.let { "films · %.1f shows".format(it) } ?: "films",
+                        you.stats?.avgShowRating?.let { "%.1f shows".format(it) } ?: "",
                         Modifier.weight(1f),
+                        unit = "films",
                     )
                 }
             }
@@ -320,9 +337,18 @@ fun YouScreen(openWatchlist: () -> Unit, openList: (Int) -> Unit) {
                 }
             }
             item { SectionTitle("Collections", Modifier.padding(top = 8.dp)) }
-            item { LinkRow("Watchlist", "Films you want to see", you.watchlistPoster, openWatchlist) }
+            item {
+                ListCard(
+                    "Watchlist", "Films you want to see", you.watchlistPosters, you.watchlistCount,
+                    films = you.watchlistCount ?: 0, shows = 0, lastAdded = null, private = true, onClick = openWatchlist,
+                )
+            }
             items(you.lists, key = { "list-${it.id}" }) { list ->
-                LinkRow(list.name, "%,d titles".format(list.itemCount), list.previewPosters.firstOrNull()?.url) { openList(list.id) }
+                ListCard(
+                    list.name, list.description, list.previewPosters.mapNotNull { it.url }.take(6), list.itemCount,
+                    films = list.movieCount, shows = list.showCount, lastAdded = list.lastAdded,
+                    private = list.privacyLevel != null && list.privacyLevel != "public",
+                ) { openList(list.id) }
             }
             item {
                 OutlinedButton(onClick = app.signOut, modifier = Modifier.padding(16.dp)) { Text("Sign out", color = Watchd.Muted) }
@@ -332,10 +358,14 @@ fun YouScreen(openWatchlist: () -> Unit, openList: (Int) -> Unit) {
 }
 
 @Composable
-private fun StatTile(label: String, value: String, detail: String, modifier: Modifier = Modifier) {
+private fun StatTile(label: String, value: String, detail: String, modifier: Modifier = Modifier, unit: String? = null) {
     Column(modifier.clip(RoundedCornerShape(12.dp)).background(Watchd.Surface).padding(14.dp)) {
         Text(label.uppercase(), style = MaterialTheme.typography.labelSmall, color = Watchd.Faint)
-        Text(value, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(top = 4.dp))
+        // What the number counts sits beside it ("879 films"), the second figure below.
+        Row(Modifier.padding(top = 4.dp)) {
+            Text(value, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.alignByBaseline())
+            unit?.let { Text(it, color = Watchd.Muted, fontSize = 14.sp, modifier = Modifier.alignByBaseline().padding(start = 6.dp)) }
+        }
         Text(detail, color = Watchd.Muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
@@ -366,22 +396,82 @@ private fun ActivityChart(months: List<app.watchd.data.MonthActivity>) {
     }
 }
 
+/**
+ * A list as the site's Lists page shows it: its posters fanned across a
+ * blurred copy of the first, then its name, description and what's in it.
+ */
 @Composable
-private fun LinkRow(title: String, detail: String, poster: String?, onClick: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+private fun ListCard(
+    name: String, description: String?, posters: List<String>, count: Int?,
+    films: Int, shows: Int, lastAdded: String?, private: Boolean, onClick: () -> Unit,
+) {
+    val shape = RoundedCornerShape(18.dp)
+    Column(
+        Modifier.padding(horizontal = 16.dp, vertical = 7.dp).fillMaxWidth().clip(shape)
+            .background(Color(0xFF0C0C0E)).border(1.dp, Color(0xFF1F1F23), shape).clickable(onClick = onClick),
     ) {
-        if (poster != null) Poster(poster, Modifier.width(40.dp))
-        else Box(Modifier.width(40.dp).height(60.dp).clip(RoundedCornerShape(10.dp)).background(Watchd.Surface), contentAlignment = Alignment.Center) {
-            WatchedMark(false, Modifier.size(22.dp))
+        Box(Modifier.fillMaxWidth().height(150.dp).clipToBounds().background(Watchd.Surface)) {
+            posters.firstOrNull()?.let {
+                AsyncImage(
+                    it, contentDescription = null, contentScale = ContentScale.Crop,
+                    colorFilter = ColorFilter.tint(Color.Black.copy(alpha = 0.55f), BlendMode.Darken),
+                    modifier = Modifier.matchParentSize().scale(1.2f).blur(22.dp),
+                )
+            }
+            Box(Modifier.matchParentSize().background(Brush.verticalGradient(0.55f to Color.Transparent, 1f to Color(0xFF0C0C0E))))
+            if (posters.isEmpty()) {
+                Text("Nothing in this list yet", color = Watchd.Faint, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Center))
+            }
+            posters.forEachIndexed { i, poster ->
+                AsyncImage(
+                    poster, contentDescription = null, contentScale = ContentScale.Crop,
+                    modifier = Modifier.align(Alignment.BottomStart)
+                        .padding(start = 16.dp + 54.dp * i, bottom = 0.dp)
+                        .zIndex(10f - i)
+                        .offset(y = (12 + i * 3).dp)
+                        .rotate(i * 1.5f - 2f)
+                        .width(84.dp).aspectRatio(2f / 3f)
+                        .shadow(10.dp, RoundedCornerShape(9.dp))
+                        .clip(RoundedCornerShape(9.dp)).background(Watchd.SurfaceHigh),
+                )
+            }
         }
-        Column(Modifier.weight(1f)) {
-            Text(title, fontWeight = FontWeight.Bold)
-            Text(detail, color = Watchd.Muted, fontSize = 13.sp)
+        Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (private) Icon(Icons.Default.Lock, contentDescription = "Private", tint = Watchd.Muted, modifier = Modifier.padding(end = 6.dp).size(13.dp))
+                Text(name, fontSize = 18.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            if (!description.isNullOrBlank()) {
+                Text(description, color = Watchd.Muted, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+            val split = listOfNotNull(
+                films.takeIf { it > 0 }?.let { "%,d %s".format(it, if (it == 1) "film" else "films") },
+                shows.takeIf { it > 0 }?.let { "%,d %s".format(it, if (it == 1) "show" else "shows") },
+            )
+            Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                count?.let {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("%,d".format(it), fontWeight = FontWeight.Black, fontSize = 15.sp, modifier = Modifier.alignByBaseline())
+                        Text(if (it == 1) " item" else " items", color = Color(0xFFD4D4D8), fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.alignByBaseline())
+                    }
+                }
+                if (split.size > 1) Text(split.joinToString(" · "), color = Watchd.Faint, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                ago(lastAdded)?.let { Text("Last added $it", color = Watchd.Faint, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+            }
         }
-        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = Watchd.Faint)
+    }
+}
+
+/** "today", "yesterday", "3 days ago", "2 months ago", as the site words it. */
+private fun ago(iso: String?): String? {
+    val then = iso?.let { runCatching { java.time.LocalDateTime.parse(it.removeSuffix("Z").substringBefore('+')) }.getOrNull() } ?: return null
+    val days = java.time.Duration.between(then, java.time.LocalDateTime.now(java.time.ZoneOffset.UTC)).toDays()
+    return when {
+        days <= 0 -> "today"
+        days == 1L -> "yesterday"
+        days < 30 -> "$days days ago"
+        days < 365 -> (days / 30).let { "$it month${if (it == 1L) "" else "s"} ago" }
+        else -> (days / 365).let { "$it year${if (it == 1L) "" else "s"} ago" }
     }
 }
 

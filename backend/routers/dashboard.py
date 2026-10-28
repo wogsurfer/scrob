@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy import select, func
+from sqlalchemy.orm import aliased
 from sqlalchemy.ext.asyncio import AsyncSession
 from models.watchlist import MovieWatchlist
 
@@ -121,6 +122,19 @@ async def dashboard_stats(
         .group_by(PhysicalItem.is_tv)
     )
     owned_counts = dict(owned.all())
+
+    # TV is counted by show, not by season box: each disc's series, else the
+    # set it's in (the Peanuts specials), else its own title.
+    Parent = aliased(PhysicalItem)
+    tv_discs = await db.execute(
+        select(PhysicalItem.series, Parent.title, PhysicalItem.title)
+        .outerjoin(Parent, Parent.id == PhysicalItem.parent_id)
+        .where(
+            PhysicalItem.user_id == current_user.id, PhysicalItem.status == "owned",
+            PhysicalItem.is_set.is_(False), PhysicalItem.is_tv.is_(True),
+        )
+    )
+    owned_counts[True] = len({(series or in_set or title).strip().lower() for series, in_set, title in tv_discs.all()})
 
     return {
         "tv": {
