@@ -37,6 +37,11 @@ class IsSongTests(unittest.TestCase):
     def test_song(self):
         self.assertTrue(self.check(performers=["Stealers Wheel"], writers=["Gerry Rafferty", "Joe Egan"]))
 
+    def test_uncredited_track_is_score(self):
+        # VisionQuest's score album on Wikipedia: titles and lengths, nobody credited.
+        self.assertFalse(self.check(title="Me, Myself and AI", length=138))
+        self.assertTrue(self.check(writers=["Harry Nilsson"]))
+
     def test_another_films_score(self):
         film = names("Ennio Morricone", "Bernard Herrmann")
         check = lambda **t: is_song({"performers": [], "writers": [], "length": 200, **t}, self.composers, self.cast, self.writing, film)

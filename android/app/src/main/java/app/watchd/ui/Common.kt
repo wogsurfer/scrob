@@ -2,6 +2,12 @@ package app.watchd.ui
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.Icon
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.res.painterResource
 import app.watchd.R
@@ -184,11 +190,12 @@ fun SectionTitle(text: String, modifier: Modifier = Modifier) {
     )
 }
 
-/** "IMDb 8.1" in the site's yellow badge style. */
+/** "IMDb 8.1" as the site's cards show it: the yellow tag and a yellow score ("—" without one). */
 @Composable
-fun ImdbBadge(rating: Double?) {
-    if (rating == null || rating <= 0) return
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+fun ImdbBadge(rating: Double?, showEmpty: Boolean = false) {
+    val has = rating != null && rating > 0
+    if (!has && !showEmpty) return
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
         Text(
             "IMDb",
             color = Color.Black,
@@ -196,8 +203,72 @@ fun ImdbBadge(rating: Double?) {
             fontSize = 10.sp,
             modifier = Modifier.clip(RoundedCornerShape(3.dp)).background(Watchd.ImdbYellow).padding(horizontal = 4.dp, vertical = 1.dp),
         )
-        Text("%.1f".format(rating), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+        Text(if (has) "%.1f".format(rating) else "—", fontWeight = FontWeight.ExtraBold, fontSize = 15.sp, color = if (has) Watchd.ImdbYellow else Watchd.Muted)
     }
+}
+
+private val TmdbBlue = Color(0xFF01B4E4)
+
+/**
+ * A title page's ratings as the site shows them, in one pill: the TMDB logo
+ * and score in TMDB blue, the IMDb logo and score in yellow, and your rating
+ * as a red star.
+ */
+@Composable
+fun RatingsPill(tmdb: Double?, imdb: Double?, mine: Double?, modifier: Modifier = Modifier) {
+    val hasTmdb = (tmdb ?: 0.0) > 0
+    val hasImdb = (imdb ?: 0.0) > 0
+    if (!hasTmdb && !hasImdb && mine == null) return
+    Row(
+        modifier.clip(RoundedCornerShape(12.dp)).background(Watchd.Surface.copy(alpha = 0.6f))
+            .border(1.dp, Watchd.SurfaceHigh, RoundedCornerShape(12.dp)).padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        if (hasTmdb) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                AsyncImage("file:///android_asset/tmdb.svg", contentDescription = "TMDB", modifier = Modifier.width(30.dp).height(18.dp))
+                Text("%.1f".format(tmdb), color = TmdbBlue, fontWeight = FontWeight.Black, fontSize = 15.sp)
+            }
+        }
+        if (hasImdb) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Image(painterResource(R.drawable.logo_imdb), contentDescription = "IMDb", modifier = Modifier.width(34.dp).height(18.dp))
+                Text("%.1f".format(imdb), color = Watchd.ImdbYellow, fontWeight = FontWeight.Black, fontSize = 15.sp)
+            }
+        }
+        if (mine != null) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Icon(Icons.Default.Star, contentDescription = "Your rating", tint = Watchd.Red, modifier = Modifier.size(18.dp))
+                Text(if (mine % 1.0 == 0.0) "${mine.toInt()}" else "$mine", color = Watchd.Red, fontWeight = FontWeight.Black, fontSize = 15.sp)
+            }
+        }
+    }
+}
+
+/**
+ * A premiere or finale label coloured by kind, as on the site: green for a
+ * series premiere, blue a season premiere, pink a mid-season premiere, amber
+ * a mid-season finale, red a season finale and violet a series finale.
+ */
+@Composable
+fun EpisodeBadge(label: String?, modifier: Modifier = Modifier) {
+    if (label.isNullOrBlank()) return
+    val (text, tint) = when (label.lowercase()) {
+        "series premiere" -> Color(0xFF34D399) to Color(0xFF10B981)
+        "season premiere" -> Color(0xFF38BDF8) to Color(0xFF0EA5E9)
+        "mid-season premiere" -> Color(0xFFF472B6) to Color(0xFFEC4899)
+        "mid-season finale" -> Color(0xFFFBBF24) to Color(0xFFF59E0B)
+        "season finale" -> Color(0xFFFF4D55) to Color(0xFFE50914)
+        "series finale" -> Color(0xFFC4B5FD) to Color(0xFF8B5CF6)
+        else -> Color(0xFFD4D4D8) to Color(0xFFA1A1AA)
+    }
+    Text(
+        label.uppercase(), color = text, fontSize = 9.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 0.8.sp,
+        maxLines = 1,
+        modifier = modifier.clip(RoundedCornerShape(50)).background(tint.copy(alpha = 0.15f))
+            .border(1.dp, tint.copy(alpha = 0.5f), RoundedCornerShape(50)).padding(horizontal = 7.dp, vertical = 1.dp),
+    )
 }
 
 /** The Watchd W, as on the site: red when watched, white when not. */

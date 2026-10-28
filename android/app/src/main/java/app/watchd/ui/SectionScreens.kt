@@ -229,7 +229,7 @@ private fun HistoryRow(event: HistoryEvent, openShow: (Int) -> Unit, openMovie: 
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Poster(if (episode) media.showPosterPath ?: media.posterPath else media.posterPath, Modifier.width(44.dp))
+        Poster(if (episode) media.seasonPosterPath ?: media.showPosterPath ?: media.posterPath else media.posterPath, Modifier.width(44.dp))
         Column(Modifier.weight(1f)) {
             Text(if (episode) media.showTitle.orEmpty() else media.title.orEmpty(), fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
@@ -246,7 +246,7 @@ private fun HistoryRow(event: HistoryEvent, openShow: (Int) -> Unit, openMovie: 
 
 // ------------------------------------------------------------------ you
 
-private data class You(val name: String, val totals: app.watchd.data.Totals, val stats: app.watchd.data.ProfileStats?, val lists: List<app.watchd.data.UserList>)
+private data class You(val name: String, val totals: app.watchd.data.Totals, val stats: app.watchd.data.ProfileStats?, val lists: List<app.watchd.data.UserList>, val watchlistPoster: String?)
 
 /** "504d 0h": days and hours of watching. */
 private fun watchTime(minutes: Long): String {
@@ -274,7 +274,8 @@ fun YouScreen(openWatchlist: () -> Unit, openList: (Int) -> Unit, openCollection
                         .sortedWith(compareBy({ order.indexOf(it.name.lowercase()).let { i -> if (i < 0) order.size else i } }, { it.name.lowercase() }))
                 }.getOrDefault(emptyList())
             }
-            You(me.displayName ?: me.username, totals.await(), stats.await(), lists.await())
+            val poster = async { runCatching { watchlistPreview().firstOrNull { it.posterPath != null }?.posterPath }.getOrNull() }
+            You(me.displayName ?: me.username, totals.await(), stats.await(), lists.await(), poster.await())
         }
     }
     LoadContent(state, reload) { you ->
@@ -319,7 +320,7 @@ fun YouScreen(openWatchlist: () -> Unit, openList: (Int) -> Unit, openCollection
                 }
             }
             item { SectionTitle("Collections", Modifier.padding(top = 8.dp)) }
-            item { LinkRow("Watchlist", "Films you want to see", null, openWatchlist) }
+            item { LinkRow("Watchlist", "Films you want to see", you.watchlistPoster, openWatchlist) }
             item { LinkRow("Disc collection", "%,d films · %,d series on disc".format(you.totals.library.movies, you.totals.library.shows), null, openCollection) }
             items(you.lists, key = { "list-${it.id}" }) { list ->
                 LinkRow(list.name, "%,d titles".format(list.itemCount), list.previewPosters.firstOrNull()?.url) { openList(list.id) }

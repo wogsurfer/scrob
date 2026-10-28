@@ -410,7 +410,7 @@ private fun EpisodeRow(episode: Episode, watched: Boolean, onLongPress: () -> Un
                     listOfNotNull(episode.airDate?.let { formatDate(it) }, episode.runtime?.let { "$it min" }).joinToString(" · "),
                     color = Watchd.Faint, fontSize = 12.sp,
                 )
-                episode.badge?.let { Text(it.uppercase(), color = Watchd.Red, style = MaterialTheme.typography.labelSmall) }
+                EpisodeBadge(episode.badge, Modifier.padding(top = 3.dp))
             }
             if (!future) WatchButton(watched, onTap = onToggle, onLongPress = onLongPress)
         }
@@ -476,29 +476,10 @@ internal fun DetailHeader(backdrop: String?, poster: String?, title: String, fac
     }
 }
 
-/** IMDb, TMDB and your own rating, side by side. */
+/** IMDb, TMDB and your own rating, in the site's pill. */
 @Composable
 private fun RatingsRow(imdb: Double?, tmdb: Double?, mine: Double?) {
-    if ((imdb ?: 0.0) <= 0 && (tmdb ?: 0.0) <= 0 && mine == null) return
-    Row(
-        Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(20.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        ImdbBadge(imdb)
-        if ((tmdb ?: 0.0) > 0) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("TMDB", color = Color(0xFF01B4E4), fontWeight = FontWeight.Black, fontSize = 11.sp)
-                Text("%.1f".format(tmdb), fontWeight = FontWeight.Bold, fontSize = 13.sp)
-            }
-        }
-        if (mine != null) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                Icon(Icons.Default.Star, contentDescription = null, tint = Watchd.Red, modifier = Modifier.size(16.dp))
-                Text("You  ${if (mine % 1.0 == 0.0) mine.toInt() else mine}", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-            }
-        }
-    }
+    RatingsPill(tmdb, imdb, mine, Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
 }
 
 @OptIn(ExperimentalLayoutApi::class)

@@ -97,6 +97,10 @@ def is_song(track: dict, composers: set[str], cast: set[str], writing: set[str],
     performers = _names(track.get("performers"))
     writers = {_norm(w) for w in track.get("writers") or [] if w}
     length = track.get("length")
+    if not performers and not writers:
+        # Nobody credited: a score listing (Wikipedia's for VisionQuest's
+        # "Original Soundtrack" has no performer or writer column).
+        return False
     if performers & composers or (writers and writers <= composers):
         return False  # score
     if track.get("score_work") or (not track.get("words") and (performers | writers) & film_composers):
@@ -383,7 +387,7 @@ async def soundtrack(kind: str, tmdb_id: int, api_key: str | None) -> dict:
     """{"albums": [{"title", "year", "tracks": [{"title", "artist",
     "writers", "length"}]}], "source"} for a "movie" or "tv" title."""
     key = f"{kind}_{tmdb_id}"
-    hit = _cache.get(key) or disk_cache.load("soundtrack_v2", key, _TTL)
+    hit = _cache.get(key) or disk_cache.load("soundtrack_v3", key, _TTL)
     if hit:
         ttl = _TTL if hit[1].get("albums") else _EMPTY_TTL
         if time.time() - hit[0] < ttl:
@@ -400,5 +404,5 @@ async def soundtrack(kind: str, tmdb_id: int, api_key: str | None) -> dict:
     finally:
         _inflight.pop(key, None)
     _cache[key] = (time.time(), result)
-    disk_cache.save("soundtrack_v2", key, result)
+    disk_cache.save("soundtrack_v3", key, result)
     return result

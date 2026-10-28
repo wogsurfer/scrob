@@ -45,6 +45,7 @@ import app.watchd.ui.DiscScreen
 import coil3.ImageLoader
 import coil3.compose.setSingletonImageLoaderFactory
 import coil3.map.Mapper
+import coil3.svg.SvgDecoder
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
@@ -152,6 +153,7 @@ class MainActivity : ComponentActivity() {
             setSingletonImageLoaderFactory { context ->
                 ImageLoader.Builder(context).components {
                     add(ImagePaths)
+                    add(SvgDecoder.Factory())
                     add(OkHttpNetworkFetcherFactory(callFactory = { imageClient }))
                 }.crossfade(true).build()
             }
@@ -279,7 +281,7 @@ private fun SignedIn(session: Session, incoming: Intent?, onHandled: () -> Unit,
             },
         ) { padding ->
             NavHost(nav, startDestination = HomeRoute, modifier = Modifier.padding(bottom = padding.calculateBottomPadding())) {
-                composable<HomeRoute> { DashboardScreen(openShow, openMovie) }
+                composable<HomeRoute> { DashboardScreen(openShow, openMovie, openCollection = { nav.navigate(CollectionRoute) }) }
                 composable<SearchRoute> { SearchScreen(openShow, openMovie) }
                 composable<CalendarRoute> { CalendarScreen(openShow, openMovie) }
                 composable<HistoryRoute> { HistoryScreen(openShow, openMovie) }

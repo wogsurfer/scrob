@@ -46,6 +46,7 @@ dependencies {
     implementation(libs.navigation.compose)
     implementation(libs.coil.compose)
     implementation(libs.coil.okhttp)
+    implementation(libs.coil.svg)
     implementation(libs.okhttp)
     implementation(libs.serialization.json)
     implementation(libs.datastore.preferences)

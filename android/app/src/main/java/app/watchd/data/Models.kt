@@ -35,6 +35,7 @@ data class NextUpItem(
     val showTmdbId: Int? = null,
     val showPosterPath: String? = null,
     val showBackdropPath: String? = null,
+    val seasonPosterPath: String? = null,
     val showImdbRating: Double? = null,
     val showWatchPct: Int = 0,
     val showEpisodesWatched: Int = 0,
@@ -58,6 +59,7 @@ data class UpcomingEpisode(
     val airTime: String? = null,
     val network: String? = null,
     val showPosterPath: String? = null,
+    val seasonPosterPath: String? = null,
     val showTmdbId: Int? = null,
     val badge: String? = null,
     val watched: Boolean = false,
@@ -284,6 +286,7 @@ data class HistoryMedia(
     val episodeNumber: Int? = null,
     val showTitle: String? = null,
     val showPosterPath: String? = null,
+    val seasonPosterPath: String? = null,
     val showTmdbId: Int? = null,
 )
 
@@ -590,3 +593,9 @@ data class DiscDetail(
 
 @Serializable
 data class FoundTitle(val tmdbId: Int, val type: String = "series", val title: String? = null)
+
+@Serializable
+data class Hero(val posters: List<String> = emptyList())
+
+@Serializable
+data class PipelineHealth(val status: String = "unknown", val problems: Int = 0)
