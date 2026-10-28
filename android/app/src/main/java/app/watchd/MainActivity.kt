@@ -285,7 +285,7 @@ private fun SignedIn(session: Session, incoming: Intent?, onHandled: () -> Unit,
                 composable<SearchRoute> { SearchScreen(openShow, openMovie) }
                 composable<CalendarRoute> { CalendarScreen(openShow, openMovie) }
                 composable<HistoryRoute> { HistoryScreen(openShow, openMovie) }
-                composable<YouRoute> { YouScreen(openWatchlist = { nav.navigate(WatchlistRoute) }, openList = { nav.navigate(ListRoute(it)) }, openCollection = { nav.navigate(CollectionRoute) }) }
+                composable<YouRoute> { YouScreen(openWatchlist = { nav.navigate(WatchlistRoute) }, openList = { nav.navigate(ListRoute(it)) }) }
                 composable<PersonRoute> { PersonScreen(it.toRoute<PersonRoute>().id, onBack = { nav.popBackStack() }, openShow = openShow, openMovie = openMovie) }
                 composable<CollectionRoute> { CollectionScreen(onBack = { nav.popBackStack() }, openDisc = { nav.navigate(DiscRoute(it)) }) }
                 composable<DiscRoute> { DiscScreen(it.toRoute<DiscRoute>().id, onBack = { nav.popBackStack() }, openDisc = { id -> nav.navigate(DiscRoute(id)) }, openShow = openShow, openMovie = openMovie) }
