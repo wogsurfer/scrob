@@ -446,6 +446,13 @@ def franchise_name(name: str) -> str:
     return re.sub(r"\s*[-–]?\s*Collection$", "", name or "").strip()
 
 
+# Series TMDB splits across collections, filed as one in release order:
+# Romulus has a collection of its own, and Alien: Covenant (TMDB 126889) is
+# in "Prometheus", though Prometheus itself stays under P.
+FRANCHISE_FAMILIES = {"Alien": "Alien", "Alien: Romulus": "Alien"}
+FILM_FAMILIES = {126889: "Alien"}
+
+
 async def franchise_sort_keys(
     items: list[PhysicalItem], api_key: str | None, min_films: int = 2,
 ) -> dict[int, tuple[str, str] | None]:
@@ -480,6 +487,10 @@ async def franchise_sort_keys(
         if item.tmdb_id not in order:
             return item.id, None
         name = franchise_name(coll.get("name") or belongs.get("name") or "")
+        family = FILM_FAMILIES.get(item.tmdb_id) or FRANCHISE_FAMILIES.get(name)
+        if family:
+            # Across collections there's no one numbering; the year orders them.
+            return item.id, (family, f"{family} {(movie.get('release_date') or '9999')[:4]}")
         return item.id, (name, f"{name} {order.index(item.tmdb_id) + 1:02d}")
 
     results = [r for r in await asyncio.gather(*(one(i) for i in items)) if r[1] != "error"]
