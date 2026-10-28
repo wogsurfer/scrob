@@ -701,10 +701,22 @@ _PRODUCT_NOISE = re.compile(
 )
 
 
-def clean_product_title(title: str) -> str:
+# A studio or label put before the title: "Warner Home Video - Wonder Woman".
+_STUDIO_PREFIX = re.compile(
+    r"^[^-]*\b(?:video|entertainment|pictures|studios?|films?|home|media|distribution|"
+    r"warner|universal|disney|paramount|sony|lionsgate|fox|mgm|criterion|arrow|kino)\b[^-]*\s+-\s+",
+    re.I,
+)
+
+
+def clean_product_title(title: str, brand: str | None = None) -> str:
     """A film title from a shop listing, e.g. "Dune (4K Ultra HD + Blu-ray)
-    [Steelbook]" -> "Dune"."""
-    cleaned = _PRODUCT_NOISE.sub(" ", title or "")
+    [Steelbook]" -> "Dune", "Warner Home Video - Wonder Woman" -> "Wonder Woman"."""
+    title = title or ""
+    if brand and title.lower().startswith(brand.lower()):
+        title = title[len(brand):].lstrip(" -:")
+    title = _STUDIO_PREFIX.sub("", title)
+    cleaned = _PRODUCT_NOISE.sub(" ", title)
     cleaned = re.sub(r"[\s+/&,:-]+$", "", re.sub(r"\s{2,}", " ", cleaned)).strip(" -+/,:")
     return cleaned or (title or "").strip()
 
@@ -755,7 +767,7 @@ async def lookup(
                 "brand": found.get("brand"),
                 "images": found.get("images") or [],
             }
-            q = q or clean_product_title(found.get("title") or "")
+            q = q or clean_product_title(found.get("title") or "", found.get("brand"))
     results = []
     if q:
         api_key = await get_user_tmdb_key(db, current_user.id)

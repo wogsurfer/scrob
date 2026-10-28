@@ -118,6 +118,10 @@ class ClzImportTests(unittest.TestCase):
         self.assertEqual(clean_product_title("Dune (4K Ultra HD + Blu-ray) [Steelbook]"), "Dune")
         self.assertEqual(clean_product_title("Good Will Hunting 15th Anniversary Edition Blu-ray"), "Good Will Hunting 15th Anniversary Edition")
         self.assertEqual(clean_product_title("The Matrix [Blu-ray]"), "The Matrix")
+        # A studio before the title, named as the brand or not.
+        self.assertEqual(clean_product_title("Warner Home Video - Wonder Woman [BLU-RAY]", "SDS"), "Wonder Woman")
+        self.assertEqual(clean_product_title("Arrow Video - The Thing (Blu-ray)", "Arrow Video"), "The Thing")
+        self.assertEqual(clean_product_title("Spider-Man: No Way Home [Blu-ray]"), "Spider-Man: No Way Home")
 
 
 if __name__ == "__main__":

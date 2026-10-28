@@ -29,6 +29,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.outlined.EmojiEvents
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -389,7 +390,7 @@ private data class Shelf(val items: List<PhysicalItem>, val stats: app.watchd.da
 private val SHELVES = listOf("All", "4K UHD", "Blu-ray", "Blu-ray 3D", "Sets", "Wishlist")
 
 @Composable
-fun CollectionScreen(onBack: () -> Unit, openDisc: (Int) -> Unit) {
+fun CollectionScreen(onBack: () -> Unit, openDisc: (Int) -> Unit, addDisc: () -> Unit) {
     val (state, reload) = rememberLoad(Unit) { Shelf(discItems().items, discStats()) }
     var shelf by rememberSaveable { mutableStateOf("All") }
     var query by rememberSaveable { mutableStateOf("") }
@@ -416,7 +417,8 @@ fun CollectionScreen(onBack: () -> Unit, openDisc: (Int) -> Unit) {
                 Column {
                     Row(Modifier.statusBarsPadding().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-                        SectionTitle("Collection")
+                        SectionTitle("Collection", Modifier.weight(1f))
+                        IconButton(onClick = addDisc) { Icon(Icons.Default.QrCodeScanner, contentDescription = "Add a disc", tint = Watchd.Red) }
                     }
                     val s = data.stats
                     Text(
@@ -446,7 +448,7 @@ fun CollectionScreen(onBack: () -> Unit, openDisc: (Int) -> Unit) {
             items(shown, key = { it.id }) { item ->
                 Column(Modifier.clickable { openDisc(item.id) }) {
                     Box {
-                        Poster(item.cover, Modifier.fillMaxWidth())
+                        Cover(item.cover, Modifier.fillMaxWidth())
                         if (item.seen) WatchedMark(true, Modifier.align(Alignment.TopEnd).padding(5.dp).size(22.dp))
                         // As on the site: never edited, no cover scan or details yet.
                         if (item.unedited) {

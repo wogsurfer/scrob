@@ -64,7 +64,7 @@ fun DiscScreen(discId: Int, onBack: () -> Unit, openDisc: (Int) -> Unit, openSho
         DetailScaffold(d.title, list, onBack) {
             item {
                 DetailHeader(
-                    backdrop = d.backdrop, poster = d.coverFull ?: d.cover ?: set?.cover, title = d.title + (d.titleExtension?.let { " $it" } ?: ""),
+                    backdrop = d.backdrop, poster = d.coverFull ?: d.cover ?: set?.cover, cover = true, title = d.title + (d.titleExtension?.let { " $it" } ?: ""),
                     facts = listOfNotNull(d.releaseYear?.toString(), d.studios.take(2).joinToString(" / ").ifBlank { null }),
                 )
             }
@@ -243,7 +243,7 @@ private fun SetRow(item: DiscContent, onClick: () -> Unit) {
         Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Poster(item.cover, Modifier.width(40.dp))
+        Cover(item.cover, Modifier.width(40.dp))
         Column(Modifier.weight(1f)) {
             Text(item.title.orEmpty(), fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(listOfNotNull(item.releaseYear?.toString(), item.format).joinToString(" · "), color = Watchd.Muted, fontSize = 13.sp)

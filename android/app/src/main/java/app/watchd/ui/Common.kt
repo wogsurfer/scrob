@@ -48,6 +48,9 @@ import app.watchd.data.WatchSession
 import app.watchd.data.WatchTarget
 import app.watchd.ui.theme.Watchd
 import coil3.compose.AsyncImage
+import coil3.compose.AsyncImagePainter
+import coil3.compose.rememberAsyncImagePainter
+import androidx.compose.runtime.collectAsState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
@@ -178,6 +181,23 @@ fun Poster(url: String?, modifier: Modifier = Modifier, ratio: Float = 2f / 3f) 
             .aspectRatio(ratio)
             .clip(RoundedCornerShape(10.dp))
             .background(Watchd.Surface),
+    )
+}
+
+/**
+ * A disc's cover at its own shape, never cropped: case scans aren't 2:3 like
+ * posters (a Blu-ray case is nearer 4:5). Until the picture arrives it holds
+ * a Blu-ray case's shape.
+ */
+@Composable
+fun Cover(url: String?, modifier: Modifier = Modifier) {
+    val painter = rememberAsyncImagePainter(url)
+    val state by painter.state.collectAsState()
+    val size = (state as? AsyncImagePainter.State.Success)?.painter?.intrinsicSize
+    val ratio = size?.takeIf { it.width > 0 && it.height > 0 }?.let { it.width / it.height } ?: (148f / 188f)
+    Image(
+        painter, contentDescription = null, contentScale = ContentScale.Fit,
+        modifier = modifier.aspectRatio(ratio).clip(RoundedCornerShape(8.dp)).background(Watchd.Surface),
     )
 }
 

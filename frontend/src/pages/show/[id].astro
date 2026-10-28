@@ -129,7 +129,7 @@ const watchedRange = (() => {
 
         <div class="flex flex-col md:flex-row gap-8 lg:gap-12">
           <!-- Poster -->
-          <div class="w-64 shrink-0 mx-auto md:mx-0">
+          <div class="w-44 sm:w-64 shrink-0 mx-auto md:mx-0">
             <div class="aspect-[2/3] rounded-2xl overflow-hidden shadow-2xl border border-zinc-800 bg-zinc-900 ring-1 ring-white/10 relative" data-adult={show.adult ? "true" : undefined}>
               {show.poster_path ? (
                 <button id="poster-zoom-btn" class="w-full h-full group/poster block cursor-zoom-in" aria-label={`Enlarge poster for ${show.title}`}>
@@ -254,7 +254,7 @@ const watchedRange = (() => {
 
             <!-- Show dates and countries -->
               {(show.first_air_date || show.last_air_date || show.production_countries?.length > 0) && (
-                <div class="mb-2 flex items-center gap-4 text-sm text-zinc-400">
+                <div class="mb-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-zinc-400">
                   {show.first_air_date && (
                     <span class="flex items-center gap-1.5">
                       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"

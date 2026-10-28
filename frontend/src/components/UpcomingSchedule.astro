@@ -62,13 +62,13 @@ const days = [...byDate.entries()]
   </div>
 
   <div
-    class="grid gap-5"
+    class="grid gap-5 overflow-x-auto snap-x pb-2"
     style="grid-template-columns:repeat(7,minmax(170px,1fr));"
   >
 
         {days.map(([date, shows]) => (
 
-      <div>
+      <div class="snap-start">
 
         <h3 class="mb-5">
           <div class="text-xs uppercase tracking-widest text-zinc-500">

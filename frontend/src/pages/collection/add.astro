@@ -1,5 +1,5 @@
 ---
-// Adding a disc: find it by barcode (typed or scanned with the camera) or by
+// Adding a disc: find it by barcode (typed; the app scans them) or by
 // title, pick the film or series it's of, then fill in the edition on the
 // form. TMDB supplies the film's details when it's saved.
 import Base from "../../layouts/Base.astro";
@@ -61,18 +61,15 @@ const coverUrl = p.get("cover");
     <div class="add">
       <form id="add-find" class="add-find">
         <label>Barcode
-          <div class="add-row">
-            <input name="barcode" inputmode="numeric" placeholder="Scan or type the UPC/EAN" autocomplete="off" />
-            <button type="button" id="add-scan" class="add-scan" hidden>Scan with camera</button>
-          </div>
+          <input name="barcode" inputmode="numeric" placeholder="Type the UPC/EAN" autocomplete="off" />
         </label>
         <label>or title<input name="q" placeholder="Film or series title" autocomplete="off" /></label>
         <button type="submit" class="add-go">Find</button>
       </form>
-      <video id="add-video" class="add-video" playsinline muted hidden></video>
       <p id="add-status" class="add-status"></p>
       <div id="add-product" class="add-product" hidden></div>
       <div id="add-results" class="add-results"></div>
+      <p class="add-manual">Got the disc in your hand? Scan its barcode with the Watchd app: Collection, then the scan button.</p>
       <p class="add-manual">Can't find it? <a href={`/collection/add?${new URLSearchParams({ title: "", ...(inSet ? { set: inSet } : {}) })}`}>Fill in the form yourself</a>.</p>
       {!inSet && <p class="add-manual">Adding a box set or a disc with several films? <a href="/collection/add?newset=1">Start the set</a>, then add its films to it.</p>}
     </div>
@@ -135,59 +132,6 @@ const coverUrl = p.get("cover");
       const q = String(fd.get("q") || "").trim();
       if (barcode || q) find(barcode, q);
     });
-
-    // Camera scanning: the browser's own barcode reader where it has one
-    // (Chrome on Android), otherwise ZXing's (Safari on iPhone). Phones only
-    // allow the camera on an https address.
-    const Detector = (window as any).BarcodeDetector;
-    const scanBtn = document.getElementById("add-scan") as HTMLButtonElement;
-    if (navigator.mediaDevices?.getUserMedia) {
-      scanBtn.hidden = false;
-      scanBtn.addEventListener("click", async () => {
-        const video = document.getElementById("add-video") as HTMLVideoElement;
-        let stream: MediaStream;
-        try {
-          stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-        } catch {
-          status.textContent = "The camera isn't available.";
-          return;
-        }
-        video.srcObject = stream;
-        video.hidden = false;
-        await video.play();
-        status.textContent = "Point the camera at the barcode…";
-        let stopReader = () => {};
-        const stop = () => { stopReader(); stream.getTracks().forEach((t) => t.stop()); video.hidden = true; };
-        const found = (code: string) => {
-          stop();
-          form.querySelector<HTMLInputElement>('input[name="barcode"]')!.value = code;
-          find(code, "");
-        };
-
-        if (Detector) {
-          const detector = new Detector({ formats: ["ean_13", "upc_a", "ean_8", "upc_e"] });
-          const tick = async () => {
-            if (video.hidden) return;
-            try {
-              const codes = await detector.detect(video);
-              if (codes.length) return found(codes[0].rawValue);
-            } catch {}
-            requestAnimationFrame(tick);
-          };
-          tick();
-          return;
-        }
-        const [{ BrowserMultiFormatReader }, { BarcodeFormat, DecodeHintType }] = await Promise.all([
-          import("@zxing/browser"), import("@zxing/library"),
-        ]);
-        const hints = new Map([[DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.EAN_13, BarcodeFormat.UPC_A, BarcodeFormat.EAN_8, BarcodeFormat.UPC_E]]]);
-        const reader = new BrowserMultiFormatReader(hints);
-        const controls = await reader.decodeFromVideoElement(video, (result) => {
-          if (result && !video.hidden) found(result.getText());
-        });
-        stopReader = () => controls.stop();
-      });
-    }
   }
 </script>
 
@@ -202,10 +146,7 @@ const coverUrl = p.get("cover");
   .add-find label { display: flex; flex-direction: column; gap: 6px; color: #a1a1aa; font-size: 12px; font-weight: 700; }
   .add-find input { width: 100%; padding: 10px 12px; border-radius: 10px; background: #111113; border: 1px solid #27272a; color: #f4f4f5; font-size: 15px; }
   .add-find input:focus { outline: none; border-color: #e50914; }
-  .add-row { display: flex; gap: 6px; }
-  .add-scan { flex: none; padding: 0 12px; border-radius: 10px; border: 1px solid #3f3f46; color: #e4e4e7; font-size: 12px; font-weight: 800; }
   .add-go { padding: 11px 22px; border-radius: 999px; background: #e50914; color: #fff; font-weight: 900; }
-  .add-video { width: 100%; max-width: 420px; margin-top: 12px; border-radius: 14px; }
   .add-status { margin: 14px 0 8px; color: #a1a1aa; font-size: 14px; font-weight: 600; }
   .add-product { margin-bottom: 12px; }
   .add-prod { display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 14px; background: #111113; border: 1px solid #27272a; }

@@ -145,6 +145,15 @@ const totalHours = ((data?.runtime ?? 0) / 60).toFixed(1);
     display:none;
 }
 
+/* A phone: thirty bars fit with thin gaps and every fifth date. */
+@media (max-width:767px){
+    .chart{ gap:2px; }
+    .day{ min-width:0; }
+    .label{ font-size:9px; visibility:hidden; }
+    .day:nth-child(5n+1) .label{ visibility:visible; }
+    .totals{ flex-wrap:wrap; }
+}
+
 .tooltip-date{
     font-weight:700;
     margin-bottom:8px;

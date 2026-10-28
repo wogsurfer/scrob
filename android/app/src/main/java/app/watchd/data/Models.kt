@@ -607,3 +607,26 @@ data class PipelineHealth(val status: String = "unknown", val problems: Int = 0)
 
 @Serializable
 data class Count(val count: Int = 0)
+
+// ------------------------------------------------------------------ adding a disc
+
+@Serializable
+data class AlreadyOwned(val id: Int, val title: String? = null, val status: String? = null)
+
+/** What a barcode belongs to, from the free UPC database. */
+@Serializable
+data class BarcodeProduct(
+    val title: String? = null,
+    val brand: String? = null,
+    val images: List<String> = emptyList(),
+    val already: AlreadyOwned? = null,
+)
+
+@Serializable
+data class LookupResult(val kind: String = "movie", val tmdbId: Int, val title: String? = null, val year: String? = null, val poster: String? = null)
+
+@Serializable
+data class DiscLookup(val product: BarcodeProduct? = null, val query: String? = null, val results: List<LookupResult> = emptyList())
+
+@Serializable
+data class Created(val id: Int)

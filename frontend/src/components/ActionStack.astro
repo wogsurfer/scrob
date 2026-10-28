@@ -179,6 +179,16 @@ const requestTitle = isMonitored
   @media (min-width: 640px) {
     .action-stack { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   }
+  /* A narrow phone: tighter buttons, so "Watched 100%" isn't cut short. */
+  @media (max-width: 419px) {
+    .action-stack { gap: 6px; }
+    .action-stack button { gap: 7px; padding: 0 10px; font-size: 13px; }
+    .action-stack .as-value { font-size: 11px; }
+  }
+  /* Two columns: a button left on its own takes the whole row. */
+  @media (max-width: 639px) {
+    .action-stack > :last-child:nth-child(odd) { grid-column: 1 / -1; }
+  }
   @media (min-width: 1024px) {
     .action-stack { grid-template-columns: 1fr; margin: 0; }
   }

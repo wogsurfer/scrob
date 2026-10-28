@@ -41,6 +41,7 @@ import app.watchd.ui.WatchlistScreen
 import app.watchd.ui.YouScreen
 import app.watchd.ui.PersonScreen
 import app.watchd.ui.CollectionScreen
+import app.watchd.ui.AddDiscScreen
 import app.watchd.ui.DiscScreen
 import coil3.ImageLoader
 import coil3.compose.setSingletonImageLoaderFactory
@@ -103,6 +104,7 @@ import kotlinx.serialization.Serializable
 @Serializable data class ListRoute(val id: Int)
 @Serializable data class PersonRoute(val id: Int)
 @Serializable object CollectionRoute
+@Serializable object AddDiscRoute
 @Serializable data class DiscRoute(val id: Int)
 
 /** The signed-in server and token, for images Watchd serves itself. */
@@ -291,7 +293,11 @@ private fun SignedIn(session: Session, incoming: Intent?, onHandled: () -> Unit,
                 composable<HistoryRoute> { HistoryScreen(openShow, openMovie) }
                 composable<YouRoute> { YouScreen(openWatchlist = { nav.navigate(WatchlistRoute) }, openList = { nav.navigate(ListRoute(it)) }) }
                 composable<PersonRoute> { PersonScreen(it.toRoute<PersonRoute>().id, onBack = { nav.popBackStack() }, openShow = openShow, openMovie = openMovie) }
-                composable<CollectionRoute> { CollectionScreen(onBack = { nav.popBackStack() }, openDisc = { nav.navigate(DiscRoute(it)) }) }
+                composable<CollectionRoute> { CollectionScreen(onBack = { nav.popBackStack() }, openDisc = { nav.navigate(DiscRoute(it)) }, addDisc = { nav.navigate(AddDiscRoute) }) }
+                composable<AddDiscRoute> {
+                    // The new (or already owned) disc replaces this screen, so Back goes to the collection.
+                    AddDiscScreen(onBack = { nav.popBackStack() }, openDisc = { id -> nav.navigate(DiscRoute(id)) { popUpTo<AddDiscRoute> { inclusive = true } } })
+                }
                 composable<DiscRoute> { DiscScreen(it.toRoute<DiscRoute>().id, onBack = { nav.popBackStack() }, openDisc = { id -> nav.navigate(DiscRoute(id)) }, openShow = openShow, openMovie = openMovie) }
                 composable<WatchlistRoute> { WatchlistScreen(onBack = { nav.popBackStack() }, openMovie = openMovie) }
                 composable<ListRoute> { ListScreen(it.toRoute<ListRoute>().id, onBack = { nav.popBackStack() }, openShow = openShow, openMovie = openMovie) }

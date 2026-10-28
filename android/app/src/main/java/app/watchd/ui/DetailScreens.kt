@@ -450,7 +450,7 @@ internal fun DetailScaffold(title: String, list: LazyListState, onBack: () -> Un
 }
 
 @Composable
-internal fun DetailHeader(backdrop: String?, poster: String?, title: String, facts: List<String>) {
+internal fun DetailHeader(backdrop: String?, poster: String?, title: String, facts: List<String>, cover: Boolean = false) {
     // The poster overlaps the bottom of the backdrop, which fades into the page.
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val backdropHeight = maxWidth * 10 / 16
@@ -467,7 +467,8 @@ internal fun DetailHeader(backdrop: String?, poster: String?, title: String, fac
             verticalAlignment = Alignment.Bottom,
             horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Poster(poster, Modifier.width(104.dp))
+            // A disc's case scan keeps its own shape; posters are 2:3.
+            if (cover) Cover(poster, Modifier.width(110.dp)) else Poster(poster, Modifier.width(104.dp))
             Column(Modifier.weight(1f).padding(bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(title, style = MaterialTheme.typography.headlineSmall)
                 if (facts.isNotEmpty()) Text(facts.joinToString(" · "), color = Watchd.Muted, fontSize = 13.sp)
