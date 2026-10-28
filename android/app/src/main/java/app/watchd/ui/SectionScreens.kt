@@ -1,5 +1,6 @@
 package app.watchd.ui
 
+import androidx.compose.material.icons.filled.BarChart
 import kotlinx.serialization.Serializable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -274,7 +275,7 @@ private fun watchTime(minutes: Long): String {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun YouScreen(openWatchlist: () -> Unit, openList: (Int) -> Unit) {
+fun YouScreen(openWatchlist: () -> Unit, openList: (Int) -> Unit, openStats: () -> Unit) {
     val app = LocalApp.current
     val (state, reload) = rememberLoad(Unit, saved<You>("you")) {
         coroutineScope {
@@ -339,6 +340,21 @@ fun YouScreen(openWatchlist: () -> Unit, openList: (Int) -> Unit) {
                             }
                         }
                     }
+                }
+            }
+            // Everything else is on the site's stats pages, shown here signed in.
+            item {
+                Row(
+                    Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth().clip(RoundedCornerShape(14.dp))
+                        .background(Watchd.Surface).clickable(onClick = openStats).padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Default.BarChart, contentDescription = null, tint = Watchd.Red)
+                    Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                        Text("All your stats", fontWeight = FontWeight.Bold)
+                        Text("Every chart and list from the site", color = Watchd.Muted, fontSize = 12.sp)
+                    }
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = Watchd.Faint)
                 }
             }
             item { SectionTitle("Collections", Modifier.padding(top = 8.dp)) }

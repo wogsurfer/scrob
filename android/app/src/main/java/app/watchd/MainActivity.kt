@@ -40,6 +40,7 @@ import app.watchd.ui.HistoryScreen
 import app.watchd.ui.ListScreen
 import app.watchd.ui.WatchlistScreen
 import app.watchd.ui.YouScreen
+import app.watchd.ui.StatsScreen
 import app.watchd.ui.PersonScreen
 import app.watchd.ui.CollectionScreen
 import app.watchd.ui.AddDiscScreen
@@ -103,6 +104,7 @@ import kotlinx.serialization.Serializable
 @Serializable object HistoryRoute
 @Serializable object YouRoute
 @Serializable object WatchlistRoute
+@Serializable object StatsRoute
 @Serializable data class ListRoute(val id: Int)
 @Serializable data class PersonRoute(val id: Int)
 @Serializable object CollectionRoute
@@ -187,7 +189,7 @@ class MainActivity : ComponentActivity() {
 private fun SignedIn(session: Session, incoming: Intent?, onHandled: () -> Unit, signOut: () -> Unit) {
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    val app = remember(session) { AppContext(Api(session.server, session.token), signOut, snackbar, scope) }
+    val app = remember(session) { AppContext(Api(session.server, session.token), session.server, session.token, signOut, snackbar, scope) }
     ImageAuth.server = session.server
     ImageAuth.token = session.token
     val nav = rememberNavController()
@@ -303,7 +305,8 @@ private fun SignedIn(session: Session, incoming: Intent?, onHandled: () -> Unit,
                 composable<SearchRoute> { SearchScreen(openShow, openMovie) }
                 composable<CalendarRoute> { CalendarScreen(openShow, openMovie) }
                 composable<HistoryRoute> { HistoryScreen(openShow, openMovie) }
-                composable<YouRoute> { YouScreen(openWatchlist = { nav.navigate(WatchlistRoute) }, openList = { nav.navigate(ListRoute(it)) }) }
+                composable<YouRoute> { YouScreen(openWatchlist = { nav.navigate(WatchlistRoute) }, openList = { nav.navigate(ListRoute(it)) }, openStats = { nav.navigate(StatsRoute) }) }
+                composable<StatsRoute> { StatsScreen(onBack = { nav.popBackStack() }) }
                 composable<PersonRoute> { PersonScreen(it.toRoute<PersonRoute>().id, onBack = { nav.popBackStack() }, openShow = openShow, openMovie = openMovie) }
                 composable<CollectionRoute> { CollectionScreen(onBack = { nav.popBackStack() }, openDisc = { nav.navigate(DiscRoute(it)) }, addDisc = { nav.navigate(AddDiscRoute) }) }
                 composable<AddDiscRoute> {

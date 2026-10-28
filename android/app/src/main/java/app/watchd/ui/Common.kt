@@ -67,6 +67,9 @@ import kotlinx.coroutines.launch
  *  snackbar that confirms actions. */
 class AppContext(
     val api: Api,
+    /** Where Watchd is and the app's sign-in, for pages of the site shown in the app. */
+    val server: String,
+    val token: String?,
     val signOut: () -> Unit,
     val snackbar: SnackbarHostState,
     private val scope: CoroutineScope,
