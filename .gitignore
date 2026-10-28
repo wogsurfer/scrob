@@ -106,3 +106,5 @@ backup.key
 backend/data/tvdb_award_index.json
 backend/data/cache/
 backend/data/physical/
+# Published builds of the Android app (android/publish.ps1).
+backend/data/app/

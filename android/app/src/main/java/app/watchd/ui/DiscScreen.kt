@@ -52,7 +52,7 @@ private fun dateOf(value: String?): String? = value?.let {
  */
 @Composable
 fun DiscScreen(discId: Int, onBack: () -> Unit, openDisc: (Int) -> Unit, openShow: (Int) -> Unit, openMovie: (Int) -> Unit) {
-    val (state, reload) = rememberLoad(discId) { disc(discId) }
+    val (state, reload) = rememberLoad(discId, saved("disc-$discId")) { disc(discId) }
     val list = rememberLazyListState()
     LoadContent(state, reload) { d ->
         val set = d.parent

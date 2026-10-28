@@ -1,3 +1,7 @@
+import java.time.Duration
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -12,8 +16,11 @@ android {
         applicationId = "app.watchd"
         minSdk = 28
         targetSdk = 37
-        versionCode = 1
-        versionName = "0.1.0"
+        // Every build newer than the last, so the app's updater can tell:
+        // minutes since 2026, and the build time as the name.
+        val built = LocalDateTime.now()
+        versionCode = Duration.between(LocalDateTime.of(2026, 1, 1, 0, 0), built).toMinutes().toInt()
+        versionName = built.format(DateTimeFormatter.ofPattern("yyyy.MM.dd-HHmm"))
     }
 
     buildTypes {
@@ -52,5 +59,6 @@ dependencies {
     implementation(libs.datastore.preferences)
     implementation(libs.work.runtime)
     implementation(libs.code.scanner)
+    implementation(libs.glance.appwidget)
     debugImplementation(libs.compose.ui.tooling)
 }

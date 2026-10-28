@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from sqlalchemy.ext.asyncio import AsyncSession
 from db import engine, Base
 import models # noqa: F401
+from routers import app_update
 from routers import (
     awards,
     pipeline,
@@ -514,6 +515,7 @@ app.include_router(
     tags=["Watchlist"],
 )
 app.include_router(pipeline.router, prefix="/pipeline", tags=["pipeline"])
+app.include_router(app_update.router, prefix="/app", tags=["app"])
 
 @app.get("/health")
 async def health():

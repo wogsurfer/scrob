@@ -1,5 +1,6 @@
 package app.watchd.ui
 
+import kotlinx.serialization.Serializable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -274,7 +275,7 @@ private val CATEGORIES = listOf("all" to "All", "acting" to "Acting", "directing
 fun PersonScreen(personId: Int, onBack: () -> Unit, openShow: (Int) -> Unit, openMovie: (Int) -> Unit) {
     val app = LocalApp.current
     var category by rememberSaveable { mutableStateOf("all") }
-    val (state, reload) = rememberLoad(personId) { person(personId) }
+    val (state, reload) = rememberLoad(personId, saved("person-$personId")) { person(personId) }
     val awards = rememberAwards(personId) { personAwards(personId).awards }
     LoadContent(state, reload) { person ->
         // Credits a page at a time, per category, as you scroll.
@@ -390,6 +391,7 @@ private fun Biography(text: String) {
 
 // ------------------------------------------------------------------ disc collection
 
+@Serializable
 private data class Shelf(val items: List<PhysicalItem>, val stats: app.watchd.data.PhysicalStats)
 
 /**
@@ -410,12 +412,19 @@ private val SHELVES = listOf("All", "4K UHD", "Blu-ray", "Blu-ray 3D", "Sets", "
 
 @Composable
 fun CollectionScreen(onBack: () -> Unit, openDisc: (Int) -> Unit, addDisc: () -> Unit) {
-    val (state, reload) = rememberLoad(Unit) { Shelf(discItems().items, discStats()) }
+    val (state, reload) = rememberLoad(Unit, saved<Shelf>("collection")) { Shelf(discItems().items, discStats()) }
     var shelf by rememberSaveable { mutableStateOf("All") }
     var query by rememberSaveable { mutableStateOf("") }
+    var order by rememberSaveable { mutableStateOf("A–Z") }
+    var unseenOnly by rememberSaveable { mutableStateOf(false) }
+    var newOnly by rememberSaveable { mutableStateOf(false) }
     // Covers a row, 2 to 6, kept between visits.
     val prefs = LocalContext.current.getSharedPreferences("watchd", android.content.Context.MODE_PRIVATE)
     var columns by remember { mutableIntStateOf(prefs.getInt("collection_columns", 3).coerceIn(2, 6)) }
+    val chipColors = FilterChipDefaults.filterChipColors(
+        selectedContainerColor = Watchd.Red, selectedLabelColor = Color.White,
+        containerColor = Watchd.Surface, labelColor = Watchd.Muted,
+    )
     LoadContent(state, reload) { data ->
         val children = remember(data) { data.items.filter { it.parentId != null }.groupBy { it.parentId!! } }
         val top = remember(data) { data.items.filter { it.parentId == null } }
@@ -427,8 +436,17 @@ fun CollectionScreen(onBack: () -> Unit, openDisc: (Int) -> Unit, addDisc: () ->
                 "Sets" -> item.isSet && item.status != "wishlist"
                 "All" -> item.status != "wishlist"
                 else -> item.status != "wishlist" && (item.format == shelf || inSet.any { it.format == shelf })
-            } && (q.isEmpty() || item.title.orEmpty().lowercase().contains(q) || inSet.any { it.title.orEmpty().lowercase().contains(q) })
-        }.sortedWith(compareBy<PhysicalItem> { shelfKey(it) }.thenBy { it.title.orEmpty() })
+            } && (q.isEmpty() || item.title.orEmpty().lowercase().contains(q) || inSet.any { it.title.orEmpty().lowercase().contains(q) }) &&
+                (!unseenOnly || !item.seen) && (!newOnly || item.unedited)
+        }.let { found ->
+            val shelfOrder = compareBy<PhysicalItem> { shelfKey(it) }.thenBy { it.title.orEmpty() }
+            when (order) {
+                // Newest first; the shelf order breaks ties (a whole import shares a date).
+                "Newest" -> found.sortedWith(compareByDescending<PhysicalItem> { it.dateAdded.orEmpty() }.then(shelfOrder))
+                "Year" -> found.sortedWith(compareByDescending<PhysicalItem> { it.releaseYear ?: 0 }.then(shelfOrder))
+                else -> found.sortedWith(shelfOrder)
+            }
+        }
 
         LazyVerticalGrid(
             columns = GridCells.Fixed(columns), modifier = Modifier.fillMaxSize(),
@@ -464,6 +482,14 @@ fun CollectionScreen(onBack: () -> Unit, openDisc: (Int) -> Unit, addDisc: () ->
                                 border = null,
                             )
                         }
+                    }
+                    // Order, and only the unseen or never-edited discs.
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 6.dp)) {
+                        items(listOf("A–Z", "Newest", "Year")) { name ->
+                            FilterChip(order == name, { order = name }, label = { Text(if (name == "Newest") "Newest added" else name) }, colors = chipColors, border = null)
+                        }
+                        item { FilterChip(unseenOnly, { unseenOnly = !unseenOnly }, label = { Text("Unseen") }, colors = chipColors, border = null) }
+                        item { FilterChip(newOnly, { newOnly = !newOnly }, label = { Text("NEW") }, colors = chipColors, border = null) }
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("${shown.size} shown", color = Watchd.Faint, fontSize = 12.sp, modifier = Modifier.weight(1f))

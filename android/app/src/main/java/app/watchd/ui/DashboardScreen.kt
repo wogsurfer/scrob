@@ -1,5 +1,6 @@
 package app.watchd.ui
 
+import kotlinx.serialization.Serializable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -72,13 +73,15 @@ import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
+@Serializable
 private data class Dashboard(val nextUp: NextUpResponse, val upcoming: Upcoming)
 
+@Serializable
 private data class Header(val posters: List<String>, val totals: Totals?, val health: PipelineHealth?)
 
 @Composable
 fun DashboardScreen(openShow: (Int) -> Unit, openMovie: (Int) -> Unit, openCollection: () -> Unit) {
-    val (state, reload) = rememberLoad(Unit) {
+    val (state, reload) = rememberLoad(Unit, saved<Dashboard>("home")) {
         coroutineScope {
             val nextUp = async { nextUp() }
             // Home shows the rest of this week, through Sunday.
@@ -87,7 +90,7 @@ fun DashboardScreen(openShow: (Int) -> Unit, openMovie: (Int) -> Unit, openColle
         }
     }
     // The header loads on its own, so a slow stat never holds up Next Up.
-    val (header, reloadHeader) = rememberLoad("header") {
+    val (header, reloadHeader) = rememberLoad("header", saved<Header>("home-header")) {
         coroutineScope {
             val hero = async { runCatching { hero().posters }.getOrDefault(emptyList()) }
             val totals = async { runCatching { totals() }.getOrNull() }

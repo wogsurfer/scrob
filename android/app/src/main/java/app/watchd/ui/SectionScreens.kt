@@ -1,5 +1,6 @@
 package app.watchd.ui
 
+import kotlinx.serialization.Serializable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -98,7 +99,7 @@ private fun PageTitle(title: String, onBack: (() -> Unit)? = null) {
 /** Five weeks from this Monday: episodes from your shows and release dates of films you follow. */
 @Composable
 fun CalendarScreen(openShow: (Int) -> Unit, openMovie: (Int) -> Unit) {
-    val (state, reload) = rememberLoad(Unit) { calendar(35) }
+    val (state, reload) = rememberLoad(Unit, saved("calendar")) { calendar(35) }
     LoadContent(state, reload) { data ->
         val today = data.today?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: LocalDate.now()
         val thisMonday = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
@@ -261,7 +262,8 @@ private fun HistoryRow(event: HistoryEvent, openShow: (Int) -> Unit, openMovie: 
 
 // ------------------------------------------------------------------ you
 
-private data class You(val name: String, val totals: app.watchd.data.Totals, val stats: app.watchd.data.ProfileStats?, val lists: List<app.watchd.data.UserList>, val watchlistPosters: List<String>, val watchlistCount: Int?)
+@Serializable
+private data class You(val name: String, val totals: app.watchd.data.Totals, val lists: List<app.watchd.data.UserList>, val watchlistPosters: List<String>, val watchlistCount: Int?)
 
 /** "504d 0h": days and hours of watching. */
 private fun watchTime(minutes: Long): String {
@@ -274,11 +276,10 @@ private fun watchTime(minutes: Long): String {
 @Composable
 fun YouScreen(openWatchlist: () -> Unit, openList: (Int) -> Unit) {
     val app = LocalApp.current
-    val (state, reload) = rememberLoad(Unit) {
+    val (state, reload) = rememberLoad(Unit, saved<You>("you")) {
         coroutineScope {
             val me = me()
             val totals = async { totals() }
-            val stats = async { runCatching { profileStats(me.id) }.getOrNull() }
             // As on the site's Lists page: "Movies" was merged into the
             // Watchlist (27 Oct 2026), which comes first; then this order.
             val order = listOf("following", "watchlist tv", "ended & completed")
@@ -291,9 +292,13 @@ fun YouScreen(openWatchlist: () -> Unit, openList: (Int) -> Unit) {
             }
             val poster = async { runCatching { watchlistPreview().mapNotNull { it.posterPath }.take(6) }.getOrDefault(emptyList()) }
             val count = async { runCatching { watchlistCount() }.getOrNull() }
-            You(me.displayName ?: me.username, totals.await(), stats.await(), lists.await(), poster.await(), count.await())
+            You(me.displayName ?: me.username, totals.await(), lists.await(), poster.await(), count.await())
         }
     }
+    // The ratings, chart and genres take a few seconds on the server, so they
+    // load on their own and fill in when they arrive.
+    val (statsState) = rememberLoad("you-stats", saved<app.watchd.data.ProfileStats>("you-stats")) { profileStats(me().id) }
+    val stats = (statsState as? Load.Ready)?.value
     LoadContent(state, reload) { you ->
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
             item { PageTitle(you.name) }
@@ -308,17 +313,17 @@ fun YouScreen(openWatchlist: () -> Unit, openList: (Int) -> Unit) {
                     StatTile("On disc", "%,d".format(you.totals.library.movies), "%,d series".format(you.totals.library.shows), Modifier.weight(1f), unit = "films")
                     StatTile(
                         "Average rating",
-                        you.stats?.avgMovieRating?.let { "%.1f".format(it) } ?: "–",
-                        you.stats?.avgShowRating?.let { "%.1f shows".format(it) } ?: "",
+                        stats?.avgMovieRating?.let { "%.1f".format(it) } ?: "–",
+                        stats?.avgShowRating?.let { "%.1f shows".format(it) } ?: "",
                         Modifier.weight(1f),
                         unit = "films",
                     )
                 }
             }
-            you.stats?.watchActivity?.takeLast(12)?.takeIf { it.isNotEmpty() }?.let { months ->
+            stats?.watchActivity?.takeLast(12)?.takeIf { it.isNotEmpty() }?.let { months ->
                 item { ActivityChart(months) }
             }
-            you.stats?.let { stats ->
+            stats?.let { stats ->
                 val genres = (stats.topShowGenres + stats.topMovieGenres).groupBy { it.name }.map { (name, g) -> name to g.sumOf { it.count } }.sortedByDescending { it.second }.take(8)
                 if (genres.isNotEmpty()) {
                     item {
@@ -481,7 +486,7 @@ private data class GridItem(val tmdbId: Int, val type: String, val title: String
 
 @Composable
 fun WatchlistScreen(onBack: () -> Unit, openMovie: (Int) -> Unit) {
-    val (state, reload) = rememberLoad(Unit) { watchlist() }
+    val (state, reload) = rememberLoad(Unit, saved("watchlist")) { watchlist() }
     LoadContent(state, reload) { films ->
         PosterGrid(
             "Watchlist", "%,d films".format(films.size), onBack,
@@ -493,7 +498,7 @@ fun WatchlistScreen(onBack: () -> Unit, openMovie: (Int) -> Unit) {
 
 @Composable
 fun ListScreen(listId: Int, onBack: () -> Unit, openShow: (Int) -> Unit, openMovie: (Int) -> Unit) {
-    val (state, reload) = rememberLoad(listId) { list(listId) }
+    val (state, reload) = rememberLoad(listId, saved("list-$listId")) { list(listId) }
     LoadContent(state, reload) { list ->
         PosterGrid(
             list.name, list.description ?: "%,d titles".format(list.itemCount), onBack,

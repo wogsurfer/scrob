@@ -1,5 +1,14 @@
 package app.watchd.ui
 
+import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
+import androidx.compose.ui.platform.LocalContext
+import app.watchd.data.json
+import kotlinx.serialization.serializer
+import kotlinx.serialization.KSerializer
+import java.io.File
+import android.content.Context
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -76,6 +85,14 @@ class AppContext(
         watchSheet = target to onChanged
     }
 
+    /** Watchd didn't answer and a screen is showing what it saved last time. */
+    fun offline() {
+        scope.launch {
+            snackbar.currentSnackbarData?.dismiss()
+            snackbar.showSnackbar("Can't reach Watchd: showing what was loaded last", duration = SnackbarDuration.Short)
+        }
+    }
+
     fun refreshSessions() {
         scope.launch {
             try {
@@ -132,22 +149,61 @@ sealed interface Load<out T> {
     data class Failed(val message: String) : Load<Nothing>
 }
 
+/** Where a screen keeps what it last loaded, so it opens with that at once
+ *  (and still has it when Watchd can't be reached). */
+class Saved<T>(val name: String, val serializer: KSerializer<T>)
+
+inline fun <reified T> saved(name: String) = Saved(name, serializer<T>())
+
+private fun savedFile(context: Context, name: String) = File(File(context.cacheDir, "screens"), "$name.json")
+
+private fun <T> readSaved(context: Context, saved: Saved<T>): T? =
+    runCatching { json.decodeFromString(saved.serializer, savedFile(context, saved.name).readText()) }.getOrNull()
+
+private fun <T> writeSaved(context: Context, saved: Saved<T>, value: T) {
+    runCatching {
+        val file = savedFile(context, saved.name)
+        file.parentFile?.mkdirs()
+        file.writeText(json.encodeToString(saved.serializer, value))
+    }
+}
+
+/** Forgets every screen's saved data (on signing out). */
+fun clearSaved(context: Context) {
+    File(context.cacheDir, "screens").deleteRecursively()
+}
+
 /** Loads [block] when [key] changes; returns the state and a retry. A
- *  rejected token signs the app out instead of showing an error. */
+ *  rejected token signs the app out instead of showing an error. With
+ *  [saved], the screen opens with what it showed last time while the fresh
+ *  data loads, and keeps it, with a note, if Watchd can't be reached. */
 @Composable
-fun <T> rememberLoad(key: Any?, block: suspend Api.() -> T): Pair<Load<T>, () -> Unit> {
+fun <T> rememberLoad(key: Any?, saved: Saved<T>? = null, block: suspend Api.() -> T): Pair<Load<T>, () -> Unit> {
     val app = LocalApp.current
+    val context = LocalContext.current
     var attempt by remember { mutableIntStateOf(0) }
-    var state by remember(key) { mutableStateOf<Load<T>>(Load.Loading) }
+    var state by remember(key) {
+        mutableStateOf<Load<T>>(saved?.let { readSaved(context, it) }?.let { Load.Ready(it) } ?: Load.Loading)
+    }
     LaunchedEffect(key, attempt) {
         if (state !is Load.Ready) state = Load.Loading
         state = try {
-            Load.Ready(app.api.block())
+            val value = app.api.block()
+            if (saved != null) withContext(Dispatchers.IO) { writeSaved(context, saved, value) }
+            Load.Ready(value)
         } catch (e: SignedOut) {
             app.signOut()
             Load.Loading
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            Load.Failed(e.message ?: "Couldn't reach Watchd")
+            val shown = state
+            if (shown is Load.Ready) {
+                app.offline()
+                shown
+            } else {
+                Load.Failed(e.message ?: "Couldn't reach Watchd")
+            }
         }
     }
     return state to { attempt++ }

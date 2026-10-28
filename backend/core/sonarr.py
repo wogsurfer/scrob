@@ -1,4 +1,7 @@
 import httpx
+
+# Inside Docker a "localhost" address means the container; this reaches the PC.
+from core.radarr import _base
 import logging
 from typing import Optional, List, Dict, Any
 
@@ -7,7 +10,7 @@ logger = logging.getLogger(__name__)
 async def validate_connection(url: str, token: str) -> bool:
     """Check if we can connect to Sonarr and if the API key is valid."""
     try:
-        url = url.rstrip("/")
+        url = _base(url)
         async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
             response = await client.get(
                 f"{url}/api/v3/system/status",
@@ -21,7 +24,7 @@ async def validate_connection(url: str, token: str) -> bool:
 async def get_root_folders(url: str, token: str) -> List[Dict[str, Any]]:
     """Fetch root folders from Sonarr."""
     try:
-        url = url.rstrip("/")
+        url = _base(url)
         async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
             response = await client.get(
                 f"{url}/api/v3/rootfolder",
@@ -36,7 +39,7 @@ async def get_root_folders(url: str, token: str) -> List[Dict[str, Any]]:
 async def get_quality_profiles(url: str, token: str) -> List[Dict[str, Any]]:
     """Fetch quality profiles from Sonarr."""
     try:
-        url = url.rstrip("/")
+        url = _base(url)
         async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
             response = await client.get(
                 f"{url}/api/v3/qualityprofile",
@@ -51,7 +54,7 @@ async def get_quality_profiles(url: str, token: str) -> List[Dict[str, Any]]:
 async def get_tags(url: str, token: str) -> List[Dict[str, Any]]:
     """Fetch tags from Sonarr."""
     try:
-        url = url.rstrip("/")
+        url = _base(url)
         async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
             response = await client.get(
                 f"{url}/api/v3/tag",
@@ -76,7 +79,7 @@ async def add_series(
 ) -> Dict[str, Any]:
     """Add a series to Sonarr."""
     try:
-        url = url.rstrip("/")
+        url = _base(url)
         async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
             # First, lookup series on Sonarr
             lookup_res = await client.get(

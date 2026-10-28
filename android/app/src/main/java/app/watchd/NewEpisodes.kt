@@ -21,6 +21,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import app.watchd.data.Api
+import app.watchd.data.DownloadedFilm
 import app.watchd.data.SessionStore
 import app.watchd.data.SignedOut
 import app.watchd.data.UpcomingEpisode
@@ -64,7 +65,55 @@ class NewEpisodesWorker(context: Context, params: WorkerParameters) : CoroutineW
         // Keep the list short: only episodes still on the schedule matter.
         val current = episodes.map { "${it.showTmdbId}-${it.season}-${it.episode}" }.toSet()
         prefs.edit().putStringSet("told", told.filter { it in current }.toSet()).apply()
+        checkDownloads(Api(session.server, token))
         return Result.success()
+    }
+
+    /**
+     * "The Thing is downloaded": films Radarr has imported since the last
+     * look, each told once. The first look only notes what's there, so
+     * turning this on doesn't bring a flood of old downloads.
+     */
+    private suspend fun checkDownloads(api: Api) {
+        val films = try {
+            api.recentlyDownloaded(hours = 48)
+        } catch (e: Exception) {
+            Log.w(TAG, "downloads unavailable", e)
+            return
+        }
+        val prefs = applicationContext.getSharedPreferences("downloads", Context.MODE_PRIVATE)
+        val told = prefs.getStringSet("told", emptySet()).orEmpty().toMutableSet()
+        val firstLook = !prefs.getBoolean("looked", false)
+        for (film in films) {
+            val key = film.tmdbId.toString()
+            if (key in told) continue
+            if (firstLook || notifyDownload(film)) told += key
+            Log.i(TAG, "downloaded: ${film.title}")
+        }
+        // Only the last two days' downloads can come round again.
+        val current = films.map { it.tmdbId.toString() }.toSet()
+        prefs.edit().putStringSet("told", told.filter { it in current }.toSet()).putBoolean("looked", true).apply()
+    }
+
+    private fun notifyDownload(film: DownloadedFilm): Boolean {
+        val context = applicationContext
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return false
+        ensureChannel(context)
+        val open = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(EXTRA_MOVIE, film.tmdbId)
+        }
+        val tap = PendingIntent.getActivity(context, film.tmdbId, open, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val notification = NotificationCompat.Builder(context, DOWNLOADS)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setColor(0xFFE50914.toInt())
+            .setContentTitle("${film.title.orEmpty()} is downloaded")
+            .setContentText(listOfNotNull(film.year?.toString(), film.quality, "ready to watch").joinToString(" · "))
+            .setContentIntent(tap)
+            .setAutoCancel(true)
+            .setGroup(DOWNLOADS)
+            .build()
+        return runCatching { NotificationManagerCompat.from(context).notify("film-${film.tmdbId}".hashCode(), notification) }.isSuccess
     }
 
     private fun releaseTime(ep: UpcomingEpisode): ZonedDateTime? {
@@ -98,6 +147,8 @@ class NewEpisodesWorker(context: Context, params: WorkerParameters) : CoroutineW
 
     companion object {
         const val EXTRA_SHOW = "show_tmdb_id"
+        const val EXTRA_MOVIE = "movie_tmdb_id"
+        private const val DOWNLOADS = "downloads"
         private const val TAG = "NewEpisodes"
         private const val CHANNEL = "new_episodes"
         private const val WORK = "new_episodes"
@@ -109,6 +160,11 @@ class NewEpisodesWorker(context: Context, params: WorkerParameters) : CoroutineW
             if (manager.getNotificationChannel(CHANNEL) == null) {
                 manager.createNotificationChannel(
                     NotificationChannel(CHANNEL, context.getString(R.string.channel_episodes), NotificationManager.IMPORTANCE_DEFAULT),
+                )
+            }
+            if (manager.getNotificationChannel(DOWNLOADS) == null) {
+                manager.createNotificationChannel(
+                    NotificationChannel(DOWNLOADS, context.getString(R.string.channel_downloads), NotificationManager.IMPORTANCE_DEFAULT),
                 )
             }
         }

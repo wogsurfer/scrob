@@ -2,4 +2,7 @@
     <string name="app_name">Watchd</string>
     <string name="share_label">Open in Watchd</string>
     <string name="channel_episodes">New episodes</string>
+    <string name="channel_downloads">Films downloaded</string>
+    <string name="widget_name">Watchd Next Up</string>
+    <string name="widget_description">Your next episodes, ticked off from the home screen</string>
 </resources>

@@ -58,6 +58,33 @@ class Api(server: String, private val token: String?) {
     suspend fun hero(): Hero = get("dashboard/hero")
     suspend fun pipelineHealth(): PipelineHealth = get("pipeline/health")
     suspend fun watchlistPreview(): List<WatchlistMovie> = get("dashboard/watchlist")
+    /** The newest build of the app published to Watchd. */
+    suspend fun latestApp(): AppBuild = get("app/latest")
+
+    /** Downloads the newest build to [file], reporting progress from 0 to 1. */
+    suspend fun downloadApp(file: java.io.File, onProgress: (Float) -> Unit) = withContext(Dispatchers.IO) {
+        client.newCall(request("app/download").get().build()).execute().use { response ->
+            if (!response.isSuccessful) throw ApiError(response.code, "Couldn't download the update")
+            val total = response.body.contentLength().takeIf { it > 0 }
+            file.parentFile?.mkdirs()
+            response.body.byteStream().use { input ->
+                file.outputStream().use { output ->
+                    val buffer = ByteArray(64 * 1024)
+                    var done = 0L
+                    while (true) {
+                        val n = input.read(buffer)
+                        if (n < 0) break
+                        output.write(buffer, 0, n)
+                        done += n
+                        total?.let { onProgress(done.toFloat() / it) }
+                    }
+                }
+            }
+        }
+    }
+
+    /** Films Radarr downloaded in the last [hours], newest first. */
+    suspend fun recentlyDownloaded(hours: Int = 24): List<DownloadedFilm> = get("watchlist/downloaded", "hours" to "$hours")
     suspend fun watchlistCount(): Int = get<Count>("watchlist/count").count
     suspend fun profileStats(userId: Int): ProfileStats = get("profile/$userId/stats")
     suspend fun filmAwards(tmdbId: Int): AwardsResponse = get("awards/movie/$tmdbId")
@@ -178,6 +205,19 @@ class Api(server: String, private val token: String?) {
         send(request("watchlist", "tmdb_id" to "$tmdbId").post(ByteArray(0).toRequestBody()))
 
     suspend fun removeFromWatchlist(tmdbId: Int) = send(request("watchlist/$tmdbId").delete())
+
+    /** Your 1 to 10 rating of a film ("movie") or show ("series"). */
+    suspend fun rate(tmdbId: Int, mediaType: String, rating: Int) {
+        val body = buildJsonObject {
+            put("tmdb_id", tmdbId)
+            put("media_type", mediaType)
+            put("rating", rating)
+        }
+        send(request("ratings").post(body.toString().toRequestBody(jsonType)))
+    }
+
+    suspend fun unrate(tmdbId: Int, mediaType: String) =
+        send(request("ratings", "tmdb_id" to "$tmdbId", "media_type" to mediaType).delete())
 
     suspend fun login(username: String, password: String): LoginResponse =
         decode(send(request("auth/login").post(FormBody.Builder().add("username", username).add("password", password).build())))

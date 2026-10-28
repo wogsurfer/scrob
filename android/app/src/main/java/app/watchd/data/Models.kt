@@ -475,6 +475,7 @@ data class PhysicalItem(
     val parentId: Int? = null,
     val isSet: Boolean = false,
     val unedited: Boolean = false,
+    val dateAdded: String? = null,
 )
 
 @Serializable
@@ -607,6 +608,14 @@ data class PipelineHealth(val status: String = "unknown", val problems: Int = 0)
 
 @Serializable
 data class Count(val count: Int = 0)
+
+/** The newest published build of the app. */
+@Serializable
+data class AppBuild(val versionCode: Int, val versionName: String? = null, val size: Long = 0)
+
+/** A film Radarr has downloaded. */
+@Serializable
+data class DownloadedFilm(val tmdbId: Int, val title: String? = null, val year: Int? = null, val quality: String? = null, val importedAt: String? = null, val posterPath: String? = null)
 
 // ------------------------------------------------------------------ adding a disc
 

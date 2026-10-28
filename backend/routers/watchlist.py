@@ -169,6 +169,43 @@ async def watchlist_count(
     return {"count": count or 0}
 
 
+@router.get("/downloaded")
+async def recently_downloaded(
+    hours: int = 24,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Films Radarr has downloaded in the last `hours`, newest first, for the
+    app's "now downloaded" notifications. Radarr's films come from the
+    Watchlist, so these are films you asked for."""
+    from datetime import timedelta, timezone
+    user_settings = (await db.execute(select(UserSettings).where(UserSettings.user_id == current_user.id))).scalar_one_or_none()
+    global_settings = (await db.execute(select(GlobalSettings).where(GlobalSettings.id == 1))).scalar_one_or_none()
+    cfg = _effective_radarr(user_settings, global_settings)
+    if not cfg:
+        return []
+    since = (datetime.now(timezone.utc) - timedelta(hours=max(1, min(hours, 24 * 14)))).strftime("%Y-%m-%dT%H:%M:%SZ")
+    try:
+        events = await radarr_client.get_imports_since(cfg.radarr_url, cfg.radarr_token, since)
+    except Exception:
+        raise HTTPException(status_code=502, detail="Radarr isn't answering")
+    films, seen = [], set()
+    for e in sorted(events, key=lambda e: e.get("date") or "", reverse=True):
+        movie = e.get("movie") or {}
+        tmdb_id = movie.get("tmdbId")
+        if not tmdb_id or tmdb_id in seen:
+            continue
+        seen.add(tmdb_id)
+        films.append({"tmdb_id": tmdb_id, "title": movie.get("title"), "year": movie.get("year"), "imported_at": e.get("date"), "quality": ((e.get("quality") or {}).get("quality") or {}).get("name")})
+    if films:
+        posters = dict((await db.execute(
+            select(Media.tmdb_id, Media.poster_path).where(Media.tmdb_id.in_([f["tmdb_id"] for f in films]), Media.media_type == MediaType.movie)
+        )).all())
+        for f in films:
+            f["poster_path"] = posters.get(f["tmdb_id"])
+    return films
+
+
 @router.post("")
 async def add_to_watchlist(
     tmdb_id: int,

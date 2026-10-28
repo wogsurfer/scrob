@@ -1,5 +1,6 @@
 package app.watchd
 
+import androidx.lifecycle.lifecycleScope
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -42,6 +43,7 @@ import app.watchd.ui.YouScreen
 import app.watchd.ui.PersonScreen
 import app.watchd.ui.CollectionScreen
 import app.watchd.ui.AddDiscScreen
+import app.watchd.ui.clearSaved
 import app.watchd.ui.DiscScreen
 import coil3.ImageLoader
 import coil3.compose.setSingletonImageLoaderFactory
@@ -141,6 +143,12 @@ class MainActivity : ComponentActivity() {
     /** A notification tap or a Share waiting to be opened. */
     private var incoming by mutableStateOf<Intent?>(null)
 
+    // Leaving the app: the home screen widget catches up with anything ticked here.
+    override fun onStop() {
+        super.onStop()
+        lifecycleScope.launch { NextUpWidget.refresh(applicationContext) }
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         incoming = intent
@@ -167,7 +175,7 @@ class MainActivity : ComponentActivity() {
                     else -> if (s.token == null) {
                         LoginScreen(s.server) { server, token -> scope.launch { store.signIn(server, token) } }
                     } else {
-                        SignedIn(s, incoming, onHandled = { incoming = null }) { scope.launch { store.signOut() } }
+                        SignedIn(s, incoming, onHandled = { incoming = null }) { clearSaved(this@MainActivity); scope.launch { store.signOut() } }
                     }
                 }
             }
@@ -209,8 +217,11 @@ private fun SignedIn(session: Session, incoming: Intent?, onHandled: () -> Unit,
         val intent = incoming ?: return@LaunchedEffect
         // Cleared only once handled: clearing it first would cancel the IMDb lookup.
         val show = intent.getIntExtra(NewEpisodesWorker.EXTRA_SHOW, 0)
+        val film = intent.getIntExtra(NewEpisodesWorker.EXTRA_MOVIE, 0)
         if (show > 0) {
             openShow(show)
+        } else if (film > 0) {
+            openMovie(film)
         } else if (intent.action == Intent.ACTION_SEND) {
             val text = listOfNotNull(intent.getStringExtra(Intent.EXTRA_TEXT), intent.getStringExtra(Intent.EXTRA_SUBJECT)).joinToString(" ")
             when (val target = shareTarget(text, app.api)) {
@@ -239,6 +250,7 @@ private fun SignedIn(session: Session, incoming: Intent?, onHandled: () -> Unit,
     }
 
     CompositionLocalProvider(LocalApp provides app) {
+        UpdateCheck()
         app.watchSheet?.let { (target, onChanged) ->
             WatchSheet(target, onChanged, onDismiss = { app.watchSheet = null })
         }

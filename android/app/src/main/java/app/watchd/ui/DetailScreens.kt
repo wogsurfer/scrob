@@ -1,5 +1,8 @@
 package app.watchd.ui
 
+import kotlinx.serialization.Serializable
+import kotlin.math.roundToInt
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -91,7 +94,7 @@ private fun plural(n: Int, word: String) = "$n $word${if (n == 1) "" else "s"}"
 
 @Composable
 fun MovieScreen(tmdbId: Int, onBack: () -> Unit, openMovie: (Int) -> Unit, openPerson: (Int) -> Unit) {
-    val (state, reload) = rememberLoad(tmdbId) { movie(tmdbId) }
+    val (state, reload) = rememberLoad(tmdbId, saved("movie-$tmdbId")) { movie(tmdbId) }
     val awards = rememberAwards(tmdbId) { filmAwards(tmdbId).awards }
     val soundtrack = rememberSoundtrack("movie", tmdbId)
     val app = LocalApp.current
@@ -108,7 +111,7 @@ fun MovieScreen(tmdbId: Int, onBack: () -> Unit, openMovie: (Int) -> Unit, openP
                     facts = listOfNotNull(year(movie.releaseDate), movie.runtime?.takeIf { it > 0 }?.let { "${it / 60}h ${it % 60}m" }, movie.ageRating),
                 )
             }
-            item { RatingsRow(movie.imdbRating, movie.tmdbRating, movie.userRating) }
+            item { RatingsRow(movie.tmdbId, "movie", movie.imdbRating, movie.tmdbRating, movie.userRating) }
             item {
                 Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     WatchedButton(watched, if (watched) (if (plays > 1) "Watched · ${plays}×" else "Watched") else "Mark watched") {
@@ -191,11 +194,12 @@ fun MovieScreen(tmdbId: Int, onBack: () -> Unit, openMovie: (Int) -> Unit, openP
 
 // ------------------------------------------------------------------ show
 
+@Serializable
 private data class ShowPage(val show: Show, val next: NextUpItem?)
 
 @Composable
 fun ShowScreen(tmdbId: Int, onBack: () -> Unit, openSeason: (Int, Int) -> Unit, openPerson: (Int) -> Unit) {
-    val (state, reload) = rememberLoad(tmdbId) {
+    val (state, reload) = rememberLoad(tmdbId, saved<ShowPage>("show-$tmdbId")) {
         coroutineScope {
             val show = async { show(tmdbId) }
             val next = async { runCatching { nextUp(limit = 500).nextUp.firstOrNull { it.showTmdbId == tmdbId } }.getOrNull() }
@@ -222,7 +226,7 @@ fun ShowScreen(tmdbId: Int, onBack: () -> Unit, openSeason: (Int, Int) -> Unit, 
                     ),
                 )
             }
-            item { RatingsRow(show.imdbRating, show.tmdbRating, show.userRating) }
+            item { RatingsRow(show.tmdbId, "series", show.imdbRating, show.tmdbRating, show.userRating) }
             if (show.discs.isNotEmpty()) item { OnDisc(show.discs) }
             if (show.watchPct in 1..99) {
                 item {
@@ -330,7 +334,7 @@ private fun NextEpisodeCard(next: NextUpItem, onOpen: () -> Unit, onLongPress: (
 
 @Composable
 fun SeasonScreen(showTmdbId: Int, seasonNumber: Int, onBack: () -> Unit) {
-    val (state, reload) = rememberLoad(showTmdbId to seasonNumber) { season(showTmdbId, seasonNumber) }
+    val (state, reload) = rememberLoad(showTmdbId to seasonNumber, saved("season-$showTmdbId-$seasonNumber")) { season(showTmdbId, seasonNumber) }
     val app = LocalApp.current
     val haptics = LocalHapticFeedback.current
     val list = rememberLazyListState()
@@ -479,8 +483,41 @@ internal fun DetailHeader(backdrop: String?, poster: String?, title: String, fac
 
 /** IMDb, TMDB and your own rating, in the site's pill. */
 @Composable
-private fun RatingsRow(imdb: Double?, tmdb: Double?, mine: Double?) {
-    RatingsPill(tmdb, imdb, mine, Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
+private fun RatingsRow(tmdbId: Int, mediaType: String, imdb: Double?, tmdb: Double?, mine: Double?) {
+    val app = LocalApp.current
+    // Shown at once; put back if the server says no.
+    var rating by remember(tmdbId, mine) { mutableStateOf(mine?.roundToInt()) }
+    RatingsPill(tmdb, imdb, rating?.toDouble(), Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp))
+    RateStars(rating) { stars ->
+        val before = rating
+        rating = stars
+        app.act(
+            if (stars == null) "Rating cleared" else "Rated $stars/10",
+            action = { if (stars == null) unrate(tmdbId, mediaType) else rate(tmdbId, mediaType, stars) },
+            onFail = { rating = before },
+        )
+    }
+}
+
+/** Ten stars, as on the site: tap one to rate, tap your rating again to clear it. */
+@Composable
+private fun RateStars(rating: Int?, onRate: (Int?) -> Unit) {
+    val haptics = LocalHapticFeedback.current
+    Row(Modifier.padding(start = 12.dp, end = 16.dp, top = 6.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        (1..10).forEach { n ->
+            val on = rating != null && n <= rating
+            Icon(
+                if (on) Icons.Default.Star else Icons.Default.StarBorder,
+                contentDescription = "Rate $n out of 10",
+                tint = if (on) Watchd.Red else Watchd.Faint,
+                modifier = Modifier.size(30.dp).clip(CircleShape).clickable {
+                    haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                    onRate(if (rating == n) null else n)
+                }.padding(3.dp),
+            )
+        }
+        Text(rating?.let { "$it/10" } ?: "Rate", color = if (rating != null) Watchd.Red else Watchd.Muted, fontWeight = FontWeight.Bold, fontSize = 13.sp, modifier = Modifier.padding(start = 6.dp))
+    }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
