@@ -29,6 +29,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Search
+import kotlin.math.roundToInt
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Slider
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.outlined.EmojiEvents
 import androidx.compose.material3.CircularProgressIndicator
@@ -394,6 +399,9 @@ fun CollectionScreen(onBack: () -> Unit, openDisc: (Int) -> Unit, addDisc: () ->
     val (state, reload) = rememberLoad(Unit) { Shelf(discItems().items, discStats()) }
     var shelf by rememberSaveable { mutableStateOf("All") }
     var query by rememberSaveable { mutableStateOf("") }
+    // Covers a row, 2 to 6, kept between visits.
+    val prefs = LocalContext.current.getSharedPreferences("watchd", android.content.Context.MODE_PRIVATE)
+    var columns by remember { mutableIntStateOf(prefs.getInt("collection_columns", 3).coerceIn(2, 6)) }
     LoadContent(state, reload) { data ->
         val children = remember(data) { data.items.filter { it.parentId != null }.groupBy { it.parentId!! } }
         val top = remember(data) { data.items.filter { it.parentId == null } }
@@ -409,9 +417,10 @@ fun CollectionScreen(onBack: () -> Unit, openDisc: (Int) -> Unit, addDisc: () ->
         }.sortedBy { (it.sortTitle ?: it.title).orEmpty().lowercase() }
 
         LazyVerticalGrid(
-            columns = GridCells.Adaptive(104.dp), modifier = Modifier.fillMaxSize(),
+            columns = GridCells.Fixed(columns), modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(if (columns >= 5) 6.dp else 10.dp),
+            verticalArrangement = Arrangement.spacedBy(if (columns >= 5) 6.dp else 10.dp),
         ) {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Column {
@@ -442,27 +451,32 @@ fun CollectionScreen(onBack: () -> Unit, openDisc: (Int) -> Unit, addDisc: () ->
                             )
                         }
                     }
-                    Text("${shown.size} shown", color = Watchd.Faint, fontSize = 12.sp)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("${shown.size} shown", color = Watchd.Faint, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                        Icon(Icons.Default.GridView, contentDescription = null, tint = Watchd.Faint, modifier = Modifier.size(16.dp))
+                        Slider(
+                            value = columns.toFloat(),
+                            onValueChange = { v -> columns = v.roundToInt().also { prefs.edit().putInt("collection_columns", it).apply() } },
+                            valueRange = 2f..6f, steps = 3, modifier = Modifier.width(150.dp).padding(start = 6.dp),
+                            colors = SliderDefaults.colors(thumbColor = Watchd.Red, activeTrackColor = Watchd.Red),
+                        )
+                        Text("$columns wide", color = Watchd.Faint, fontSize = 12.sp, modifier = Modifier.padding(start = 6.dp))
+                    }
                 }
             }
             items(shown, key = { it.id }) { item ->
-                Column(Modifier.clickable { openDisc(item.id) }) {
-                    Box {
-                        Cover(item.cover, Modifier.fillMaxWidth())
-                        if (item.seen) WatchedMark(true, Modifier.align(Alignment.TopEnd).padding(5.dp).size(22.dp))
+                // Just the cover: no title under it, so rows stay even.
+                val small = columns >= 5
+                Box(Modifier.clickable { openDisc(item.id) }) {
+                        CaseCover(item.cover, Modifier.fillMaxWidth())
+                        if (item.seen) WatchedMark(true, Modifier.align(Alignment.TopEnd).padding(if (small) 3.dp else 5.dp).size(if (small) 15.dp else 22.dp))
                         // As on the site: never edited, no cover scan or details yet.
                         if (item.unedited) {
                             Text(
-                                "NEW", fontWeight = FontWeight.Black, fontSize = 10.sp, letterSpacing = 0.6.sp, color = Color(0xFF052E16),
-                                modifier = Modifier.align(Alignment.TopStart).padding(5.dp).clip(RoundedCornerShape(4.dp)).background(Color(0xFF22C55E)).padding(horizontal = 5.dp, vertical = 1.dp),
+                                "NEW", fontWeight = FontWeight.Black, fontSize = if (small) 7.sp else 10.sp, letterSpacing = 0.6.sp, color = Color(0xFF052E16),
+                                modifier = Modifier.align(Alignment.TopStart).padding(if (small) 3.dp else 5.dp).clip(RoundedCornerShape(4.dp)).background(Color(0xFF22C55E)).padding(horizontal = 5.dp, vertical = 1.dp),
                             )
                         }
-                    }
-                    Text(item.title.orEmpty(), fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
-                    Text(
-                        if (item.isSet) "Set · ${children[item.id]?.size ?: 0} titles" else listOfNotNull(item.releaseYear?.toString(), item.edition?.takeIf { it.isNotBlank() }).joinToString(" · "),
-                        color = Watchd.Faint, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    )
                 }
             }
         }

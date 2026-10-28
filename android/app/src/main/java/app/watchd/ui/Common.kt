@@ -201,6 +201,29 @@ fun Cover(url: String?, modifier: Modifier = Modifier) {
     )
 }
 
+/** A Blu-ray case's shape, which most covers in the collection are. */
+const val CASE_RATIO = 148f / 188f
+
+/**
+ * A cover in a case-shaped frame, so a grid of them lines up: Blu-ray and
+ * 4K scans fill it, a taller DVD sits in it whole and centred. Nothing is
+ * cropped.
+ */
+@Composable
+fun CaseCover(url: String?, modifier: Modifier = Modifier) {
+    val painter = rememberAsyncImagePainter(url)
+    val state by painter.state.collectAsState()
+    val size = (state as? AsyncImagePainter.State.Success)?.painter?.intrinsicSize
+    val ratio = size?.takeIf { it.width > 0 && it.height > 0 }?.let { it.width / it.height } ?: CASE_RATIO
+    Box(modifier.aspectRatio(CASE_RATIO), contentAlignment = Alignment.Center) {
+        Image(
+            painter, contentDescription = null, contentScale = ContentScale.Crop,
+            modifier = Modifier.aspectRatio(ratio, matchHeightConstraintsFirst = ratio < CASE_RATIO)
+                .clip(RoundedCornerShape(6.dp)).background(Watchd.Surface),
+        )
+    }
+}
+
 @Composable
 fun SectionTitle(text: String, modifier: Modifier = Modifier) {
     Text(
