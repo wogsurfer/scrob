@@ -61,27 +61,8 @@ class Api(server: String, private val token: String?) {
     /** The newest build of the app published to Watchd. */
     suspend fun latestApp(): AppBuild = get("app/latest")
 
-    /** Downloads the newest build to [file], reporting progress from 0 to 1. */
-    suspend fun downloadApp(file: java.io.File, onProgress: (Float) -> Unit) = withContext(Dispatchers.IO) {
-        client.newCall(request("app/download").get().build()).execute().use { response ->
-            if (!response.isSuccessful) throw ApiError(response.code, "Couldn't download the update")
-            val total = response.body.contentLength().takeIf { it > 0 }
-            file.parentFile?.mkdirs()
-            response.body.byteStream().use { input ->
-                file.outputStream().use { output ->
-                    val buffer = ByteArray(64 * 1024)
-                    var done = 0L
-                    while (true) {
-                        val n = input.read(buffer)
-                        if (n < 0) break
-                        output.write(buffer, 0, n)
-                        done += n
-                        total?.let { onProgress(done.toFloat() / it) }
-                    }
-                }
-            }
-        }
-    }
+    /** A 15-minute link to the newest build, for the phone's browser to download. */
+    suspend fun appLink(): AppLink = get("app/link")
 
     /** Films Radarr downloaded in the last [hours], newest first. */
     suspend fun recentlyDownloaded(hours: Int = 24): List<DownloadedFilm> = get("watchlist/downloaded", "hours" to "$hours")

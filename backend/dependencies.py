@@ -26,7 +26,8 @@ async def get_current_user(
     )
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=[ALGORITHM])
-        if payload.get("type") == "2fa_pending":
+        # A sign-in half done, or an app download link, isn't a sign-in.
+        if payload.get("type") in ("2fa_pending", "app_download"):
             raise credentials_exception
         user_id: int = int(payload.get("sub"))
         if user_id is None:

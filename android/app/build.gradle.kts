@@ -23,11 +23,29 @@ android {
         versionName = built.format(DateTimeFormatter.ofPattern("yyyy.MM.dd-HHmm"))
     }
 
+    // Watchd's own key, kept outside the repo: its path and password are in
+    // ~/.gradle/gradle.properties. Without them (another PC), the debug key.
+    val keystore = providers.gradleProperty("WATCHD_KEYSTORE").orNull
+    signingConfigs {
+        if (keystore != null) {
+            create("watchd") {
+                storeFile = file(keystore)
+                storePassword = providers.gradleProperty("WATCHD_KEY_PASSWORD").get()
+                keyAlias = providers.gradleProperty("WATCHD_KEY_ALIAS").get()
+                keyPassword = providers.gradleProperty("WATCHD_KEY_PASSWORD").get()
+            }
+        }
+    }
+    val signing = signingConfigs.findByName("watchd") ?: signingConfigs.getByName("debug")
+
     buildTypes {
+        // Test builds and published ones share the key, so each installs over the other.
+        debug {
+            signingConfig = signing
+        }
         release {
             isMinifyEnabled = false
-            // A personal, sideloaded app: the debug key signs release builds too.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signing
         }
     }
 
