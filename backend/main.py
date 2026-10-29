@@ -463,6 +463,25 @@ async def _cast_split_refresher():
         await asyncio.sleep(24 * 3600)
 
 
+async def _emby_poster_refresher():
+    """Keep each show's Emby poster on its latest season's (services/emby/season_posters):
+    a few minutes after start-up, then daily; only shows with a newer season change."""
+    import logging
+    from core.config import settings
+    from services.emby.season_posters import latest_season_posters
+
+    log = logging.getLogger("uvicorn.error")
+    await asyncio.sleep(300)
+    while True:
+        if settings.emby_server and settings.emby_api_key:
+            try:
+                counts = await latest_season_posters()
+                log.info(f"Emby season posters: {counts}")
+            except Exception as e:
+                log.error(f"Emby season posters error: {e}", exc_info=True)
+        await asyncio.sleep(24 * 3600)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from core.tmdb import start_http_client, close_http_client
@@ -500,12 +519,14 @@ async def lifespan(app: FastAPI):
     ratings_task = asyncio.create_task(_physical_ratings_refresher())
     episodes_task = asyncio.create_task(_episode_details_refresher())
     cast_task = asyncio.create_task(_cast_split_refresher())
+    emby_posters_task = asyncio.create_task(_emby_poster_refresher())
 
     yield
 
     ratings_task.cancel()
     episodes_task.cancel()
     cast_task.cancel()
+    emby_posters_task.cancel()
 
     scheduler_task.cancel()
     watchlist_task.cancel()

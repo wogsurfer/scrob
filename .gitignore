@@ -108,3 +108,6 @@ backend/data/cache/
 backend/data/physical/
 # Published builds of the Android app (android/publish.ps1).
 backend/data/app/
+
+# Emby posters: originals kept to put back, and what was applied (services/emby/season_posters.py)
+backend/data/emby_posters/
