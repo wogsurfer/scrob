@@ -830,7 +830,8 @@ private fun EpisodeStripRow(strip: EpisodeStrip, showTmdbId: Int, openEpisode: (
                 }
                 Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     WatchedMark(e.watched, Modifier.size(22.dp))
-                    Text(if (next) "Coming up" else if (e.watched) "Watched" else "Not watched", color = Watchd.Muted, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 8.dp).weight(1f))
+                    // The W alone says whether it's watched.
+                    Spacer(Modifier.weight(1f))
                     if (!next) ImdbBadge(e.imdbRating)
                 }
             }

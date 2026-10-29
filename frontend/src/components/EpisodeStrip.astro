@@ -80,7 +80,6 @@ const { tmdbId, latestSeason } = Astro.props;
       </div>
       <div class="es-foot">
         <img class="es-w" src="${e.watched ? wRed.src : wWhite.src}" alt="" />
-        <span class="es-seen">${next ? "Coming up" : e.watched ? "Watched" : "Not watched"}</span>
         ${e.imdb_rating ? `<span class="es-imdb"><b>IMDb</b><span>${Number(e.imdb_rating).toFixed(1)}</span></span>` : ""}
       </div>
     </a>`;
