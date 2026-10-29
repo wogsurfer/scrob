@@ -3,6 +3,6 @@
     <string name="share_label">Open in Watchd</string>
     <string name="channel_episodes">New episodes</string>
     <string name="channel_downloads">Films downloaded</string>
-    <string name="widget_name">Watchd Next Up</string>
-    <string name="widget_description">Your next episodes, ticked off from the home screen</string>
+    <string name="widget_name">Watchd: your week and month</string>
+    <string name="widget_description">What you watched in the last 7 and 30 days, your streak and this week’s top show</string>
 </resources>

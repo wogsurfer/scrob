@@ -646,3 +646,21 @@ data class EpisodeDetail(
     val cast: List<Person> = emptyList(),
     val show: EpisodeShow? = null,
 )
+
+// ------------------------------------------------------------------ the home screen widget
+
+@Serializable
+data class Watched(val episodes: Int = 0, val movies: Int = 0, val minutes: Int = 0)
+
+@Serializable
+data class TopShow(val title: String, val episodes: Int = 0)
+
+@Serializable
+data class AtAGlance(
+    val week: Watched = Watched(),
+    val previousWeek: Watched = Watched(),
+    val month: Watched = Watched(),
+    val previousMonth: Watched = Watched(),
+    val streakDays: Int = 0,
+    val topShow: TopShow? = null,
+)

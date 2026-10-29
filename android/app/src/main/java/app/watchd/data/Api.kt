@@ -57,6 +57,8 @@ class Api(server: String, private val token: String?) {
     suspend fun watchlist(): List<WatchlistMovie> = get("watchlist")
     suspend fun totals(): Totals = get("dashboard/stats")
     suspend fun hero(): Hero = get("dashboard/hero")
+    /** The last 7 and 30 days' watching, the streak and this week's top show, for the widget. */
+    suspend fun atAGlance(): AtAGlance = get("dashboard/glance")
     suspend fun pipelineHealth(): PipelineHealth = get("pipeline/health")
     suspend fun watchlistPreview(): List<WatchlistMovie> = get("dashboard/watchlist")
     /** The newest build of the app published to Watchd. */

@@ -148,7 +148,7 @@ class MainActivity : ComponentActivity() {
     // Leaving the app: the home screen widget catches up with anything ticked here.
     override fun onStop() {
         super.onStop()
-        lifecycleScope.launch { NextUpWidget.refresh(applicationContext) }
+        lifecycleScope.launch { WatchedWidget.refresh(applicationContext) }
     }
 
     override fun onNewIntent(intent: Intent) {

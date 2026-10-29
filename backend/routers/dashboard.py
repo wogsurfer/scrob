@@ -471,3 +471,64 @@ async def library_sync(
         "shows": stats.shows,
         "episodes": stats.episodes,
     }
+
+
+@router.get("/glance")
+async def dashboard_glance(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """The app's home screen widget: what you watched in the last 7 and 30
+    days (with the 7 and 30 before, to compare), your run of days in a row
+    with something watched, and the show you watched most this week."""
+    from collections import Counter
+    from zoneinfo import ZoneInfo
+
+    now = datetime.now(UTC).replace(tzinfo=None)  # watched_at is stored in UTC
+    rows = (await db.execute(
+        select(WatchEvent.watched_at, Media.media_type, Media.runtime, Show.title)
+        .join(Media, WatchEvent.media_id == Media.id)
+        .outerjoin(Show, Media.show_id == Show.id)
+        .where(
+            WatchEvent.user_id == current_user.id,
+            WatchEvent.completed.is_(True),
+            WatchEvent.watched_at >= now - timedelta(days=60),
+        )
+    )).all()
+
+    def period(start_days_ago: int, end_days_ago: int) -> dict:
+        lo, hi = now - timedelta(days=start_days_ago), now - timedelta(days=end_days_ago)
+        picked = [r for r in rows if lo <= r.watched_at < hi]
+        return {
+            "episodes": sum(r.media_type == MediaType.episode for r in picked),
+            "movies": sum(r.media_type == MediaType.movie for r in picked),
+            "minutes": sum(r.runtime or 0 for r in picked),
+        }
+
+    # Days in a row (Malta's days) with something watched, up to today; a
+    # run that ended yesterday still counts until today is over. Only the
+    # dates are fetched, so the whole history is cheap.
+    malta = ZoneInfo("Europe/Malta")
+    local_day = func.date(func.timezone("Europe/Malta", func.timezone("UTC", WatchEvent.watched_at)))
+    days = set((await db.execute(
+        select(local_day).distinct()
+        .where(WatchEvent.user_id == current_user.id, WatchEvent.completed.is_(True), WatchEvent.watched_at.is_not(None))
+    )).scalars())
+    day = datetime.now(malta).date()
+    if day not in days:
+        day -= timedelta(days=1)
+    streak = 0
+    while day in days:
+        streak += 1
+        day -= timedelta(days=1)
+
+    week_shows = Counter(r.title for r in rows if r.title and r.watched_at >= now - timedelta(days=7))
+    top = week_shows.most_common(1)
+    return {
+        "week": period(7, 0),
+        "previous_week": period(14, 7),
+        "month": period(30, 0),
+        "previous_month": period(60, 30),
+        "streak_days": streak,
+        "top_show": {"title": top[0][0], "episodes": top[0][1]} if top else None,
+    }

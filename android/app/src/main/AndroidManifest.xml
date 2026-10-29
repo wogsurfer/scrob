@@ -27,12 +27,12 @@
                 <data android:mimeType="text/plain" />
             </intent-filter>
         </activity>
-        <!-- The Next Up home screen widget. -->
-        <receiver android:name=".NextUpWidgetReceiver" android:exported="true" android:label="@string/widget_name">
+        <!-- The home screen widget: what you've watched lately. -->
+        <receiver android:name=".WatchedWidgetReceiver" android:exported="true" android:label="@string/widget_name">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
-            <meta-data android:name="android.appwidget.provider" android:resource="@xml/next_up_widget" />
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/watched_widget" />
         </receiver>
     </application>
 </manifest>
