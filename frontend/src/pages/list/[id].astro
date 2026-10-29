@@ -290,9 +290,9 @@ const sonarrUrl = `${origin}/api/proxy/sonarr-compat/${list?.id}/api/v3/series`;
           <label class="flex items-center gap-2 text-xs font-semibold text-zinc-400">
             <span>Sort by</span>
             <select id="list-sort" class="rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500">
-              <option value="manual">List order</option>
-              <option value="recent">Recently added</option>
               <option value="title">Title A–Z</option>
+              <option value="recent">Recently added</option>
+              <option value="manual">List order</option>
               <option value="year">Release year (newest first)</option>
               <option value="rating">TMDB rating (highest first)</option>
             </select>
@@ -403,6 +403,9 @@ const sonarrUrl = `${origin}/api/proxy/sonarr-compat/${list?.id}/api/v3/series`;
   const listGrid = document.getElementById('items-grid');
   const listSortKey = `scrob-list-sort-${listId}`;
 
+  // A title as it sorts A to Z, without a leading "The", "A" or "An" (as the list's card posters are picked).
+  const titleKey = (title) => (title || '').trim().replace(/^(the|a|an)\s+/i, '');
+
   function applyListSort() {
     if (!listSort || !listGrid) return;
     const mode = listSort.value;
@@ -413,7 +416,7 @@ const sonarrUrl = `${origin}/api/proxy/sonarr-compat/${list?.id}/api/v3/series`;
         return (b.dataset.addedAt || '').localeCompare(a.dataset.addedAt || '');
       }
       if (mode === 'title') {
-        return (a.dataset.title || '').localeCompare(b.dataset.title || '', undefined, { sensitivity: 'base' });
+        return titleKey(a.dataset.title).localeCompare(titleKey(b.dataset.title), undefined, { sensitivity: 'base', numeric: true });
       }
       if (mode === 'year' || mode === 'rating') {
         const key = mode === 'year' ? 'year' : 'rating';

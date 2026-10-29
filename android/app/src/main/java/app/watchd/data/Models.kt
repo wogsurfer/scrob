@@ -336,7 +336,7 @@ data class ListMedia(
 )
 
 @Serializable
-data class ListEntry(val id: Int, val media: ListMedia)
+data class ListEntry(val id: Int, val media: ListMedia, val addedAt: String? = null, val sortOrder: Int = 0)
 
 @Serializable
 data class ListDetail(

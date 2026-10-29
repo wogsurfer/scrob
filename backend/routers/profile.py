@@ -766,13 +766,13 @@ async def get_public_profile(
     lists_rows = lists_result.all()
     list_ids = [row.id for row in lists_rows]
 
-    # Fetch up to 3 preview posters per list using ROW_NUMBER
+    # Up to 3 preview posters per list, its first titles A to Z (no leading "The", "A" or "An").
     posters_by_list: dict[int, list[dict]] = {}
     if list_ids:
         ShowAlias = aliased(ShowModel)
         rn = func.row_number().over(
             partition_by=ListItem.list_id,
-            order_by=ListItem.added_at,
+            order_by=(func.regexp_replace(func.lower(Media.title), r"^(the|a|an)\s+", ""), ListItem.added_at),
         ).label("rn")
         poster_col = case(
             (Media.poster_path.isnot(None), Media.poster_path),
@@ -788,6 +788,7 @@ async def get_public_profile(
             select(inner.c.list_id, inner.c.poster, inner.c.adult)
             .where(inner.c.rn <= 3)
             .where(inner.c.poster.isnot(None))
+            .order_by(inner.c.list_id, inner.c.rn)
         )
         for row in posters_q.all():
             posters_by_list.setdefault(row.list_id, []).append({"url": row.poster, "adult": row.adult})

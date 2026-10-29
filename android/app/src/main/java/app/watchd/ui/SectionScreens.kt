@@ -45,6 +45,10 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -515,17 +519,42 @@ fun WatchlistScreen(onBack: () -> Unit, openMovie: (Int) -> Unit) {
 @Composable
 fun ListScreen(listId: Int, onBack: () -> Unit, openShow: (Int) -> Unit, openMovie: (Int) -> Unit) {
     val (state, reload) = rememberLoad(listId, saved("list-$listId")) { list(listId) }
+    var order by rememberSaveable { mutableStateOf(LIST_ORDERS.first()) }
     LoadContent(state, reload) { list ->
+        val entries = when (order) {
+            "Recently added" -> list.items.sortedByDescending { it.addedAt.orEmpty() }
+            "Year" -> list.items.sortedByDescending { it.media.releaseDate.orEmpty() }
+            "IMDb rating" -> list.items.sortedByDescending { it.media.imdbRating ?: -1.0 }
+            "List order" -> list.items.sortedWith(compareBy({ it.sortOrder }, { it.addedAt.orEmpty() }))
+            else -> list.items.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { titleSortKey(it.media.title) })
+        }
         PosterGrid(
             list.name, list.description ?: "%,d titles".format(list.itemCount), onBack,
-            list.items.mapNotNull { e -> e.media.tmdbId?.let { GridItem(it, e.media.type, e.media.title, e.media.posterPath, year(e.media.releaseDate)) } },
+            entries.mapNotNull { e -> e.media.tmdbId?.let { GridItem(it, e.media.type, e.media.title, e.media.posterPath, year(e.media.releaseDate)) } },
             openShow, openMovie,
-        )
+        ) {
+            val chipColors = FilterChipDefaults.filterChipColors(
+                selectedContainerColor = Watchd.Red, selectedLabelColor = Color.White,
+                containerColor = Watchd.Surface, labelColor = Watchd.Muted,
+            )
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
+                items(LIST_ORDERS) { name -> FilterChip(order == name, { order = name }, label = { Text(name) }, colors = chipColors, border = null) }
+            }
+        }
     }
 }
 
+/** How a list can be ordered; A to Z first, as the list's card posters are picked. */
+private val LIST_ORDERS = listOf("A–Z", "Recently added", "Year", "IMDb rating", "List order")
+
+/** A title as it sorts A to Z, without a leading "The", "A" or "An". */
+private fun titleSortKey(title: String?) = title.orEmpty().trim().replace(Regex("^(the|a|an)\\s+", RegexOption.IGNORE_CASE), "")
+
 @Composable
-private fun PosterGrid(title: String, subtitle: String, onBack: () -> Unit, items: List<GridItem>, openShow: (Int) -> Unit, openMovie: (Int) -> Unit) {
+private fun PosterGrid(
+    title: String, subtitle: String, onBack: () -> Unit, items: List<GridItem>, openShow: (Int) -> Unit, openMovie: (Int) -> Unit,
+    header: @Composable () -> Unit = {},
+) {
     LazyVerticalGrid(
         columns = GridCells.Adaptive(104.dp),
         modifier = Modifier.fillMaxSize(),
@@ -537,6 +566,7 @@ private fun PosterGrid(title: String, subtitle: String, onBack: () -> Unit, item
             Column {
                 Box(Modifier.padding(start = 0.dp)) { PageTitle(title, onBack) }
                 Text(subtitle, color = Watchd.Muted, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp))
+                header()
             }
         }
         items(items, key = { "${it.type}-${it.tmdbId}" }) { item ->

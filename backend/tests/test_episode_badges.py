@@ -1,6 +1,6 @@
 import unittest
 
-from core.episode_badges import episode_badge, season_badges
+from core.episode_badges import episode_badge, last_season, season_badges
 
 
 class EpisodeBadgeTests(unittest.TestCase):
@@ -13,6 +13,9 @@ class EpisodeBadgeTests(unittest.TestCase):
         self.assertEqual(episode_badge(2, 8, "mid_season"), "Mid-season finale")
         self.assertEqual(episode_badge(2, 7, "finale", show_status="Returning Series"), "Season finale")
         self.assertEqual(episode_badge(5, 16, "finale", show_status="Ended"), "Series finale")
+        # An ended show's earlier seasons end in season finales.
+        self.assertEqual(episode_badge(1, 22, "finale", show_status="Ended", last_season=12), "Season finale")
+        self.assertEqual(episode_badge(12, 12, "finale", show_status="Ended", last_season=12), "Series finale")
 
     def test_plain_episodes_and_specials(self):
         self.assertIsNone(episode_badge(12, 6, "standard"))
@@ -30,3 +33,10 @@ class EpisodeBadgeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LastSeasonTest(unittest.TestCase):
+    def test_last_season(self):
+        self.assertEqual(last_season({"seasons": [{"season_number": 0}, {"season_number": 1}, {"season_number": 3}]}), 3)
+        self.assertEqual(last_season({"number_of_seasons": 2}), 2)
+        self.assertIsNone(last_season(None))

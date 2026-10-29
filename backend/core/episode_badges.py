@@ -9,6 +9,7 @@ def episode_badge(
     episode_type: str | None,
     previous_type: str | None = None,
     show_status: str | None = None,
+    last_season: int | None = None,
 ) -> str | None:
     """ "Series premiere", "Season premiere", "Mid-season premiere",
     "Mid-season finale", "Season finale" or "Series finale", or None.
@@ -16,8 +17,9 @@ def episode_badge(
     `episode_type` is TMDB's ("standard", "mid_season" or "finale"), which it
     sets once a finale is announced; `previous_type` is the previous
     episode's, so the episode after a mid-season finale is the mid-season
-    premiere. A finale of a show that has ended is the series finale.
-    Specials (season 0) get no label.
+    premiere. A finale of a show that has ended is the series finale, but
+    only in its last season (`last_season`, when known): TMDB marks every
+    season's last episode a finale. Specials (season 0) get no label.
     """
     if not season_number or not episode_number:
         return None
@@ -29,11 +31,19 @@ def episode_badge(
         return "Mid-season finale"
     if episode_type == "finale":
         ended = (show_status or "").strip().lower() in ENDED_STATUSES
+        if last_season and season_number < last_season:
+            ended = False
         return "Series finale" if ended else "Season finale"
     return None
 
 
-def season_badges(season_data: dict, show_status: str | None = None) -> dict[int, str]:
+def last_season(show_data: dict | None) -> int | None:
+    """The number of a TMDB show's last season (specials aside), or None."""
+    numbers = [s.get("season_number") or 0 for s in (show_data or {}).get("seasons") or []]
+    return max(numbers, default=0) or (show_data or {}).get("number_of_seasons") or None
+
+
+def season_badges(season_data: dict, show_status: str | None = None, last: int | None = None) -> dict[int, str]:
     """Labels for the episodes of a TMDB season response, by episode number."""
     episodes = sorted(season_data.get("episodes") or [], key=lambda e: e.get("episode_number") or 0)
     types = {e.get("episode_number"): e.get("episode_type") for e in episodes}
@@ -46,6 +56,7 @@ def season_badges(season_data: dict, show_status: str | None = None) -> dict[int
             e.get("episode_type"),
             types.get(number - 1) if number else None,
             show_status,
+            last,
         )
         if badge:
             badges[number] = badge

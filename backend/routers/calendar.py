@@ -22,7 +22,7 @@ from models.lists import List, ListItem
 from models.watchlist import MovieWatchlist
 from models.profile import UserProfileData
 from core import tmdb
-from core.episode_badges import episode_badge
+from core.episode_badges import episode_badge, last_season
 from core.movie_releases import COUNTRY_NAMES, release_countries, upcoming_releases
 from routers.media import check_tmdb_key, get_user_tmdb_key
 
@@ -884,6 +884,7 @@ async def calendar_upcoming(
                 episode_types.get((show.tmdb_id, season_number, episode_number)),
                 episode_types.get((show.tmdb_id, season_number, episode_number - 1)),
                 show.status,
+                last_season(show.tmdb_data),
             )
 
             # ---------------------------------------------

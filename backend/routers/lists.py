@@ -177,9 +177,15 @@ async def _list_show_poster_map(db: AsyncSession, lists: list[ListModel]) -> dic
     return {show.tmdb_id: show for show in result.scalars().all()}
 
 
+def title_sort_key(title: str | None) -> str:
+    """A title as it sorts A to Z: no case, and no leading "The", "A" or "An"."""
+    return re.sub(r"^(the|a|an)\s+", "", (title or "").strip().lower())
+
+
 def _format_list(lst: ListModel, show_poster_map: dict[int, ShowModel] | None = None) -> dict:
     preview_posters: list[dict] = []
-    for item in sorted(lst.items, key=lambda x: (x.sort_order, x.added_at)):
+    # The card's posters are the list's first titles A to Z, as the list opens.
+    for item in sorted(lst.items, key=lambda x: (title_sort_key(x.media.title if x.media else None), x.added_at)):
         # Enough for the strip of posters across a list's card.
         if len(preview_posters) >= 8:
             break
