@@ -197,6 +197,12 @@ class Api(server: String, private val token: String?) {
         send(request("ratings").post(body.toString().toRequestBody(jsonType)))
     }
 
+    /** Your 1 to 10 rating of a disc in the collection; null clears it. */
+    suspend fun rateDisc(discId: Int, rating: Int?) {
+        val body = buildJsonObject { put("rating", rating?.let { JsonPrimitive(it) } ?: JsonNull) }
+        send(request("physical/items/$discId/rating").put(body.toString().toRequestBody(jsonType)))
+    }
+
     suspend fun unrate(tmdbId: Int, mediaType: String) =
         send(request("ratings", "tmdb_id" to "$tmdbId", "media_type" to mediaType).delete())
 

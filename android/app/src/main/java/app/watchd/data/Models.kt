@@ -570,6 +570,7 @@ data class DiscDetail(
     val regions: List<String> = emptyList(),
     val audienceRating: String? = null,
     val imdbRating: Double? = null,
+    val imdbVotes: Int? = null,
     val director: String? = null,
     val writer: String? = null,
     val composer: String? = null,

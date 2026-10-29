@@ -546,6 +546,35 @@ async def update_item(
     return {"id": item.id}
 
 
+class RatingIn(BaseModel):
+    # 1 to 10, or null to clear.
+    rating: int | None = None
+
+
+@router.put("/items/{item_id}/rating")
+async def rate_item(
+    item_id: int,
+    body: RatingIn,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Your rating of a disc, from its stars. Unlike an edit it leaves the
+    disc's other details to Collectorz (and its NEW tag where it has one); a
+    later import keeps this rating."""
+    if body.rating is not None and not 1 <= body.rating <= 10:
+        raise HTTPException(status_code=422, detail="A rating is 1 to 10")
+    item = await _own_item(db, current_user.id, item_id)
+    item.my_rating = body.rating
+    specs = dict(item.specs or {})
+    if body.rating is None:
+        specs.pop("rated_in_watchd", None)
+    else:
+        specs["rated_in_watchd"] = True
+    item.specs = specs
+    await db.commit()
+    return {"id": item.id, "my_rating": item.my_rating}
+
+
 @router.delete("/items/{item_id}")
 async def delete_item(
     item_id: int,

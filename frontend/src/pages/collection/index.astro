@@ -319,9 +319,11 @@ const wishlist = items.filter((i) => i.status === "wishlist" && !i.parent_id).le
       return when ? `Watched ${times}, ${d.plays === 1 ? "on" : "last on"} ${when}` : `Watched ${times}`;
     }
 
-    function stars(n?: number) {
-      if (!n) return "";
-      return `<span class="cd-stars" title="${n}/10">${Array.from({ length: 10 }, (_, k) => `<i class="${k < n ? "on" : ""}"></i>`).join("")}</span>`;
+    // Your rating of the disc: ten stars to click, yours lit; clicking your
+    // rating again clears it.
+    function stars(id: number, n?: number | null) {
+      return `<span class="cd-stars cd-rate" data-id="${id}" data-rating="${n || 0}" title="${n ? `Your rating: ${n}/10` : "Rate this disc"}">${Array.from({ length: 10 }, (_, k) =>
+        `<button type="button" data-star="${k + 1}" class="${n && k < n ? "on" : ""}" aria-label="Rate ${k + 1} out of 10"></button>`).join("")}</span>`;
     }
 
     function discsHtml(d: PhysicalDetail) {
@@ -377,7 +379,7 @@ const wishlist = items.filter((i) => i.status === "wishlist" && !i.parent_id).le
                   ? `<a class="cd-imdb" href="https://www.imdb.com/title/${s.imdb_id}/" target="_blank" rel="noopener" title="Open on IMDb">${inner}</a>`
                   : `<span class="cd-imdb">${inner}</span>`;
               })() : ""}
-              ${stars(d.my_rating)}
+              ${stars(d.id, d.my_rating)}
             </div>
             <p class="cd-seen ${(d.is_set ? d.contents.length > 0 && seenOf === d.contents.length : d.seen) ? "on" : ""}">
               <img src="${(d.is_set ? d.contents.length > 0 && seenOf === d.contents.length : d.seen) ? icons.red : icons.white}" alt="" />
@@ -559,6 +561,26 @@ const wishlist = items.filter((i) => i.status === "wishlist" && !i.parent_id).le
       if (t.closest(".cd-close")) return select(null);
       const jump = t.closest<HTMLElement>(".cd-mini [data-id], .cd-others [data-id], .cd-partof");
       if (jump) return select(Number(jump.dataset.id), true);
+      const star = t.closest<HTMLElement>(".cd-rate [data-star]");
+      if (star) {
+        const box = star.closest<HTMLElement>(".cd-rate")!;
+        const id = Number(box.dataset.id), before = Number(box.dataset.rating) || null;
+        const n = Number(star.dataset.star);
+        const rating = before === n ? null : n;
+        // Shown at once, put back if the server says no.
+        const show = (r: number | null) => {
+          box.dataset.rating = String(r || 0);
+          box.title = r ? `Your rating: ${r}/10` : "Rate this disc";
+          box.querySelectorAll<HTMLElement>("[data-star]").forEach((b) => b.classList.toggle("on", !!r && Number(b.dataset.star) <= r));
+        };
+        show(rating);
+        const res = await fetch(`/api/proxy/physical/items/${id}/rating`, {
+          method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rating }),
+        }).catch(() => null);
+        if (!res?.ok) return show(before);
+        const item = all.find((x) => x.id === id);
+        if (item) item.my_rating = rating ?? undefined;
+      }
     });
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape" && detail.classList.contains("open") && window.matchMedia("(max-width: 767px)").matches) select(null);

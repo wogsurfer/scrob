@@ -1,5 +1,18 @@
 package app.watchd.ui
 
+import coil3.compose.AsyncImage
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.foundation.shape.CircleShape
+import kotlin.math.roundToInt
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.res.painterResource
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -82,14 +95,14 @@ fun DiscScreen(discId: Int, onBack: () -> Unit, openDisc: (Int) -> Unit, openSho
                 }
             }
             item {
-                Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-                    ImdbBadge(d.imdbRating)
-                    d.myRating?.let { r ->
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Icon(Icons.Default.Star, contentDescription = null, tint = Watchd.Red, modifier = Modifier.size(16.dp))
-                            Text("You  ${if (r % 1.0 == 0.0) r.toInt() else r}", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                        }
-                    }
+                // The stars go under the IMDb tag when both don't fit across.
+                FlowRow(
+                    Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp),
+                    itemVerticalAlignment = Alignment.CenterVertically,
+                ) {
+                    ImdbPill(d.imdbRating, d.imdbVotes)
+                    DiscStars(d.id, d.myRating?.roundToInt())
                 }
             }
             item {
@@ -212,23 +225,85 @@ fun DiscScreen(discId: Int, onBack: () -> Unit, openDisc: (Int) -> Unit, openSho
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun DiscBadges(d: DiscDetail, format: String?) {
-    val badges = listOfNotNull(
-        format,
+    // Each label as its Collectorz image where there's one (as the Windows
+    // app shows them), else as text: format, regions, age rating.
+    val labels: List<Pair<String, Badge?>> = listOfNotNull(
+        format?.let { it to FORMAT_BADGES[it] },
+        *d.regions.map { it.replace("Region ", "") to REGION_BADGES[it] }.toTypedArray(),
+        d.audienceRating?.let { ageRating(it) to ratingBadge(it) },
+    )
+    val chips = listOfNotNull(
         if (d.isSet) "Set · ${d.contents.size} titles" else null,
-        *d.regions.map { it.replace("Region ", "") }.toTypedArray(),
-        d.audienceRating?.let { ageRating(it) },
         if (d.status == "wishlist") "Wish list" else null,
     )
-    if (badges.isEmpty()) return
-    FlowRow(Modifier.padding(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        badges.forEach { b ->
-            Text(
-                b.uppercase(), style = MaterialTheme.typography.labelSmall,
-                color = if (b == "Wish list") Watchd.Red else Watchd.Text,
-                modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(Watchd.Surface).padding(horizontal = 8.dp, vertical = 4.dp),
+    if (labels.isEmpty() && chips.isEmpty()) return
+    FlowRow(
+        Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp),
+        itemVerticalAlignment = Alignment.CenterVertically,
+    ) {
+        labels.forEach { (text, badge) ->
+            if (badge != null) {
+                // Vector drawings, so sharp at any size.
+                AsyncImage(badge.url, contentDescription = text, modifier = Modifier.height(36.dp).aspectRatio(badge.shape))
+            } else {
+                Chip(text, Watchd.Text)
+            }
+        }
+        chips.forEach { Chip(it, if (it == "Wish list") Watchd.Red else Watchd.Text) }
+    }
+}
+
+/**
+ * Your rating of the disc as the site shows it, ten stars with yours in
+ * amber: tap one to rate, tap your rating again to clear it.
+ */
+@Composable
+private fun DiscStars(discId: Int, mine: Int?) {
+    val app = LocalApp.current
+    val haptics = LocalHapticFeedback.current
+    var rating by remember(discId, mine) { mutableStateOf(mine) }
+    Row {
+        (1..10).forEach { n ->
+            Icon(
+                Icons.Default.Star, contentDescription = "Rate $n out of 10",
+                tint = if (rating != null && n <= rating!!) Color(0xFFFBBF24) else Color(0xFF3F3F46),
+                modifier = Modifier.size(24.dp).clip(CircleShape).clickable {
+                    haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                    val before = rating
+                    val stars = if (rating == n) null else n
+                    rating = stars
+                    app.act(
+                        if (stars == null) "Rating cleared" else "Rated $stars/10",
+                        action = { rateDisc(discId, stars) },
+                        onFail = { rating = before },
+                    )
+                }.padding(2.dp),
             )
         }
     }
+}
+
+/** IMDb's yellow tag as the site's disc details show it: "IMDb 6.6 204,067". */
+@Composable
+private fun ImdbPill(rating: Double?, votes: Int?) {
+    if (rating == null || rating <= 0) return
+    Row(
+        Modifier.clip(RoundedCornerShape(6.dp)).background(Watchd.ImdbYellow).padding(horizontal = 9.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text("IMDb", color = Color.Black, fontWeight = FontWeight.Black, fontSize = 15.sp)
+        Text("%.1f".format(rating), color = Color.Black, fontWeight = FontWeight.Black, fontSize = 15.sp)
+        votes?.let { Text("%,d".format(it), color = Color.Black.copy(alpha = 0.65f), fontWeight = FontWeight.SemiBold, fontSize = 13.sp) }
+    }
+}
+
+@Composable
+private fun Chip(text: String, color: androidx.compose.ui.graphics.Color) {
+    Text(
+        text.uppercase(), style = MaterialTheme.typography.labelSmall, color = color,
+        modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(Watchd.Surface).padding(horizontal = 8.dp, vertical = 4.dp),
+    )
 }
 
 /** "MPAAR" (as the disc database writes them) as "R"; others as given. */

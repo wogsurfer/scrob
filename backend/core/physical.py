@@ -212,8 +212,13 @@ async def import_clz_records(
             counts["added"] += 1
         else:
             counts["updated"] += 1
+        # A rating given in Watchd (its stars) outlasts the import's.
+        own_rating = item.my_rating if (item.specs or {}).get("rated_in_watchd") else None
         for key in _IMPORTED_COLUMNS:
             setattr(item, key, data.get(key))
+        if own_rating is not None:
+            item.my_rating = own_rating
+            item.specs = {**(item.specs or {}), "rated_in_watchd": True}
         box = existing_sets.get(data.get("box_set") or "")
         if box is not None and item.parent_id != box.id:
             item.parent_id = box.id
