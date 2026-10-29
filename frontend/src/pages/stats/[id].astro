@@ -826,8 +826,8 @@ const heroSubtitle =
       metricRow([
         ['Plays', num(d.totals.plays)],
         ['Hours Watched', num(Math.round(hours))],
-        ['Library Items', 'TBD', 'tbd'],
-        ['Ratings', 'TBD', 'tbd'],
+        ['Library Items', num(d.totals.library_items ?? 0)],
+        ['Ratings', num(d.totals.ratings ?? 0)],
       ]),
       playCard('First Play', d.first_play),
       tvSection(d, days),

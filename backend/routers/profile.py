@@ -2280,6 +2280,17 @@ async def get_stats_overview(
         "studios": ranked(movie_studios, 20),
     })
 
+    # Discs you own (sets count by their discs, not as one more), added in the
+    # period: by when you bought them, else when they joined the collection.
+    from models.physical import PhysicalItem
+    added_on = func.coalesce(PhysicalItem.purchase_date, func.date(PhysicalItem.date_added))
+    disc_filters = [PhysicalItem.user_id == user_id, PhysicalItem.status == "owned", PhysicalItem.is_set.is_(False)]
+    if since:
+        disc_filters.append(added_on >= (since.date() if hasattr(since, "date") else since))
+    if until:
+        disc_filters.append(added_on <= (until.date() if hasattr(until, "date") else until))
+    library_items = (await db.execute(select(func.count(PhysicalItem.id)).where(*disc_filters))).scalar_one()
+
     return {
         "years": years,
         "first_play": first_play,
@@ -2287,6 +2298,8 @@ async def get_stats_overview(
         "totals": {
             "plays": tv["plays"] + mv["plays"],
             "minutes": round(tv["minutes"] + mv["minutes"]),
+            "library_items": library_items,
+            "ratings": len(scores["movie"]) + len(scores["series"]),
         },
         "tv": tv_out,
         "movies": movies_out,
