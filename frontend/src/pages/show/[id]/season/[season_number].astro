@@ -266,89 +266,87 @@ const seasonAllWatched = airedCount > 0 && watchedCount === airedCount;
                   data-episode-number={String(ep.episode_number)}
                   data-aired={String(aired)}
                 >
-                  <div class="ep-main flex items-center gap-3 sm:gap-4 px-2 sm:px-3 py-2.5 cursor-pointer rounded-xl hover:bg-zinc-900/60 transition-colors">
-                    <span class="hidden sm:block shrink-0 w-6 text-right text-sm font-bold text-zinc-600">{ep.episode_number}</span>
-                    <a href={href} class="ep-thumb block shrink-0 w-24 sm:w-28 aspect-video rounded-lg overflow-hidden bg-zinc-900 border border-zinc-800/60" tabindex="-1">
-                      {ep.poster_path ? (
-                        <img src={ep.poster_path} alt="" class="w-full h-full object-cover" loading="lazy" decoding="async" />
-                      ) : (
-                        <span class="w-full h-full flex items-center justify-center text-zinc-700 text-xl font-black">{ep.episode_number}</span>
-                      )}
-                    </a>
-                    <div class="flex-1 min-w-0">
-                      <div class="flex items-center gap-2 min-w-0">
-                        <a href={href} class="truncate text-base font-black text-zinc-100 hover:text-red-400 transition-colors">{ep.title}</a>
-                        {ep.badge && <EpisodeBadge label={ep.badge} class="shrink-0" />}
-                        <span class="ep-next hidden shrink-0 text-[10px] font-black uppercase tracking-wider text-red-400 bg-red-500/15 px-2 py-0.5 rounded-md">Up next</span>
-                      </div>
-                      <p class="text-xs font-bold text-zinc-500 mt-0.5 truncate">
-                        {code}
-                        {ep.air_date && <> · {aired ? "" : "Airs "}{fmtDate(ep.air_date)}</>}
-                        {ep.runtime ? <> · {ep.runtime} min</> : null}
-                      </p>
-                    </div>
-                    <div class="hidden md:flex items-center gap-3 text-sm font-black">
-                      {ep.tmdb_rating != null && ep.tmdb_rating > 0 && (
-                        <span class="flex items-center gap-1.5 text-[#01b4e4]"><img src="/logos/tmdb.svg" alt="TMDB" class="w-7 h-4 object-contain" />{ep.tmdb_rating.toFixed(1)}</span>
-                      )}
-                      {ep.imdb_rating != null && ep.imdb_rating > 0 && (
-                        <span class="flex items-center gap-1.5 text-[#f5c518]"><img src="/logos/imdb.png" alt="IMDb" class="w-7 h-4 object-contain" />{ep.imdb_rating.toFixed(1)}</span>
-                      )}
-                    </div>
-                    <button
-                      data-action="watched"
-                      data-watched={String(ep.watched)}
-                      data-state={ep.watched ? "active" : "inactive"}
-                      title={ep.watched ? "Mark as unwatched" : "Mark as watched"}
-                      aria-label={`Watched: ${ep.title}`}
-                      class="ep-check shrink-0 w-10 h-10 flex items-center justify-center cursor-pointer"
-                    >
-                      <img
-                        src={ep.watched ? watchdIconRed.src : watchdIconWhite.src}
-                        alt=""
-                        class="w-8 h-8 object-contain"
-                        data-watchd-red={watchdIconRed.src}
-                        data-watchd-white={watchdIconWhite.src}
-                      />
-                    </button>
-                  </div>
-
-                  <!-- Opened by clicking the row -->
-                  <div class="ep-detail hidden pb-4 px-2 sm:px-3">
-                    <div class="pl-[108px] sm:pl-[168px]">
-                      <p class="text-sm text-zinc-400 leading-relaxed max-w-4xl mb-3">{ep.overview || "No overview available for this episode."}</p>
-                      <div class="flex flex-wrap items-center gap-2">
+                  <!-- As Trakt laid them out: the still with its buttons, then the episode beside it. -->
+                  <div class="ep-main grid md:grid-cols-[minmax(0,420px)_1fr] gap-4 md:gap-6 py-5">
+                    <div class="ep-still rounded-2xl overflow-hidden bg-zinc-900 border border-zinc-800/70">
+                      <a href={href} class="block aspect-video bg-zinc-900" tabindex="-1">
+                        {ep.poster_path ? (
+                          <img src={ep.poster_path} alt="" class="w-full h-full object-cover" loading="lazy" decoding="async" />
+                        ) : (
+                          <span class="w-full h-full flex items-center justify-center text-zinc-700 text-4xl font-black">{ep.episode_number}</span>
+                        )}
+                      </a>
+                      <div class="flex items-center gap-1 px-2 h-14">
                         <button
-                          data-action="rate"
-                          data-rating-style="pill"
-                          data-user-rating={ep.user_rating != null ? String(ep.user_rating) : ""}
-                          data-state={ep.user_rating != null ? "active" : "inactive"}
-                          title={ep.user_rating != null ? `Your rating: ${ep.user_rating}/10` : "Rate this"}
-                          class={`flex items-center gap-1.5 h-8 px-3 rounded-lg bg-zinc-900 border border-zinc-800 text-xs font-black cursor-pointer ${ep.user_rating != null ? "text-red-500" : "text-zinc-500 hover:text-red-400"}`}
+                          data-action="watched"
+                          data-watched={String(ep.watched)}
+                          data-state={ep.watched ? "active" : "inactive"}
+                          title={ep.watched ? "Mark as unwatched" : "Mark as watched"}
+                          aria-label={`Watched: ${ep.title}`}
+                          class="ep-check shrink-0 w-10 h-10 flex items-center justify-center cursor-pointer"
                         >
-                          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill={ep.user_rating != null ? "currentColor" : "none"} stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-                          <span data-rating-value>{ep.user_rating != null ? ep.user_rating : ""}</span>
-                          <span class="sr-only">Rate</span>
+                          <img
+                            src={ep.watched ? watchdIconRed.src : watchdIconWhite.src}
+                            alt=""
+                            class="w-7 h-7 object-contain"
+                            data-watchd-red={watchdIconRed.src}
+                            data-watchd-white={watchdIconWhite.src}
+                          />
                         </button>
                         <button
                           data-action="list"
                           data-in-lists={JSON.stringify(ep.in_lists ?? [])}
                           data-state={(ep.in_lists ?? []).length > 0 ? "active" : "inactive"}
                           title="Add to list"
-                          class="ep-icon ep-icon-list flex items-center justify-center w-8 h-8 rounded-lg border border-zinc-800 cursor-pointer"
+                          class="ep-icon ep-icon-list flex items-center justify-center w-10 h-10 rounded-lg cursor-pointer"
                         >
-                          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
                         </button>
                         <button
                           data-action="collected"
                           data-in-library={String(ep.in_library)}
                           data-state={ep.in_library ? "active" : "inactive"}
                           title={ep.in_library ? "In collection" : "Add to collection"}
-                          class="ep-icon ep-icon-collected flex items-center justify-center w-8 h-8 rounded-lg border border-zinc-800 cursor-pointer"
+                          class="ep-icon ep-icon-collected flex items-center justify-center w-10 h-10 rounded-lg cursor-pointer"
                         >
-                          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7"/><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><path d="M15 22v-4a3 3 0 0 0-6 0v4"/><path d="M2 7h20"/></svg>
+                          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7"/><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><path d="M15 22v-4a3 3 0 0 0-6 0v4"/><path d="M2 7h20"/></svg>
                         </button>
-                        <a href={href} class="ml-1 text-xs font-black uppercase tracking-wider text-zinc-500 hover:text-red-400 transition-colors">View episode →</a>
+                        <button
+                          data-action="rate"
+                          data-rating-style="pill"
+                          data-user-rating={ep.user_rating != null ? String(ep.user_rating) : ""}
+                          data-state={ep.user_rating != null ? "active" : "inactive"}
+                          title={ep.user_rating != null ? `Your rating: ${ep.user_rating}/10` : "Rate this"}
+                          class={`flex items-center gap-1.5 h-10 px-2 rounded-lg text-sm font-black cursor-pointer ${ep.user_rating != null ? "text-red-500" : "text-zinc-500 hover:text-red-400"}`}
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill={ep.user_rating != null ? "currentColor" : "none"} stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                          <span data-rating-value>{ep.user_rating != null ? ep.user_rating : ""}</span>
+                          <span class="sr-only">Rate</span>
+                        </button>
+                        {ep.imdb_rating != null && ep.imdb_rating > 0 && (
+                          <span class="ml-auto flex items-center gap-1.5 pr-2 font-black"><span class="px-1.5 rounded bg-[#f5c518] text-black text-[11px]">IMDb</span><span class="text-[#f5c518] text-xl">{ep.imdb_rating.toFixed(1)}</span></span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div class="min-w-0">
+                      <a href={href} class="block text-2xl font-black text-zinc-100 hover:text-red-400 transition-colors leading-tight">
+                        <span class="text-red-500">{code}</span> {ep.title}
+                      </a>
+                      <div class="flex flex-wrap items-center gap-2 mt-2">
+                        {ep.air_date && (
+                          <span class="px-2.5 py-1 rounded-md bg-red-600 text-white text-xs font-black">{aired ? "" : "Airs "}{fmtDate(ep.air_date)}</span>
+                        )}
+                        {ep.runtime ? <span class="px-2.5 py-1 rounded-md bg-zinc-800 text-zinc-300 text-xs font-black">{ep.runtime}m</span> : null}
+                        {ep.badge && <EpisodeBadge label={ep.badge} class="shrink-0" />}
+                        <span class="ep-next hidden shrink-0 text-[10px] font-black uppercase tracking-wider text-red-400 bg-red-500/15 px-2 py-1 rounded-md">Up next</span>
+                      </div>
+                      <p class="mt-3 text-base text-zinc-300 leading-relaxed max-w-4xl">{ep.overview || "No overview available for this episode."}</p>
+                      <div class="flex flex-wrap items-center gap-2 mt-4">
+                        {ep.tmdb_rating != null && ep.tmdb_rating > 0 && (
+                          <span class="flex items-center gap-2 h-10 px-3 rounded-xl bg-zinc-900 border border-zinc-800 text-sm font-black text-[#01b4e4]"><img src="/logos/tmdb.svg" alt="TMDB" class="w-8 h-4 object-contain" />{ep.tmdb_rating.toFixed(1)}</span>
+                        )}
+                        <a href={href} class="flex items-center h-10 px-3 rounded-xl bg-zinc-900 border border-zinc-800 text-xs font-black uppercase tracking-wider text-zinc-400 hover:text-red-400 transition-colors">View episode →</a>
                       </div>
                     </div>
                   </div>
@@ -441,11 +439,9 @@ const seasonAllWatched = airedCount > 0 && watchedCount === airedCount;
   .ep-check, .ep-check:hover { background: transparent !important; border: 0; padding: 0; }
   .ep-check img { transition: transform .15s; }
   .ep-check:hover img { transform: scale(1.12); }
-  .ep-row[data-aired="false"] .ep-main { opacity: .55; }
+  .ep-row[data-aired="false"] .ep-main { opacity: .6; }
   .ep-row[data-aired="false"] .ep-check { visibility: hidden; }
   .ep-row.is-next .ep-next { display: inline-block; }
-  .ep-row.is-open .ep-detail { display: block; }
-  .ep-row.is-open .ep-main { background: rgb(24 24 27 / .6); }
 
   .ep-icon { background: #18181b; color: #71717a; }
   .ep-icon:hover { color: #e4e4e7; }
@@ -461,18 +457,11 @@ const seasonAllWatched = airedCount > 0 && watchedCount === airedCount;
 </style>
 
 <script>
-  // Episode rows: a click on the row (not on a link or button) shows the
-  // synopsis and actions. The progress bar, "Up next" tag and season button
+  // Episode rows: the progress bar, "Up next" tag and season button
   // follow the watched checks, which the shared handlers update in place.
   const episodes = document.getElementById('episodes');
   if (episodes) {
     const rows = [...episodes.querySelectorAll<HTMLElement>('.ep-row')];
-
-    episodes.addEventListener('click', (e) => {
-      const target = e.target as Element;
-      if (target.closest('a, button')) return;
-      target.closest('.ep-row')?.classList.toggle('is-open');
-    });
 
     const refresh = () => {
       const aired = rows.filter((r) => r.dataset.aired === 'true');

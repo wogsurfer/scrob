@@ -280,7 +280,10 @@ fun ShowScreen(
 // ------------------------------------------------------------------ season
 
 @Composable
-fun SeasonScreen(showTmdbId: Int, seasonNumber: Int, onBack: () -> Unit, openSeason: (Int, Int) -> Unit, openDisc: (Int) -> Unit) {
+fun SeasonScreen(
+    showTmdbId: Int, seasonNumber: Int, onBack: () -> Unit, openSeason: (Int, Int) -> Unit, openDisc: (Int) -> Unit,
+    openEpisode: (Int, Int, Int) -> Unit = { _, _, _ -> },
+) {
     val (state, reload) = rememberLoad(showTmdbId to seasonNumber, saved("season-$showTmdbId-$seasonNumber")) { season(showTmdbId, seasonNumber) }
     val app = LocalApp.current
     val haptics = LocalHapticFeedback.current
@@ -350,7 +353,7 @@ fun SeasonScreen(showTmdbId: Int, seasonNumber: Int, onBack: () -> Unit, openSea
             }
             items(season.episodes, key = { it.tmdbId }) { episode ->
                 val target = WatchTarget(episode.tmdbId, "episode", episode.title, showTmdbId, seasonNumber, episode.episodeNumber, episode.runtime)
-                EpisodeRow(episode, watched[episode.tmdbId] == true, onLongPress = { app.openWatchSheet(target, reload) }) {
+                EpisodeRow(episode, watched[episode.tmdbId] == true, onOpen = { openEpisode(showTmdbId, seasonNumber, episode.episodeNumber) }, onLongPress = { app.openWatchSheet(target, reload) }) {
                     haptics.performHapticFeedback(HapticFeedbackType.Confirm)
                     val was = watched[episode.tmdbId] == true
                     watched[episode.tmdbId] = !was
@@ -522,29 +525,56 @@ private fun requestItem(mediaType: String, tmdbId: Int, enabled: Boolean, monito
     }
 }
 
+/**
+ * An episode as Trakt lays them out: the still, with the W and IMDb rating
+ * under it, then the code and title, date, runtime and any premiere or finale,
+ * and the synopsis (tap it for all of it). The still or title opens the episode.
+ */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun EpisodeRow(episode: Episode, watched: Boolean, onLongPress: () -> Unit, onToggle: () -> Unit) {
+private fun EpisodeRow(episode: Episode, watched: Boolean, onOpen: () -> Unit, onLongPress: () -> Unit, onToggle: () -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     val future = isFuture(episode.airDate)
-    Column(Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(start = 16.dp, end = 4.dp, top = 10.dp, bottom = 10.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(Modifier.fillMaxWidth().alpha(if (future) 0.65f else 1f).padding(horizontal = 16.dp, vertical = 12.dp)) {
+        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Watchd.Surface)) {
             AsyncImage(
                 model = episode.posterPath, contentDescription = null, contentScale = ContentScale.Crop,
-                modifier = Modifier.width(128.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(8.dp)).background(Watchd.Surface),
+                modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f).background(Watchd.SurfaceHigh).clickable(onClick = onOpen),
             )
-            Column(Modifier.weight(1f)) {
-                Text("Episode ${episode.episodeNumber}", color = Watchd.Red, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                Text(episode.title.orEmpty(), fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text(
-                    listOfNotNull(episode.airDate?.let { formatDate(it) }, episode.runtime?.let { "$it min" }).joinToString(" · "),
-                    color = Watchd.Faint, fontSize = 12.sp,
-                )
-                EpisodeBadge(episode.badge, Modifier.padding(top = 3.dp))
+            Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (!future) WatchButton(watched, onTap = onToggle, onLongPress = onLongPress) else Spacer(Modifier.height(48.dp))
+                Spacer(Modifier.weight(1f))
+                ImdbBadge(episode.imdbRating)
             }
-            if (!future) WatchButton(watched, onTap = onToggle, onLongPress = onLongPress)
         }
-        if (expanded && !episode.overview.isNullOrBlank()) {
-            Text(episode.overview, color = Watchd.Muted, modifier = Modifier.padding(top = 8.dp, end = 12.dp))
+        Text(
+            buildAnnotatedString {
+                withStyle(SpanStyle(color = Watchd.Red)) { append(episodeCode(episode.seasonNumber, episode.episodeNumber)) }
+                append(" ${episode.title.orEmpty()}")
+            },
+            fontWeight = FontWeight.Black, fontSize = 19.sp, lineHeight = 23.sp,
+            modifier = Modifier.padding(top = 12.dp).clickable(onClick = onOpen),
+        )
+        FlowRow(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            episode.airDate?.let {
+                Text(
+                    (if (future) "Airs " else "") + formatDate(it), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold,
+                    modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(Watchd.Red).padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+            }
+            episode.runtime?.takeIf { it > 0 }?.let {
+                Text(
+                    "${it}m", color = Watchd.Text, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold,
+                    modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(Watchd.SurfaceHigh).padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+            }
+            EpisodeBadge(episode.badge)
+        }
+        if (!episode.overview.isNullOrBlank()) {
+            Text(
+                episode.overview, color = Watchd.Muted, maxLines = if (expanded) Int.MAX_VALUE else 3, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 10.dp).clickable { expanded = !expanded },
+            )
         }
     }
 }

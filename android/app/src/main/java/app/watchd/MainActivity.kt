@@ -341,6 +341,7 @@ private fun SignedIn(session: Session, incoming: Intent?, onHandled: () -> Unit,
                         // A step to the season either side replaces this one, so Back still goes to the show.
                         openSeason = { show, season -> nav.navigate(SeasonRoute(show, season)) { popUpTo<SeasonRoute> { inclusive = true } } },
                         openDisc = { id -> nav.navigate(DiscRoute(id)) },
+                        openEpisode = { show, season, episode -> nav.navigate(EpisodeRoute(show, season, episode)) },
                     )
                 }
                 composable<EpisodeRoute> {
