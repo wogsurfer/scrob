@@ -41,6 +41,7 @@ import app.watchd.ui.ListScreen
 import app.watchd.ui.WatchlistScreen
 import app.watchd.ui.YouScreen
 import app.watchd.ui.StatsScreen
+import app.watchd.ui.EpisodeScreen
 import app.watchd.ui.PersonScreen
 import app.watchd.ui.CollectionScreen
 import app.watchd.ui.clearSaved
@@ -99,6 +100,7 @@ import kotlinx.serialization.Serializable
 @Serializable data class MovieRoute(val tmdbId: Int)
 @Serializable data class ShowRoute(val tmdbId: Int)
 @Serializable data class SeasonRoute(val showTmdbId: Int, val season: Int)
+@Serializable data class EpisodeRoute(val showTmdbId: Int, val season: Int, val episode: Int)
 @Serializable object CalendarRoute
 @Serializable object HistoryRoute
 @Serializable object YouRoute
@@ -299,7 +301,13 @@ private fun SignedIn(session: Session, incoming: Intent?, onHandled: () -> Unit,
             },
         ) { padding ->
             NavHost(nav, startDestination = HomeRoute, modifier = Modifier.padding(bottom = padding.calculateBottomPadding())) {
-                composable<HomeRoute> { DashboardScreen(openShow, openMovie, openCollection = { nav.navigate(CollectionRoute) }) }
+                composable<HomeRoute> {
+                    DashboardScreen(
+                        openShow, openMovie, openCollection = { nav.navigate(CollectionRoute) },
+                        openSeason = { show, season -> nav.navigate(SeasonRoute(show, season)) },
+                        openEpisode = { show, season, episode -> nav.navigate(EpisodeRoute(show, season, episode)) },
+                    )
+                }
                 composable<SearchRoute> { SearchScreen(openShow, openMovie) }
                 composable<CalendarRoute> { CalendarScreen(openShow, openMovie) }
                 composable<HistoryRoute> { HistoryScreen(openShow, openMovie) }
@@ -318,10 +326,17 @@ private fun SignedIn(session: Session, incoming: Intent?, onHandled: () -> Unit,
                     val route = it.toRoute<SeasonRoute>()
                     SeasonScreen(route.showTmdbId, route.season, onBack = { nav.popBackStack() })
                 }
+                composable<EpisodeRoute> {
+                    val route = it.toRoute<EpisodeRoute>()
+                    EpisodeScreen(
+                        route.showTmdbId, route.season, route.episode, onBack = { nav.popBackStack() },
+                        openShow = openShow, openSeason = { show, season -> nav.navigate(SeasonRoute(show, season)) }, openPerson = openPerson,
+                    )
+                }
             }
             // Behind the clock and battery on list pages, so content scrolls
             // under a solid strip; film and show pages draw their own bar.
-            val detail = destination?.let { d -> d.hasRoute(MovieRoute::class) || d.hasRoute(ShowRoute::class) || d.hasRoute(SeasonRoute::class) || d.hasRoute(DiscRoute::class) } == true
+            val detail = destination?.let { d -> d.hasRoute(MovieRoute::class) || d.hasRoute(ShowRoute::class) || d.hasRoute(SeasonRoute::class) || d.hasRoute(EpisodeRoute::class) || d.hasRoute(DiscRoute::class) } == true
             if (!detail) {
                 Box(Modifier.fillMaxWidth().windowInsetsTopHeight(WindowInsets.statusBars).background(Watchd.Background.copy(alpha = 0.94f)))
             }

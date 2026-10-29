@@ -49,6 +49,7 @@ class Api(server: String, private val token: String?) {
     suspend fun movie(tmdbId: Int): Movie = get("media/movie/$tmdbId")
     suspend fun show(tmdbId: Int): Show = get("shows/$tmdbId")
     suspend fun season(showTmdbId: Int, season: Int): Season = get("shows/$showTmdbId/season/$season")
+    suspend fun episode(showTmdbId: Int, season: Int, episode: Int): EpisodeDetail = get("shows/$showTmdbId/season/$season/$episode")
     suspend fun calendar(days: Int = 35): Upcoming = get("calendar/upcoming", "days" to "$days", "from_week_start" to "true")
     suspend fun history(page: Int, pageSize: Int = 50): HistoryPage = get("history", "page" to "$page", "page_size" to "$pageSize")
     suspend fun lists(): ListsResponse = get("lists")

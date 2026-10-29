@@ -397,6 +397,69 @@ fun SeasonScreen(showTmdbId: Int, seasonNumber: Int, onBack: () -> Unit) {
     }
 }
 
+/**
+ * One episode, as the site's episode page: its still, the show and season it
+ * belongs to (tap for them), ratings, the W to mark it watched, the story and
+ * its guest stars and cast.
+ */
+@Composable
+fun EpisodeScreen(
+    showTmdbId: Int, seasonNumber: Int, episodeNumber: Int, onBack: () -> Unit,
+    openShow: (Int) -> Unit, openSeason: (Int, Int) -> Unit, openPerson: (Int) -> Unit,
+) {
+    val (state, reload) = rememberLoad(Triple(showTmdbId, seasonNumber, episodeNumber), saved("episode-$showTmdbId-$seasonNumber-$episodeNumber")) {
+        episode(showTmdbId, seasonNumber, episodeNumber)
+    }
+    val app = LocalApp.current
+    val haptics = LocalHapticFeedback.current
+    val list = rememberLazyListState()
+    LoadContent(state, reload) { ep ->
+        var watched by remember(ep) { mutableStateOf(ep.watched) }
+        val code = episodeCode(ep.seasonNumber, ep.episodeNumber)
+        DetailScaffold(ep.title ?: code, list, onBack) {
+            item {
+                DetailHeader(
+                    backdrop = ep.stillPath ?: ep.show?.backdropPath, poster = ep.show?.posterPath, title = ep.title ?: code,
+                    facts = listOfNotNull(code, ep.airDate?.let { formatDate(it) }, ep.runtime?.takeIf { it > 0 }?.let { "$it min" }),
+                )
+            }
+            item {
+                // The show, then the season: each opens its page.
+                Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        ep.show?.title.orEmpty(), color = Watchd.Text, fontWeight = FontWeight.Bold,
+                        modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { openShow(showTmdbId) }.padding(vertical = 6.dp, horizontal = 2.dp),
+                    )
+                    Text("  ·  ", color = Watchd.Faint)
+                    Text(
+                        "Season ${ep.seasonNumber}", color = Watchd.Red, fontWeight = FontWeight.Bold,
+                        modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { openSeason(showTmdbId, ep.seasonNumber) }.padding(vertical = 6.dp, horizontal = 2.dp),
+                    )
+                }
+            }
+            ep.badge?.let { item { EpisodeBadge(it, Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) } }
+            item { RatingsPill(ep.tmdbRating, ep.imdbRating, ep.userRating, Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) }
+            ep.tmdbId?.let { id ->
+                item {
+                    WatchedButton(watched, if (watched) "Watched" else "Mark watched", Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                        haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                        val was = watched
+                        watched = !was
+                        app.act(
+                            "${ep.show?.title.orEmpty()} $code ${if (was) "unwatched" else "watched"}",
+                            action = { if (was) unwatch(id, "episode") else markWatched(id, "episode") },
+                            onFail = { watched = was },
+                        )
+                    }
+                }
+            }
+            item { Overview(null, ep.overview, emptyList()) }
+            val people = (ep.guestStars + ep.cast).distinctBy { it.tmdbId ?: it.name.hashCode() }
+            if (people.isNotEmpty()) item { CastSection(people, openPerson) }
+        }
+    }
+}
+
 @Composable
 private fun EpisodeRow(episode: Episode, watched: Boolean, onLongPress: () -> Unit, onToggle: () -> Unit) {
     var expanded by remember { mutableStateOf(false) }

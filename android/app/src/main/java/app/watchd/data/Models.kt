@@ -620,3 +620,29 @@ data class AppLink(val url: String)
 /** A film Radarr has downloaded. */
 @Serializable
 data class DownloadedFilm(val tmdbId: Int, val title: String? = null, val year: Int? = null, val quality: String? = null, val importedAt: String? = null, val posterPath: String? = null)
+
+// ------------------------------------------------------------------ an episode
+
+@Serializable
+data class EpisodeShow(val tmdbId: Int? = null, val title: String? = null, val posterPath: String? = null, val backdropPath: String? = null)
+
+@Serializable
+data class EpisodeDetail(
+    val tmdbId: Int? = null,
+    val seasonNumber: Int = 0,
+    val episodeNumber: Int = 0,
+    val title: String? = null,
+    val overview: String? = null,
+    val stillPath: String? = null,
+    val airDate: String? = null,
+    val runtime: Int? = null,
+    val tmdbRating: Double? = null,
+    val imdbRating: Double? = null,
+    val userRating: Double? = null,
+    val watched: Boolean = false,
+    val playCount: Int = 0,
+    val badge: String? = null,
+    val guestStars: List<Person> = emptyList(),
+    val cast: List<Person> = emptyList(),
+    val show: EpisodeShow? = null,
+)

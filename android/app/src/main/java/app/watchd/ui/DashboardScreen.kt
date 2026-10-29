@@ -1,5 +1,8 @@
 package app.watchd.ui
 
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.SpanStyle
 import kotlinx.serialization.Serializable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -80,7 +83,10 @@ private data class Dashboard(val nextUp: NextUpResponse, val upcoming: Upcoming)
 private data class Header(val posters: List<String>, val totals: Totals?, val health: PipelineHealth?)
 
 @Composable
-fun DashboardScreen(openShow: (Int) -> Unit, openMovie: (Int) -> Unit, openCollection: () -> Unit) {
+fun DashboardScreen(
+    openShow: (Int) -> Unit, openMovie: (Int) -> Unit, openCollection: () -> Unit,
+    openSeason: (Int, Int) -> Unit, openEpisode: (Int, Int, Int) -> Unit,
+) {
     val (state, reload) = rememberLoad(Unit, saved<Dashboard>("home")) {
         coroutineScope {
             val nextUp = async { nextUp() }
@@ -119,7 +125,9 @@ fun DashboardScreen(openShow: (Int) -> Unit, openMovie: (Int) -> Unit, openColle
                         items(nextUp, key = { it.tmdbId }) { item ->
                             NextUpCard(
                                 item, Modifier.animateItem(),
-                                onOpen = { item.showTmdbId?.let(openShow) },
+                                openShow = { item.showTmdbId?.let(openShow) },
+                                openSeason = { item.showTmdbId?.let { openSeason(it, item.seasonNumber ?: 1) } },
+                                openEpisode = { item.showTmdbId?.let { openEpisode(it, item.seasonNumber ?: 1, item.episodeNumber ?: 1) } },
                                 onLongPress = {
                                     app.openWatchSheet(
                                         WatchTarget(item.tmdbId, "episode", item.title, item.showTmdbId, item.seasonNumber, item.episodeNumber),
@@ -271,15 +279,21 @@ private fun duration(minutes: Long): String {
 /**
  * Next Up as the site's card: the season's poster, a strip with the W and the
  * show's IMDb score, a thin red progress line, then the episode and progress.
+ * The poster opens the season, the episode line the episode, the show's name
+ * the show.
  */
 @Composable
-private fun NextUpCard(item: NextUpItem, modifier: Modifier, onOpen: () -> Unit, onLongPress: () -> Unit, onWatched: () -> Unit) {
-    Column(modifier.width(140.dp).clip(RoundedCornerShape(10.dp)).background(Watchd.Surface).clickable(onClick = onOpen)) {
+private fun NextUpCard(
+    item: NextUpItem, modifier: Modifier,
+    openShow: () -> Unit, openSeason: () -> Unit, openEpisode: () -> Unit,
+    onLongPress: () -> Unit, onWatched: () -> Unit,
+) {
+    Column(modifier.width(140.dp).clip(RoundedCornerShape(10.dp)).background(Watchd.Surface)) {
         AsyncImage(
             model = item.seasonPosterPath ?: item.showPosterPath,
-            contentDescription = null,
+            contentDescription = "Season ${item.seasonNumber ?: 1}",
             contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f).background(Watchd.SurfaceHigh),
+            modifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f).background(Watchd.SurfaceHigh).clickable(onClick = openSeason),
         )
         Row(Modifier.fillMaxWidth().padding(end = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             WatchButton(false, size = 26.dp, onTap = onWatched, onLongPress = onLongPress)
@@ -289,16 +303,24 @@ private fun NextUpCard(item: NextUpItem, modifier: Modifier, onOpen: () -> Unit,
         Box(Modifier.fillMaxWidth().height(3.dp).background(Watchd.SurfaceHigh)) {
             Box(Modifier.fillMaxWidth(item.showWatchPct.coerceIn(0, 100) / 100f).fillMaxHeight().background(Watchd.Red))
         }
-        Column(Modifier.padding(10.dp)) {
+        Column(Modifier.padding(start = 10.dp, end = 10.dp, bottom = 6.dp)) {
+            // The code in red, as on the site.
             Text(
-                "${episodeCode(item.seasonNumber, item.episodeNumber)} ${item.title.orEmpty()}",
+                buildAnnotatedString {
+                    withStyle(SpanStyle(color = Watchd.Red)) { append(episodeCode(item.seasonNumber, item.episodeNumber)) }
+                    append(" ${item.title.orEmpty()}")
+                },
                 fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth().clickable(onClick = openEpisode).padding(top = 8.dp, bottom = 2.dp),
             )
             Text(
                 "${item.showEpisodesWatched} of ${item.showEpisodesTotal} watched · ${item.showWatchPct}%",
                 color = Watchd.Muted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
-            Text(item.showTitle.orEmpty(), color = Watchd.Muted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                item.showTitle.orEmpty(), color = Watchd.Muted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth().clickable(onClick = openShow).padding(top = 2.dp, bottom = 4.dp),
+            )
         }
     }
 }

@@ -26,6 +26,11 @@ const poster = tmdbImageUrl(
   "w500",
 );
 
+// The poster opens the season, the episode line the episode, the show's
+// name the show.
+const showHref = item.show_tmdb_id ? `/show/${item.show_tmdb_id}` : "#";
+const seasonHref =
+  item.show_tmdb_id && item.season_number != null ? `${showHref}/season/${item.season_number}` : showHref;
 const href =
   item.show_tmdb_id &&
   item.season_number != null &&
@@ -79,7 +84,7 @@ const code =
 
   <div class="wd-panel">
 
-    <a href={href} class="wd-poster-link">
+    <a href={seasonHref} class="wd-poster-link" title={`Season ${item.season_number}`}>
       {poster ? (
         <img src={poster} alt={item.show_title} class="wd-poster" loading="lazy" />
       ) : (
@@ -168,11 +173,11 @@ const code =
 
   </div>
 
-  <a href={href} class="wd-meta">
-    <div class="wd-title"><span class="wd-code">{code}</span> {item.title}</div>
+  <div class="wd-meta">
+    <a href={href} class="wd-title"><span class="wd-code">{code}</span> {item.title}</a>
     {progress !== null && <div class="wd-tip">{progressTip}</div>}
-    <div class="wd-show">{item.show_title}</div>
-  </a>
+    <a href={showHref} class="wd-show">{item.show_title}</a>
+  </div>
 
 </div>
 
@@ -354,6 +359,15 @@ const code =
     color:#ef4444;
     font-weight:800;
 }
+
+/* The episode line and the show's name are links of their own. */
+a.wd-title, a.wd-show{
+    display:block;
+    text-decoration:none;
+}
+
+a.wd-title:hover{ color:#fca5a5; }
+a.wd-show:hover{ color:#f4f4f5; }
 
 .wd-show{
     margin-top:3px;
