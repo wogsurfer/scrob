@@ -532,3 +532,16 @@ async def dashboard_glance(
         "streak_days": streak,
         "top_show": {"title": top[0][0], "episodes": top[0][1]} if top else None,
     }
+
+
+@router.get("/theme")
+async def holiday_theme(day: str | None = None):
+    """Today's holiday theme (Malta time), or null on an ordinary day.
+    ?day=YYYY-MM-DD shows another day's, to preview it."""
+    from datetime import date as _date
+    from core.holidays import theme_for, today
+    try:
+        when = _date.fromisoformat(day) if day else today()
+    except ValueError:
+        when = today()
+    return {"theme": theme_for(when)}

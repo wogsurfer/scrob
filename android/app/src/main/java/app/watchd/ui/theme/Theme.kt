@@ -5,14 +5,22 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import app.watchd.data.HolidayTheme
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
-// The site's palette: near-black, zinc greys and the Watchd red.
+// The site's palette: near-black, zinc greys and the Watchd red, which a
+// holiday swaps for its own colour (core/holidays.py).
 object Watchd {
-    val Red = Color(0xFFE50914)
+    var holiday by mutableStateOf<HolidayTheme?>(null)
+    val Red: Color get() = holiday?.accentColor ?: Color(0xFFE50914)
+    /** The holiday's other colour, or the red on an ordinary day. */
+    val Second: Color get() = holiday?.secondColor ?: Red
     val Background = Color(0xFF09090B)
     val Surface = Color(0xFF18181B)
     val SurfaceHigh = Color(0xFF27272A)
@@ -22,7 +30,7 @@ object Watchd {
     val ImdbYellow = Color(0xFFF5C518)
 }
 
-private val colors = darkColorScheme(
+private fun colors() = darkColorScheme(
     primary = Watchd.Red,
     onPrimary = Color.White,
     secondary = Watchd.Muted,
@@ -48,7 +56,7 @@ private val type = Typography(
 
 @Composable
 fun WatchdTheme(content: @Composable () -> Unit) {
-    MaterialTheme(colorScheme = colors, typography = type) {
+    MaterialTheme(colorScheme = colors(), typography = type) {
         // Gives every screen the page colour and light text by default.
         Surface(color = Watchd.Background, contentColor = Watchd.Text, content = content)
     }

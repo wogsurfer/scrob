@@ -24,6 +24,13 @@
   --color-blue-500: var(--accent-500);
   --color-blue-600: var(--accent-600);
   --color-blue-900: var(--accent-900);
+
+  /* Watchd's red, through variables a holiday theme can swap (lib/holiday.ts). */
+  --color-red-300: var(--watchd-red-300, #fca5a5);
+  --color-red-400: var(--watchd-red-400, #f87171);
+  --color-red-500: var(--watchd-red-500, #ef4444);
+  --color-red-600: var(--watchd-red-600, #dc2626);
+  --color-red-700: var(--watchd-red-700, #b91c1c);
 }
 
 :root {

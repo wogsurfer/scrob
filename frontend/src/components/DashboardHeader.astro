@@ -1,7 +1,9 @@
 ---
 import { tmdbImageUrl } from "../lib/api";
+import { getHoliday } from "../lib/holiday";
 
 const { posters = [], stats } = Astro.props;
+const holiday = await getHoliday(Astro);
 
 function formatDuration(minutes: number) {
   const total = Math.round(minutes);
@@ -38,6 +40,7 @@ function formatDuration(minutes: number) {
         <h1>Hello, David</h1>
 
         <p>WATCHING SINCE 1989</p>
+        {holiday && <p class="holiday-greeting">{holiday.greeting}</p>}
 
       </div>
 
@@ -402,4 +405,12 @@ function formatDuration(minutes: number) {
     .line1, .line2{ font-size:15px; white-space:normal; }
 }
 
+  .dashboard-header .holiday-greeting {
+    margin-top: 6px;
+    color: var(--watchd-red-400, #f87171);
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: 0 !important;
+    text-transform: none !important;
+  }
 </style>

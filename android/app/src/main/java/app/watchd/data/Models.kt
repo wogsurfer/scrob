@@ -357,6 +357,28 @@ data class ShowHistoryPage(
     val results: List<ShowHistoryItem> = emptyList(),
 )
 
+/** Today's holiday theme: its colours, decorations and greeting. */
+@Serializable
+data class HolidayTheme(
+    val key: String,
+    val name: String = "",
+    val greeting: String = "",
+    val decoration: String = "none",
+    /** The red scale it replaces, 300 to 700. */
+    val accent: List<String> = emptyList(),
+    val second: String? = null,
+) {
+    val accentColor get() = accent.getOrNull(3)?.let(::hexColor)
+    val secondColor get() = second?.let(::hexColor)
+}
+
+@Serializable
+data class ThemeResponse(val theme: HolidayTheme? = null)
+
+private fun hexColor(hex: String) = runCatching {
+    androidx.compose.ui.graphics.Color(android.graphics.Color.parseColor(hex))
+}.getOrNull()
+
 @Serializable
 data class HistoryPage(
     val page: Int = 1,

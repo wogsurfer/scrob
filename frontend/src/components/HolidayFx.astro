@@ -1,0 +1,72 @@
+---
+// A holiday's decorations: a few shapes drifting over the page, behind
+// nothing you can click, faint enough to read through, and still for anyone
+// who has asked their device for less motion.
+import type { HolidayTheme } from "../lib/holiday";
+
+interface Props {
+  theme: HolidayTheme | null;
+}
+
+const { theme } = Astro.props;
+
+// What each decoration draws, and how it moves.
+const kinds: Record<string, { glyphs: string[]; motion: "fall" | "rise" | "twinkle" | "drift" }> = {
+  snow: { glyphs: ["❄", "❅", "❆"], motion: "fall" },
+  hearts: { glyphs: ["♥", "❤"], motion: "rise" },
+  shamrocks: { glyphs: ["☘"], motion: "fall" },
+  confetti: { glyphs: ["▬", "●", "◆", "▲"], motion: "fall" },
+  sparkles: { glyphs: ["✦", "✧", "★"], motion: "twinkle" },
+  stars: { glyphs: ["✦", "·", "✧"], motion: "twinkle" },
+  eggs: { glyphs: ["⬮"], motion: "drift" },
+  petals: { glyphs: ["✿", "❀"], motion: "fall" },
+  flames: { glyphs: ["🔥"], motion: "rise" },
+  bats: { glyphs: ["🦇"], motion: "drift" },
+  leaves: { glyphs: ["🍂", "🍁"], motion: "fall" },
+};
+const kind = theme ? kinds[theme.decoration] : undefined;
+
+// Spread out, but the same on every load (no jumping between pages).
+const pieces = kind
+  ? Array.from({ length: 16 }, (_, i) => {
+      const r = (n: number) => { const x = Math.sin(i * 12.9898 + n * 78.233) * 43758.5453; return x - Math.floor(x); };
+      return {
+        glyph: kind.glyphs[i % kind.glyphs.length],
+        left: Math.round(r(1) * 100),
+        top: Math.round(r(2) * 100),
+        size: 10 + Math.round(r(3) * 14),
+        delay: -Math.round(r(4) * 20),
+        duration: 14 + Math.round(r(5) * 14),
+        // Snow is white whatever the colours; the rest mix the holiday's two.
+        colour: theme?.decoration === "snow" ? (i % 3 ? "#ffffff" : "#dbeafe") : i % 3 === 2 ? "var(--holiday-second)" : "var(--watchd-red-400)",
+      };
+    })
+  : [];
+---
+
+{kind && (
+  <div class={`holiday-fx holiday-fx--${kind.motion}`} aria-hidden="true">
+    {pieces.map((p) => (
+      <span
+        style={`left:${p.left}%;top:${kind.motion === "twinkle" || kind.motion === "drift" ? `${p.top}%` : "-5%"};font-size:${p.size}px;animation-delay:${p.delay}s;animation-duration:${p.duration}s;color:${p.colour}`}
+      >{p.glyph}</span>
+    ))}
+  </div>
+)}
+
+<style>
+  .holiday-fx { position: fixed; inset: 0; z-index: 40; pointer-events: none; overflow: hidden; }
+  .holiday-fx span { position: absolute; opacity: .35; line-height: 1; will-change: transform; }
+  .holiday-fx--fall span { animation: holiday-fall linear infinite; }
+  .holiday-fx--rise span { top: auto !important; bottom: -5%; animation: holiday-rise linear infinite; }
+  .holiday-fx--twinkle span { animation: holiday-twinkle ease-in-out infinite; animation-duration: 4s !important; }
+  .holiday-fx--drift span { animation: holiday-drift ease-in-out infinite alternate; }
+  @keyframes holiday-fall { from { transform: translate(0, 0) rotate(0); } to { transform: translate(40px, 110vh) rotate(300deg); } }
+  @keyframes holiday-rise { from { transform: translate(0, 0); opacity: .35; } to { transform: translate(-30px, -110vh); opacity: 0; } }
+  @keyframes holiday-twinkle { 0%, 100% { opacity: .08; transform: scale(.8); } 50% { opacity: .5; transform: scale(1.1); } }
+  @keyframes holiday-drift { from { transform: translate(0, 0); } to { transform: translate(60px, -30px); } }
+  @media (prefers-reduced-motion: reduce) {
+    .holiday-fx span { animation: none !important; }
+    .holiday-fx--fall span, .holiday-fx--rise span { display: none; }
+  }
+</style>

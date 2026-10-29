@@ -1,5 +1,6 @@
 package app.watchd
 
+import app.watchd.ui.HolidayFx
 import androidx.lifecycle.lifecycleScope
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -246,6 +247,12 @@ private fun SignedIn(session: Session, incoming: Intent?, onHandled: () -> Unit,
         app.refreshSessions()
         onPauseOrDispose {}
     }
+    // Today's holiday theme, checked again whenever the app comes back.
+    val themeScope = rememberCoroutineScope()
+    LifecycleResumeEffect(app) {
+        val job = themeScope.launch { runCatching { app.api.holidayTheme() }.onSuccess { Watchd.holiday = it } }
+        onPauseOrDispose { job.cancel() }
+    }
     LaunchedEffect(app) {
         while (true) {
             delay(60_000)
@@ -351,6 +358,7 @@ private fun SignedIn(session: Session, incoming: Intent?, onHandled: () -> Unit,
             if (!detail) {
                 Box(Modifier.fillMaxWidth().windowInsetsTopHeight(WindowInsets.statusBars).background(Watchd.Background.copy(alpha = 0.94f)))
             }
+            HolidayFx(Watchd.holiday)
         }
     }
 }

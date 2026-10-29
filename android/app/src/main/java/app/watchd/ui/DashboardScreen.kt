@@ -208,6 +208,7 @@ private fun HeroHeader(header: Header?, openCollection: () -> Unit, openHistory:
                     // As on the site, which also greets David by name.
                     Text("Hello, David", fontSize = 28.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text("WATCHING SINCE 1989", color = Watchd.Muted, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
+                    Watchd.holiday?.let { Text(it.greeting, color = Watchd.Red, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(top = 4.dp)) }
                 }
                 header?.health?.let { DownloadsChip(it) }
             }

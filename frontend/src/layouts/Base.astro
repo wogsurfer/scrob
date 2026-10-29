@@ -3,10 +3,13 @@ import "../styles/global.css";
 import logo from "../assets/watchd-icon-red.png";
 import WatchedAtPicker from "../components/WatchedAtPicker.astro";
 import NowWatching from "../components/NowWatching.astro";
+import HolidayFx from "../components/HolidayFx.astro";
+import { getHoliday, holidayStyle } from "../lib/holiday";
 
 interface Props { title: string; hideNav?: boolean }
 const { title, hideNav } = Astro.props;
 const { user, token } = Astro.locals;
+const holiday = await getHoliday(Astro);
 
 const blurExplicit = Astro.cookies.get("blur_explicit")?.value !== "false";
 
@@ -27,7 +30,7 @@ const bottomNavItem = (active: boolean) =>
   `flex flex-col items-center justify-center gap-1 flex-1 py-2 text-[10px] font-bold uppercase tracking-wider transition-colors active:bg-zinc-800/70 active:scale-95 ${active ? 'text-blue-400' : 'text-zinc-500'}`;
 ---
 <!doctype html>
-<html lang="en" class={blurExplicit ? "blur-explicit" : ""}>
+<html lang="en" class={blurExplicit ? "blur-explicit" : ""} data-holiday={holiday?.key} style={holidayStyle(holiday) || undefined}>
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
@@ -105,6 +108,7 @@ const bottomNavItem = (active: boolean) =>
   </script>
 </head>
 <body class="bg-black text-zinc-100 min-h-screen overflow-x-hidden">
+  <HolidayFx theme={holiday} />
   {!hideNav && (
 <nav class="fixed top-0 left-0 right-0 px-4 md:px-6 py-3 md:py-4 text-sm z-50 bg-black border-b border-zinc-800">
       <!-- Default bar -->
