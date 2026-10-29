@@ -165,7 +165,7 @@ fun MovieScreen(tmdbId: Int, onBack: () -> Unit, openMovie: (Int) -> Unit, openP
 // ------------------------------------------------------------------ show
 
 @Serializable
-private data class ShowPage(val show: Show, val next: NextUpItem?)
+private data class ShowPage(val show: Show)
 
 @Composable
 fun ShowScreen(
@@ -173,11 +173,7 @@ fun ShowScreen(
     openEpisode: (Int, Int, Int) -> Unit = { _, _, _ -> },
 ) {
     val (state, reload) = rememberLoad(tmdbId, saved<ShowPage>("show-$tmdbId")) {
-        coroutineScope {
-            val show = async { show(tmdbId) }
-            val next = async { runCatching { nextUp(limit = 500).nextUp.firstOrNull { it.showTmdbId == tmdbId } }.getOrNull() }
-            ShowPage(show.await(), next.await())
-        }
+        ShowPage(show(tmdbId))
     }
     val app = LocalApp.current
     val haptics = LocalHapticFeedback.current
@@ -229,26 +225,6 @@ fun ShowScreen(
                 )
             }
             if (show.discs.isNotEmpty()) item { OnDiscChips(show.discs, show.title, openDisc) }
-            page.next?.let { next ->
-                item {
-                    NextEpisodeCard(
-                        next,
-                        onOpen = { next.seasonNumber?.let { openSeason(show.tmdbId, it) } },
-                        onLongPress = {
-                            app.openWatchSheet(WatchTarget(next.tmdbId, "episode", next.title, show.tmdbId, next.seasonNumber, next.episodeNumber), reload)
-                        },
-                    ) {
-                        haptics.performHapticFeedback(HapticFeedbackType.Confirm)
-                        app.act(
-                            "Marked ${episodeCode(next.seasonNumber, next.episodeNumber)} watched",
-                            action = { markWatched(next.tmdbId, "episode") },
-                            onFail = {},
-                            undo = { unwatch(next.tmdbId, "episode") },
-                            onDone = reload,
-                        )
-                    }
-                }
-            }
             strip?.let { s ->
                 val latest = show.seasonsMeta.map { it.seasonNumber }.filter { it > 0 }.maxOrNull()
                 item { EpisodeStripRow(s, show.tmdbId, openEpisode, openAll = latest?.let { n -> { openSeason(show.tmdbId, n) } }) }
@@ -298,29 +274,6 @@ fun ShowScreen(
             item { SoundtrackSection(soundtrack) }
         }
         if (listsOpen) ListsSheet(show.tmdbId, "series", show.title, inLists, onChanged = { inLists = it }) { listsOpen = false }
-    }
-}
-
-@Composable
-private fun NextEpisodeCard(next: NextUpItem, onOpen: () -> Unit, onLongPress: () -> Unit, onWatched: () -> Unit) {
-    Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-        Text("UP NEXT", style = MaterialTheme.typography.labelSmall, color = Watchd.Red, modifier = Modifier.padding(bottom = 8.dp))
-        Row(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Watchd.Surface).clickable(onClick = onOpen).padding(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            AsyncImage(
-                model = next.posterPath ?: next.showBackdropPath, contentDescription = null, contentScale = ContentScale.Crop,
-                modifier = Modifier.width(120.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(8.dp)).background(Watchd.SurfaceHigh),
-            )
-            Column(Modifier.weight(1f)) {
-                Text(episodeCode(next.seasonNumber, next.episodeNumber), color = Watchd.Red, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                Text(next.title.orEmpty(), fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text("${next.showEpisodesWatched} of ${next.showEpisodesTotal} watched", color = Watchd.Faint, fontSize = 12.sp)
-            }
-            WatchButton(false, onTap = onWatched, onLongPress = onLongPress)
-        }
     }
 }
 
