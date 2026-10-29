@@ -150,15 +150,18 @@ const lists: { key: string; label: string; hint: string }[] = [
           { slot: "front", label: "Front cover", src: item?.front_cover, own: !!item?.front_cover, tmdb: "posters", wide: false },
           { slot: "poster", label: "Poster", src: item?.poster, own: !!item?.poster_is_own, tmdb: "posters", wide: false },
           { slot: "backdrop", label: "Backdrop", src: item?.backdrop, own: !!item?.backdrop_is_own, tmdb: "backdrops", wide: true },
-        ].map((a) => (
+        ].map((a) => ({ ...a, hidden: !!(item as any)?.art_hidden?.[a.slot] })).map((a) => (
           <div class:list={["pf-art", { wide: a.wide }]} data-slot={a.slot} data-tmdb={a.tmdb}>
-            <p class="pf-art-label">{a.label} <span class="pf-art-source">{a.own ? "Your own" : a.src ? "From TMDB" : "None"}</span></p>
+            <p class="pf-art-label">{a.label} <span class="pf-art-source">{a.own ? "Your own" : a.hidden ? "Removed" : a.src ? "From TMDB" : "None"}</span></p>
             <div class="pf-art-preview">{a.src ? <img src={a.src} alt="" /> : <span>No image</span>}</div>
             <div class="pf-art-actions">
               <label class="pf-art-btn">Upload<input type="file" accept="image/*" hidden /></label>
               <button type="button" class="pf-art-btn" data-act="link">Use a link</button>
               {item?.tmdb_id && <button type="button" class="pf-art-btn" data-act="pick">Pick from TMDB</button>}
               <button type="button" class="pf-art-btn danger" data-act="remove" hidden={!a.own}>{a.slot === "front" ? "Remove" : "Use TMDB's"}</button>
+              <!-- TMDB's image: remove it, leaving the slot empty; or bring it back. -->
+              <button type="button" class="pf-art-btn danger" data-act="hide" hidden={a.own || a.hidden || (a.slot !== "front" && !a.src)}>Remove</button>
+              <button type="button" class="pf-art-btn" data-act="restore" hidden={!a.hidden}>Bring back TMDB's</button>
             </div>
             <div class="pf-art-picker" hidden></div>
           </div>
@@ -195,11 +198,16 @@ const lists: { key: string; label: string; hint: string }[] = [
       const preview = box.querySelector<HTMLElement>(".pf-art-preview")!;
       const source = box.querySelector<HTMLElement>(".pf-art-source")!;
       const removeBtn = box.querySelector<HTMLButtonElement>('[data-act="remove"]')!;
+      const hideBtn = box.querySelector<HTMLButtonElement>('[data-act="hide"]')!;
+      const restoreBtn = box.querySelector<HTMLButtonElement>('[data-act="restore"]')!;
       const picker = box.querySelector<HTMLElement>(".pf-art-picker")!;
-      const show = (src: string | null, own: boolean) => {
+      const show = (src: string | null, own: boolean, hidden = false) => {
         preview.innerHTML = src ? `<img src="${src}" alt="" />` : "<span>No image</span>";
-        source.textContent = own ? "Your own" : src ? "From TMDB" : "None";
+        source.textContent = own ? "Your own" : hidden ? "Removed" : src ? "From TMDB" : "None";
         removeBtn.hidden = !own;
+        // The front cover's stand-in (TMDB's poster) shows only in lists, so it can be removed even when none shows here.
+        hideBtn.hidden = own || hidden || (slot !== "front" && !src);
+        restoreBtn.hidden = !hidden;
       };
       const busy = (on: boolean) => box.classList.toggle("busy", on);
       const done = async (res: Response) => {
@@ -209,9 +217,9 @@ const lists: { key: string; label: string; hint: string }[] = [
         const data = await res.json();
         if (data.cover) show(data.cover, true);
         else {
-          // Removed: a poster or backdrop falls back to TMDB's.
+          // Removed: a poster or backdrop falls back to TMDB's, unless that was removed too.
           const d = await fetch(`/api/proxy/physical/items/${id}`).then((r) => r.json());
-          show(slot === "front" ? null : slot === "poster" ? d.poster : d.backdrop, false);
+          show(slot === "front" ? null : slot === "poster" ? d.poster : d.backdrop, false, !!d.art_hidden?.[slot]);
         }
       };
       const setFromLink = async (url: string) => {
@@ -239,6 +247,12 @@ const lists: { key: string; label: string; hint: string }[] = [
         } else if (act === "remove") {
           busy(true);
           done(await fetch(`/api/proxy/physical/items/${id}/art?side=${slot}`, { method: "DELETE" }));
+        } else if (act === "hide") {
+          busy(true);
+          done(await fetch(`/api/proxy/physical/items/${id}/art?side=${slot}&hide=true`, { method: "DELETE" }));
+        } else if (act === "restore") {
+          busy(true);
+          done(await fetch(`/api/proxy/physical/items/${id}/art/restore?side=${slot}`, { method: "PUT" }));
         } else if (act === "pick") {
           if (!picker.hidden) { picker.hidden = true; return; }
           picker.hidden = false;

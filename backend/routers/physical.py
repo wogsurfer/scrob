@@ -85,7 +85,15 @@ def _own_art(item: PhysicalItem, slot: str) -> str | None:
     return (item.specs or {}).get(f"{slot}_image")
 
 
+def _hidden(item: PhysicalItem, slot: str) -> bool:
+    """A TMDB image removed by hand: no picture in that slot, not TMDB's."""
+    return bool((item.specs or {}).get(f"{slot}_hidden"))
+
+
 def _set_art(item: PhysicalItem, slot: str, stored: str | None) -> None:
+    if stored and _hidden(item, slot):
+        # A picture of your own replaces a removed one.
+        item.specs = {k: v for k, v in (item.specs or {}).items() if k != f"{slot}_hidden"}
     if slot == "front":
         item.cover_front = stored
         return
@@ -189,11 +197,11 @@ def _summary(item: PhysicalItem, plays: dict[int, int], poster: str | None = Non
         # Never filled in: recent Collectorz imports come without a cover
         # scan of their own (and often no edition or distributor).
         "unedited": not item.edited_locally and not item.cover_front and item.parent_id is None,
-        "cover": (
-            _cover_url(item.cover_front, thumb=True)
-            or _cover_url((item.specs or {}).get("poster_image"), thumb=True)
+        # With the front cover removed by hand, no stand-in from TMDB.
+        "cover": _cover_url(item.cover_front, thumb=True) or (None if _hidden(item, "front") else (
+            _cover_url((item.specs or {}).get("poster_image"), thumb=True)
             or _poster_thumb(poster)
-        ),
+        )),
     }
 
 
@@ -318,7 +326,13 @@ async def get_item(
                 poster = poster or tmdb.poster_url(data.get("poster_path"))
             except Exception:
                 pass
-    data["cover"] = data["cover"] or _poster_thumb(poster)
+    # Images removed by hand stay gone, rather than falling back to TMDB's.
+    if _hidden(item, "poster"):
+        poster = None
+    if _hidden(item, "backdrop"):
+        backdrop = None
+    if not _hidden(item, "front"):
+        data["cover"] = data["cover"] or _poster_thumb(poster)
     own_poster = _cover_url(specs.get("poster_image"))
     own_backdrop = _cover_url(specs.get("backdrop_image"))
 
@@ -367,7 +381,8 @@ async def get_item(
         "viewing_date": item.viewing_date,
         "seen_it": item.seen_it,
         "last_watched": last_watched,
-        "cover_full": _cover_url(item.cover_front) or own_poster or poster,
+        "cover_full": _cover_url(item.cover_front) or (None if _hidden(item, "front") else own_poster or poster),
+        "art_hidden": {slot: _hidden(item, slot) for slot in ART_SLOTS},
         # The disc's own poster and backdrop when set, else the film's.
         "front_cover": _cover_url(item.cover_front),
         "poster": own_poster or poster,
@@ -657,18 +672,36 @@ async def art_from_link(
 async def remove_art(
     item_id: int,
     side: str = Query(..., pattern="^(front|poster|backdrop)$"),
+    hide: bool = False,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Remove one of a release's images; a poster or backdrop goes back to
-    the film's own from TMDB."""
+    the film's own from TMDB. With `hide`, TMDB's is removed too and the slot
+    stays empty."""
     item = await _own_item(db, current_user.id, item_id)
     old = _own_art(item, side)
     _set_art(item, side, None)
+    if hide:
+        item.specs = {**(item.specs or {}), f"{side}_hidden": True}
     item.edited_locally = True
     await db.commit()
     _remove_files(old)
-    return {"removed": side}
+    return {"removed": side, "hidden": hide}
+
+
+@router.put("/items/{item_id}/art/restore")
+async def restore_art(
+    item_id: int,
+    side: str = Query(..., pattern="^(front|poster|backdrop)$"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Bring back TMDB's image in a slot that was emptied by hand."""
+    item = await _own_item(db, current_user.id, item_id)
+    item.specs = {k: v for k, v in (item.specs or {}).items() if k != f"{side}_hidden"}
+    await db.commit()
+    return {"restored": side}
 
 
 @router.get("/items/{item_id}/tmdb-images")
