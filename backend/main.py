@@ -410,6 +410,59 @@ async def _episode_details_refresher():
         await asyncio.sleep(6 * 3600)
 
 
+async def _cast_split_refresher():
+    """Keep each show's cast and guest stars current (see core.cast_split):
+    the shows you're watching first, then those on your lists, then the rest;
+    a few minutes after start-up, then daily (each show only when it's due)."""
+    import logging
+    from datetime import datetime, timedelta, UTC
+    from core import cast_split, tmdb
+    from db import AsyncSessionLocal
+    from models.base import MediaType
+    from models.events import WatchEvent
+    from models.lists import ListItem
+    from models.media import Media
+    from models.show import Show
+    from models.users import User
+    from routers.media import get_user_tmdb_key
+
+    log = logging.getLogger("uvicorn.error")
+    await asyncio.sleep(240)
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                user_id = (await db.execute(select(User.id).order_by(User.id).limit(1))).scalar_one_or_none()
+                api_key = await get_user_tmdb_key(db, user_id) if user_id else None
+                shows = (await db.execute(select(Show))).scalars().all()
+                # Watched in the last 90 days, then on a list, then everything else.
+                since = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=90)
+                watching = set((await db.execute(
+                    select(Media.show_id).join(WatchEvent, WatchEvent.media_id == Media.id)
+                    .where(WatchEvent.watched_at >= since, Media.show_id.isnot(None)).distinct()
+                )).scalars().all())
+                listed = set((await db.execute(
+                    select(Media.tmdb_id).join(ListItem, ListItem.media_id == Media.id)
+                    .where(Media.media_type == MediaType.series)
+                )).scalars().all())
+                due = [s for s in shows if s.tmdb_id and not cast_split.is_fresh(s.tmdb_data, s.status)]
+                due.sort(key=lambda s: (s.id not in watching, s.tmdb_id not in listed))
+                done = 0
+                for show in due if api_key else []:
+                    try:
+                        data = await tmdb.get_show(show.tmdb_id, api_key=api_key)
+                        split = await cast_split.build(show.tmdb_id, data, api_key)
+                    except Exception:
+                        continue
+                    if split:
+                        show.tmdb_data = {**(show.tmdb_data or {}), "cast_split": split}
+                        await db.commit()
+                        done += 1
+                log.info(f"Cast and guest stars: {done} of {len(due)} shows brought up to date")
+        except Exception as e:
+            log.error(f"Cast refresh error: {e}", exc_info=True)
+        await asyncio.sleep(24 * 3600)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from core.tmdb import start_http_client, close_http_client
@@ -446,11 +499,13 @@ async def lifespan(app: FastAPI):
     manual_session_task = asyncio.create_task(_manual_session_completer())
     ratings_task = asyncio.create_task(_physical_ratings_refresher())
     episodes_task = asyncio.create_task(_episode_details_refresher())
+    cast_task = asyncio.create_task(_cast_split_refresher())
 
     yield
 
     ratings_task.cancel()
     episodes_task.cancel()
+    cast_task.cancel()
 
     scheduler_task.cancel()
     watchlist_task.cancel()

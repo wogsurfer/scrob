@@ -1686,12 +1686,17 @@ async def get_person_details(
                     unique[key] = credit
             categories[group] = sorted(unique.values(), key=lambda x: x.get("release_date") or "", reverse=True)
 
-        # Build the combined All category from the deduplicated departments.
-        categories["all"] = [
-            credit
-            for group in ("acting", "directing", "writing", "producing", "other")
-            for credit in categories[group]
-        ]
+        # All: each title once, with every part they had in it ("Trudy Platt /
+        # Producer"), so its count is their number of titles.
+        merged: dict = {}
+        for group in ("acting", "directing", "writing", "producing", "other"):
+            for credit in categories[group]:
+                key = (credit["type"], credit["tmdb_id"])
+                if key not in merged:
+                    merged[key] = {**credit}
+                elif credit.get("character") and credit["character"] not in (merged[key].get("character") or "").split(" / "):
+                    merged[key]["character"] = " / ".join(filter(None, [merged[key].get("character"), credit["character"]]))
+        categories["all"] = sorted(merged.values(), key=lambda x: x.get("release_date") or "", reverse=True)
 
         # Fetch IMDb ratings for every unique credit.
         async def add_imdb_rating(credit):
@@ -1722,11 +1727,10 @@ async def get_person_details(
         )
 
         credit_counts = {group: len(entries) for group, entries in categories.items()}
-        total_all_credits = sum(credit_counts.values())
+        total_all_credits = credit_counts["all"]
 
-        # Count how many of ALL this person's credits the user has watched.
-        # This follows the same rules as total_all_credits: a title credited
-        # in multiple departments counts once in each department.
+        # How many of their titles you've watched: a film you've seen, or a
+        # show you've watched any episode of (a show's plays are its episodes').
         watched_media_q = await db.execute(
             select(Media.tmdb_id, Media.media_type)
             .join(WatchEvent, WatchEvent.media_id == Media.id)
@@ -1743,6 +1747,18 @@ async def get_person_details(
             (tmdb_id, media_type.value)
             for tmdb_id, media_type in watched_media_q.all()
         }
+        watched_shows_q = await db.execute(
+            select(ShowModel.tmdb_id)
+            .join(Media, Media.show_id == ShowModel.id)
+            .join(WatchEvent, WatchEvent.media_id == Media.id)
+            .where(
+                WatchEvent.user_id == current_user.id,
+                WatchEvent.completed == True,
+                ShowModel.tmdb_id.isnot(None),
+            )
+            .distinct()
+        )
+        watched_media |= {(tmdb_id, MediaType.series.value) for tmdb_id in watched_shows_q.scalars().all()}
 
         watched_credit_counts = {}
 

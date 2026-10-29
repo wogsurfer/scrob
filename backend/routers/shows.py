@@ -28,6 +28,7 @@ from routers.media import format_media, get_user_tmdb_key, check_tmdb_key, enric
 
 from dependencies import get_current_user
 from core.episode_badges import last_season, season_badges
+from core import cast_split
 from core import award_data
 from core.awards import TV_FAMILIES, credited, family as award_family, join_names, match_group, name_tv_awards, topic, topic_jobs, tv_record_rows
 from core import source_work, wikidata
@@ -70,7 +71,8 @@ def _format_show_crew(data: dict) -> list[dict]:
                 "job": job,
                 "department": person.get("department"),
                 "profile_path": tmdb.poster_url(person.get("profile_path"), size="w185"),
-                "episode_count": credit.get("episode_count") or person.get("total_episode_count"),
+                # This job's own episodes, never their total across every job.
+                "episode_count": credit.get("episode_count") or None,
             })
 
     # TMDB lists show creators separately from aggregate episode crew.
@@ -88,6 +90,21 @@ def _format_show_crew(data: dict) -> list[dict]:
             "episode_count": None,
         })
     return crew
+
+
+async def _show_cast(show, data: dict, api_key: str | None, db: AsyncSession) -> tuple[list[dict], list[dict]]:
+    """Cast and guest stars by who was a regular in any season (core.cast_split),
+    kept on a local show; TMDB's latest-season split if the seasons can't be read."""
+    if show is not None and cast_split.is_fresh(show.tmdb_data, show.status):
+        split = show.tmdb_data["cast_split"]
+        return split["cast"], split["guest_stars"]
+    split = await cast_split.build(data.get("id") or (show.tmdb_id if show else None), data, api_key)
+    if not split:
+        return _format_aggregate_show_cast(data)
+    if show is not None:
+        show.tmdb_data = {**(show.tmdb_data or {}), "cast_split": split}
+        await db.commit()
+    return split["cast"], split["guest_stars"]
 
 
 def _format_aggregate_show_cast(data: dict) -> tuple[list[dict], list[dict]]:
@@ -1716,7 +1733,7 @@ async def get_show(
                 ]
                 await enrich_with_state(db, current_user.id, recommendations)
 
-                cast, guest_stars = _format_aggregate_show_cast(tmdb_extra)
+                cast, guest_stars = await _show_cast(show, tmdb_extra, api_key, db)
 
                 if metadata_lang:
                     try:
@@ -2032,7 +2049,7 @@ async def get_show(
     try:
         data = await tmdb.get_show(series_tmdb_id, api_key=api_key)
 
-        cast, guest_stars = _format_aggregate_show_cast(data)
+        cast, guest_stars = await _show_cast(None, data, api_key, db)
 
         networks = [
             {

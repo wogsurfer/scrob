@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -45,6 +47,8 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -305,11 +309,11 @@ private fun seasonOf(title: String?, series: String): String? {
  * over a row of cards. [withEpisodes] adds how many episodes each is in.
  */
 @Composable
-fun CastTabs(cast: List<Person>, guestStars: List<Person>, openPerson: (Int) -> Unit, withEpisodes: Boolean = false) {
+fun CastTabs(cast: List<Person>, guestStars: List<Person>, openPerson: (Int) -> Unit, withEpisodes: Boolean = false, castTitle: String = "Cast") {
     if (cast.isEmpty() && guestStars.isEmpty()) return
     var guests by remember { mutableStateOf(cast.isEmpty()) }
     Row(Modifier.padding(start = 16.dp, end = 16.dp, top = 24.dp, bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-        listOf(false to "CAST", true to "GUEST STARS").forEach { (tab, name) ->
+        listOf(false to castTitle.uppercase(), true to "GUEST STARS").forEach { (tab, name) ->
             if (tab && guestStars.isEmpty() || !tab && cast.isEmpty()) return@forEach
             Text(
                 name, fontSize = 26.sp, fontWeight = FontWeight.Black, letterSpacing = (-1).sp,
@@ -322,9 +326,13 @@ fun CastTabs(cast: List<Person>, guestStars: List<Person>, openPerson: (Int) -> 
     LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
         items(people, key = { "${if (guests) "g" else "c"}-${it.tmdbId}-${it.name}" }) { person ->
             val shape = RoundedCornerShape(22.dp)
+            val role = listOfNotNull(
+                person.character?.takeIf { it.isNotBlank() },
+                person.episodeCount?.takeIf { withEpisodes && it > 0 }?.let { "$it episode${if (it == 1) "" else "s"}" },
+            ).joinToString(" · ")
+            PersonPress(person, role, openPerson, Modifier.width(176.dp).clip(shape)) {
             Column(
-                Modifier.width(176.dp).clip(shape).background(Watchd.Surface.copy(alpha = 0.2f)).border(1.dp, Watchd.SurfaceHigh.copy(alpha = 0.4f), shape)
-                    .clickable(enabled = person.tmdbId != null) { person.tmdbId?.let(openPerson) }.padding(12.dp),
+                Modifier.fillMaxWidth().background(Watchd.Surface.copy(alpha = 0.2f)).border(1.dp, Watchd.SurfaceHigh.copy(alpha = 0.4f), shape).padding(12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Box(
@@ -341,14 +349,11 @@ fun CastTabs(cast: List<Person>, guestStars: List<Person>, openPerson: (Int) -> 
                     person.name, fontWeight = FontWeight.Black, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     textAlign = TextAlign.Center, modifier = Modifier.padding(top = 14.dp),
                 )
-                val role = listOfNotNull(
-                    person.character?.takeIf { it.isNotBlank() },
-                    person.episodeCount?.takeIf { withEpisodes && it > 0 }?.let { "$it episode${if (it == 1) "" else "s"}" },
-                ).joinToString(" · ")
                 Text(
                     role.uppercase(), color = Watchd.Faint, fontWeight = FontWeight.Bold, fontSize = 11.sp, letterSpacing = 0.5.sp,
                     maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 4.dp),
                 )
+            }
             }
         }
     }
@@ -379,5 +384,199 @@ private fun StepButton(text: String, icon: ImageVector, leading: Boolean, onClic
         if (leading) Icon(icon, contentDescription = null, tint = Watchd.Muted, modifier = Modifier.size(18.dp))
         Text(text, color = Watchd.Muted, fontWeight = FontWeight.Bold, fontSize = 14.sp)
         if (!leading) Icon(icon, contentDescription = null, tint = Watchd.Muted, modifier = Modifier.size(18.dp))
+    }
+}
+
+// ------------------------------------------------------------------ crew
+
+/** The site's crew groups (CrewSection.astro): each key role its own row, everyone else under Show all crew. */
+private val CREW_GROUPS = listOf(
+    "Director" to listOf("Director"),
+    "TV Series Creators" to listOf("Creator"),
+    "Writers" to listOf("Writer", "Staff Writer", "Head Writer", "Screenplay", "Story", "Screenstory", "Teleplay", "Adaptation", "Series Composition"),
+    "Original Work" to listOf("Based On", "Novel", "Book", "Comic Book", "Original Story", "Original Material By", "Characters"),
+    "Executive producers" to listOf("Executive Producer"),
+    "Producers" to listOf("Producer", "Supervising Producer", "Line Producer", "Associate Producer"),
+    "Co-producers" to listOf("Co-Producer"),
+    "Composer" to listOf("Original Music Composer", "Composer", "Music"),
+    "Cinematographer" to listOf("Director of Photography", "Cinematography"),
+)
+
+/**
+ * The crew as the site shows it: a heading, a row of cards for each key
+ * role, then Show all crew for the rest. [withEpisodes] adds how many
+ * episodes each worked on (a show's page).
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun CrewSection(crew: List<Person>, openPerson: (Int) -> Unit, title: String = "Crew", withEpisodes: Boolean = false) {
+    if (crew.isEmpty()) return
+    val known = CREW_GROUPS.flatMap { it.second }.toSet()
+    val sourceJobs = CREW_GROUPS.first { it.first == "Original Work" }.second
+    // Where Wikipedia gave a "Based On", TMDB's own source credits go with the rest.
+    val hasBasedOn = crew.any { it.job == "Based On" }
+    fun demoted(p: Person) = hasBasedOn && p.job in sourceJobs && p.job != "Based On"
+    fun unique(people: List<Person>) = people.distinctBy { it.tmdbId to it.job }
+    fun role(p: Person) = p.job.orEmpty() + (p.episodeCount?.takeIf { withEpisodes && it > 0 }?.let { " · $it episodes" } ?: "")
+    val groups = CREW_GROUPS.map { (name, jobs) -> name to unique(crew.filter { it.job in jobs && !demoted(it) }) }.filter { it.second.isNotEmpty() }
+    val others = unique(crew.filter { it.job !in known || demoted(it) })
+    var showAll by remember { mutableStateOf(false) }
+
+    Column {
+        Text(
+            title.uppercase(), fontSize = 26.sp, fontWeight = FontWeight.Black, letterSpacing = (-1).sp,
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 28.dp, bottom = 4.dp),
+        )
+        groups.forEach { (name, people) ->
+            Text(
+                name.uppercase(), fontSize = 16.sp, fontWeight = FontWeight.Black, color = Watchd.Text.copy(alpha = 0.85f),
+                modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 10.dp),
+            )
+            LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                items(people, key = { "${it.tmdbId}-${it.job}" }) { CrewCard(it, role(it), openPerson) }
+            }
+        }
+        if (others.isNotEmpty()) {
+            Text(
+                if (showAll) "Hide other crew" else "Show all crew (${others.size})",
+                color = Watchd.Muted, fontWeight = FontWeight.Bold, fontSize = 14.sp,
+                modifier = Modifier.padding(start = 10.dp, top = 18.dp).clip(RoundedCornerShape(8.dp)).clickable { showAll = !showAll }.padding(6.dp),
+            )
+            if (showAll) {
+                FlowRow(
+                    Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    others.forEach { CrewCard(it, role(it), openPerson) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CrewCard(person: Person, role: String, openPerson: (Int) -> Unit) {
+    val shape = RoundedCornerShape(16.dp)
+    PersonPress(person, role, openPerson, Modifier.width(150.dp).clip(shape)) {
+    Column(
+        Modifier.fillMaxWidth().background(Watchd.Surface.copy(alpha = 0.2f)).border(1.dp, Watchd.SurfaceHigh.copy(alpha = 0.4f), shape).padding(10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(12.dp)).background(Watchd.SurfaceHigh), contentAlignment = Alignment.Center) {
+            if (person.profilePath != null) {
+                AsyncImage(person.profilePath, contentDescription = person.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxWidth().aspectRatio(1f))
+            } else {
+                Icon(Icons.Default.Person, contentDescription = null, tint = Watchd.Faint, modifier = Modifier.size(40.dp))
+            }
+        }
+        Text(
+            person.name, fontWeight = FontWeight.Black, fontSize = 14.sp, lineHeight = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center, modifier = Modifier.padding(top = 10.dp),
+        )
+        Text(
+            role.uppercase(), color = Watchd.Faint, fontWeight = FontWeight.Bold, fontSize = 11.sp, lineHeight = 14.sp, letterSpacing = 0.5.sp,
+            maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 4.dp),
+        )
+    }
+    }
+}
+
+/**
+ * A cast or crew card: tap to open the person; touch and hold for their name
+ * and part in full (the card keeps each to one line), as hovering does on the site.
+ */
+@Composable
+private fun PersonPress(person: Person, role: String, openPerson: (Int) -> Unit, modifier: Modifier, card: @Composable () -> Unit) {
+    val haptics = LocalHapticFeedback.current
+    var tip by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    Box(
+        modifier.pointerInput(person.tmdbId) {
+            detectTapGestures(
+                // A press held past half a second shows the tip and doesn't open them.
+                onTap = { if (!tip) person.tmdbId?.let(openPerson) },
+                onPress = {
+                    val hold = scope.launch {
+                        kotlinx.coroutines.delay(500)
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        tip = true
+                    }
+                    tryAwaitRelease()
+                    hold.cancel()
+                    if (tip) scope.launch { kotlinx.coroutines.delay(1500); tip = false }
+                },
+            )
+        },
+    ) {
+        card()
+        if (tip) {
+            Column(
+                Modifier.align(Alignment.BottomCenter).padding(6.dp).fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                    .background(Watchd.SurfaceHigh).border(1.dp, Color(0xFF3F3F46), RoundedCornerShape(10.dp)).padding(horizontal = 10.dp, vertical = 8.dp),
+            ) {
+                Text(person.name, color = Color.White, fontWeight = FontWeight.Black, fontSize = 13.sp, lineHeight = 16.sp)
+                if (role.isNotBlank()) {
+                    Text(role.uppercase(), color = Watchd.Muted, fontWeight = FontWeight.Bold, fontSize = 11.sp, lineHeight = 14.sp, letterSpacing = 0.5.sp, modifier = Modifier.padding(top = 3.dp))
+                }
+            }
+        }
+    }
+}
+
+// ------------------------------------------------------------------ plays and the file
+
+private val playDate = java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy")
+private val playTime = java.time.format.DateTimeFormatter.ofPattern("HH:mm")
+
+/** Your plays, as the site lists them under the buttons: date, time, edition and where. */
+@Composable
+fun WatchHistoryList(watches: List<app.watchd.data.WatchEvent>) {
+    Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            "WATCHED" + if (watches.size > 1) " · ${watches.size} TIMES" else "",
+            color = Watchd.Faint, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp,
+        )
+        watches.sortedByDescending { it.watchedAt.orEmpty() }.forEach { watch ->
+            // Stored in UTC; shown in the phone's time.
+            val at = watch.watchedAt?.let {
+                runCatching { java.time.LocalDateTime.parse(it.take(19)).atZone(java.time.ZoneOffset.UTC).withZoneSameInstant(java.time.ZoneId.systemDefault()) }.getOrNull()
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (at != null) {
+                    Text(at.format(playDate), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Text(at.format(playTime), color = Watchd.Faint, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                } else {
+                    Text("Date unknown", color = Watchd.Faint, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                }
+                watch.edition?.let {
+                    Text(
+                        it.uppercase(), color = Color(0xFFF87171), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1,
+                        modifier = Modifier.border(1.dp, Color(0x66EF4444), RoundedCornerShape(4.dp)).padding(horizontal = 4.dp, vertical = 1.dp),
+                    )
+                }
+                watch.watchSource?.let { Text(it.uppercase(), color = Watchd.Muted, fontSize = 10.sp, fontWeight = FontWeight.Black) }
+            }
+        }
+    }
+}
+
+/** The media server's file, as the site's tags: picture, sound, then 🔊 and 💬 languages. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun LibraryTags(file: app.watchd.data.LibraryFile) {
+    val tags = listOfNotNull(file.resolution, file.videoCodec, file.audioCodec, file.audioChannels) +
+        file.audioLanguages.map { "🔊 $it" } + file.subtitleLanguages.map { "💬 $it" }
+    if (tags.isEmpty()) return
+    FlowRow(
+        Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        tags.forEach {
+            Text(
+                it, color = Watchd.Muted, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(Watchd.Surface).border(1.dp, Watchd.SurfaceHigh, RoundedCornerShape(8.dp))
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+            )
+        }
     }
 }

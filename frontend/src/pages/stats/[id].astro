@@ -803,7 +803,7 @@ const heroSubtitle =
     const cats = PEOPLE.filter(([key]) => (people[key] || []).length);
     const pending = Number(people._pending || 0);
     const note = pending > 0
-      ? `<div class="ws-credits-note"><span>TV credits are counted per watched episode (season regulars, guest stars and episode crew) once season credits are fetched. ${num(pending)} seasons are still using the show's overall cast list.</span><button class="ws-btn" id="ws-fetch-credits">Fetch episode credits</button></div>`
+      ? `<div class="ws-credits-note"><span>TV credits are counted per watched episode (season regulars and crew, guest stars and episode crew) once season credits are fetched. ${num(pending)} seasons are still using the show's overall cast list.</span><button class="ws-btn" id="ws-fetch-credits">Fetch episode credits</button></div>`
       : '';
     if (!cats.length && !note) return '';
     return H2('Cast & Crew') + note + cats.map(([key, label]) => H3(label) + `<div data-people="${key}"></div>`).join('');

@@ -1472,13 +1472,15 @@ async def _ensure_credits_table():
 
 # Bump when the cached episode_credits payload shape changes; older rows are re-fetched.
 # v2 adds "r": the season's regular cast, so series regulars are credited per watched episode.
-_CREDITS_CACHE_VERSION = 2
+# v3 adds "sc": the season's own crew (producers, composers... credited for the whole
+# season), credited on each watched episode of it, as the show page counts them.
+_CREDITS_CACHE_VERSION = 3
 
 
 async def _so_episode_credit_rows(db, episodes_by_show, show_tmdb):
     """Return ({(tmdb_show, season): season data}, watched map, pending season count).
 
-    season data: {"r": [regulars], "eps": {ep_number: {"g": [guests], "c": [crew]}}}
+    season data: {"r": [regulars], "sc": [season crew], "eps": {ep_number: {"g": [guests], "c": [crew]}}}
     watched map: {show_id: {(season, ep_number): media_id}}
     """
     from models.episode_credits import EpisodeCredits
@@ -1654,7 +1656,7 @@ async def _so_build_people_uncached(db, movie_info, show_info, episodes_by_show)
             for p in [*(season.get("r") or []), *(ep.get("g") or [])]:
                 person = {"id": p[0], "name": p[1], "profile_path": p[2]}
                 add("actresses" if p[3] == 1 else "actors", person, key, title, year, {media_id})
-            for c in ep.get("c") or []:
+            for c in [*(season.get("sc") or []), *(ep.get("c") or [])]:
                 person = {"id": c[0], "name": c[1], "profile_path": c[2]}
                 for cat in _so_crew_cats([str(c[3]).lower()]):
                     add(cat, person, key, title, year, {media_id})
@@ -1804,6 +1806,12 @@ async def _run_credits_backfill(user_id: int, tmdb_key: str) -> None:
                             for p in ((data.get("credits") or {}).get("cast") or [])
                             if p.get("id") and p.get("name")
                         ]
+                        season_crew = [
+                            [p.get("id"), p.get("name"), p.get("profile_path"), p.get("job")]
+                            for p in ((data.get("credits") or {}).get("crew") or [])
+                            if p.get("id") and p.get("name") and p.get("job")
+                            and _so_crew_cats([str(p["job"]).lower()])
+                        ]
                         eps = {}
                         for ep in data.get("episodes") or []:
                             g = [[p.get("id"), p.get("name"), p.get("profile_path"), p.get("gender")]
@@ -1814,7 +1822,7 @@ async def _run_credits_backfill(user_id: int, tmdb_key: str) -> None:
                                  and _so_crew_cats([str(p["job"]).lower()])]
                             eps[str(ep.get("episode_number"))] = {"g": g, "c": c}
                         results.append(
-                            (key, {"v": _CREDITS_CACHE_VERSION, "r": regulars, "eps": eps})
+                            (key, {"v": _CREDITS_CACHE_VERSION, "r": regulars, "sc": season_crew, "eps": eps})
                         )
                     except Exception as exc:
                         state["failed"] += 1

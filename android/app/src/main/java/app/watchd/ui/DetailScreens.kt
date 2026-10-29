@@ -117,6 +117,13 @@ fun MovieScreen(tmdbId: Int, onBack: () -> Unit, openMovie: (Int) -> Unit, openP
                 )
             }
             item { RatingsPill(movie.tmdbRating, movie.imdbRating, rate.value, Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 4.dp), onRate = rate.open) }
+            val released = listOfNotNull(
+                movie.releaseDate?.let { "Released ${formatDate(it)}" },
+                movie.productionCountries.mapNotNull { it.name }.takeIf { it.isNotEmpty() }?.joinToString(" • "),
+            )
+            if (released.isNotEmpty()) {
+                item { Text(released.joinToString("   "), color = Watchd.Muted, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) }
+            }
             item {
                 ActionStack(
                     listOfNotNull(
@@ -131,28 +138,18 @@ fun MovieScreen(tmdbId: Int, onBack: () -> Unit, openMovie: (Int) -> Unit, openP
                     ),
                 )
             }
-            movie.watchHistory.mapNotNull { it.watchedAt }.maxOrNull()?.let { last ->
-                item { Text("Last watched ${formatDate(last)}", color = Watchd.Faint, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp)) }
-            }
+            movie.library?.let { item { LibraryTags(it) } }
             if (movie.discs.isNotEmpty()) item { OnDiscChips(movie.discs, openDisc = openDisc) }
+            if (movie.watchHistory.isNotEmpty()) item { WatchHistoryList(movie.watchHistory) }
             item { Overview(movie.tagline, movie.overview, movie.genres) }
-            val directors = movie.crew.filter { it.job == "Director" }.map { it.name }.distinct()
-            val writers = movie.crew.filter { it.job in setOf("Screenplay", "Writer") }.map { it.name }.distinct()
-            if (directors.isNotEmpty() || writers.isNotEmpty()) {
-                item {
-                    Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-                        if (directors.isNotEmpty()) Credit("Directed by", directors.take(2).joinToString(", "), Modifier.weight(1f))
-                        if (writers.isNotEmpty()) Credit("Written by", writers.take(2).joinToString(", "), Modifier.weight(1f))
-                    }
-                }
-            }
             if (movie.whereToWatch.isNotEmpty()) item { WhereToWatchRow(movie.whereToWatch) }
-            item { CastTabs(movie.cast, emptyList(), openPerson) }
             movie.collection?.takeIf { it.parts.size > 1 }?.let { collection ->
                 item { SectionTitle(collection.name ?: "Collection", Modifier.padding(top = 8.dp)) }
                 item { CollectionRow(collection.parts, current = movie.tmdbId, openMovie = openMovie) }
             }
             item { AwardsSection(awards) }
+            item { CastTabs(movie.cast, emptyList(), openPerson, castTitle = "Top Cast") }
+            item { CrewSection(movie.crew, openPerson) }
             item { SoundtrackSection(soundtrack) }
         }
         if (listsOpen) ListsSheet(movie.tmdbId, "movie", movie.title, inLists, onChanged = { inLists = it }) { listsOpen = false }
@@ -242,9 +239,6 @@ fun ShowScreen(tmdbId: Int, onBack: () -> Unit, openSeason: (Int, Int) -> Unit, 
                 }
             }
             item { Overview(show.tagline, show.overview, show.genres) }
-            if (show.createdBy.isNotEmpty()) {
-                item { Credit("Created by", show.createdBy.joinToString(", ") { it.name }, Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
-            }
             if (show.whereToWatch.isNotEmpty()) item { WhereToWatchRow(show.whereToWatch) }
             item { SectionTitle("Seasons", Modifier.padding(top = 8.dp)) }
             items(show.seasonsMeta.sortedBy { if (it.seasonNumber == 0) Int.MAX_VALUE else it.seasonNumber }, key = { it.seasonNumber }) { season ->
@@ -284,6 +278,7 @@ fun ShowScreen(tmdbId: Int, onBack: () -> Unit, openSeason: (Int, Int) -> Unit, 
                 }
             }
             item { CastTabs(show.cast, show.guestStars, openPerson, withEpisodes = true) }
+            item { CrewSection(show.crew, openPerson, withEpisodes = true) }
             item { AwardsSection(awards) }
             item { SoundtrackSection(soundtrack) }
         }
@@ -473,6 +468,7 @@ fun EpisodeScreen(
             }
             item { Overview(null, ep.overview, emptyList()) }
             item { CastTabs(ep.cast, ep.guestStars, openPerson) }
+            item { CrewSection(ep.crew, openPerson, title = "Episode Crew") }
         }
         if (listsOpen) ep.tmdbId?.let { id -> ListsSheet(id, "episode", ep.title ?: code, inLists, onChanged = { inLists = it }) { listsOpen = false } }
     }

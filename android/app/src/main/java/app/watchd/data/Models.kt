@@ -119,7 +119,21 @@ data class CollectionPart(
 data class FilmCollection(val name: String? = null, val parts: List<CollectionPart> = emptyList())
 
 @Serializable
-data class WatchEvent(val watchedAt: String? = null)
+data class WatchEvent(val watchedAt: String? = null, val watchSource: String? = null, val edition: String? = null)
+
+/** The media server's file of a film: its picture, sound and languages. */
+@Serializable
+data class LibraryFile(
+    val resolution: String? = null,
+    val videoCodec: String? = null,
+    val audioCodec: String? = null,
+    val audioChannels: String? = null,
+    val audioLanguages: List<String> = emptyList(),
+    val subtitleLanguages: List<String> = emptyList(),
+)
+
+@Serializable
+data class Country(val name: String? = null)
 
 /** Where a play was watched; the backend accepts exactly these. */
 val WATCH_SOURCES = listOf(
@@ -202,6 +216,8 @@ data class Movie(
     val isMonitored: Boolean = false,
     val requestEnabled: Boolean = false,
     val requestStatus: String? = null,
+    val library: LibraryFile? = null,
+    val productionCountries: List<Country> = emptyList(),
 )
 
 @Serializable
@@ -249,6 +265,7 @@ data class Show(
     val seasonStates: Map<String, SeasonState> = emptyMap(),
     val cast: List<Person> = emptyList(),
     val guestStars: List<Person> = emptyList(),
+    val crew: List<Person> = emptyList(),
     val createdBy: List<Person> = emptyList(),
     val whereToWatch: List<WhereToWatch> = emptyList(),
     val inLists: List<Int> = emptyList(),
@@ -674,6 +691,7 @@ data class EpisodeDetail(
     val badge: String? = null,
     val guestStars: List<Person> = emptyList(),
     val cast: List<Person> = emptyList(),
+    val crew: List<Person> = emptyList(),
     val show: EpisodeShow? = null,
     val episodes: List<EpisodeNav> = emptyList(),
     val inLists: List<Int> = emptyList(),
