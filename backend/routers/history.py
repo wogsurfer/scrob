@@ -1307,6 +1307,20 @@ async def get_next_up(
 
         await asyncio.gather(*(fetch_season_poster(m, item) for m, item in missing))
 
+    # Most shows keep their IMDb rating on the show's own media row (where the
+    # show page and posters get it), not in the show's stored TMDB data.
+    unrated = {i["show_tmdb_id"] for i in items if i.get("show_tmdb_id") and i.get("show_imdb_rating") is None}
+    if unrated:
+        rows = await db.execute(
+            select(Media.tmdb_id, Media.tmdb_data["imdb_rating"].astext)
+            .where(Media.media_type == MediaType.series, Media.tmdb_id.in_(unrated))
+            .where(Media.tmdb_data["imdb_rating"].astext.isnot(None))
+        )
+        show_ratings = {tmdb_id: float(rating) for tmdb_id, rating in rows.all()}
+        for item in items:
+            if item.get("show_imdb_rating") is None:
+                item["show_imdb_rating"] = show_ratings.get(item.get("show_tmdb_id"))
+
     progress_by_show = await _show_watch_pct(
         db,
         current_user.id,

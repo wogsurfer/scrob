@@ -1,5 +1,9 @@
 package app.watchd.ui
 
+import androidx.compose.foundation.layout.offset
+import kotlinx.coroutines.delay
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -300,27 +304,42 @@ private fun NextUpCard(
             Spacer(Modifier.weight(1f))
             ImdbBadge(item.showImdbRating, showEmpty = true)
         }
-        Box(Modifier.fillMaxWidth().height(3.dp).background(Watchd.SurfaceHigh)) {
-            Box(Modifier.fillMaxWidth(item.showWatchPct.coerceIn(0, 100) / 100f).fillMaxHeight().background(Watchd.Red))
+        // The show's progress; touch the bar for how far, as hovering it does on the site.
+        var tip by remember { mutableStateOf(false) }
+        Box(
+            Modifier.fillMaxWidth().height(12.dp).pointerInput(Unit) {
+                detectTapGestures(onPress = { tip = true; tryAwaitRelease(); delay(1500); tip = false })
+            },
+        ) {
+            Box(Modifier.fillMaxWidth().height(3.dp).background(Watchd.SurfaceHigh)) {
+                Box(Modifier.fillMaxWidth(item.showWatchPct.coerceIn(0, 100) / 100f).fillMaxHeight().background(Watchd.Red))
+            }
         }
-        Column(Modifier.padding(start = 10.dp, end = 10.dp, bottom = 6.dp)) {
-            // The code in red, as on the site.
-            Text(
-                buildAnnotatedString {
-                    withStyle(SpanStyle(color = Watchd.Red)) { append(episodeCode(item.seasonNumber, item.episodeNumber)) }
-                    append(" ${item.title.orEmpty()}")
-                },
-                fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.fillMaxWidth().clickable(onClick = openEpisode).padding(top = 8.dp, bottom = 2.dp),
-            )
-            Text(
-                "${item.showEpisodesWatched} of ${item.showEpisodesTotal} watched · ${item.showWatchPct}%",
-                color = Watchd.Muted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                item.showTitle.orEmpty(), color = Watchd.Muted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.fillMaxWidth().clickable(onClick = openShow).padding(top = 2.dp, bottom = 4.dp),
-            )
+        Box {
+            Column(Modifier.padding(start = 10.dp, end = 10.dp, bottom = 6.dp)) {
+                // The code in red, as on the site.
+                Text(
+                    buildAnnotatedString {
+                        withStyle(SpanStyle(color = Watchd.Red)) { append(episodeCode(item.seasonNumber, item.episodeNumber)) }
+                        append(" ${item.title.orEmpty()}")
+                    },
+                    fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth().clickable(onClick = openEpisode).padding(bottom = 2.dp),
+                )
+                Text(
+                    item.showTitle.orEmpty(), color = Watchd.Muted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth().clickable(onClick = openShow).padding(top = 2.dp, bottom = 4.dp),
+                )
+            }
+            if (tip) {
+                Text(
+                    "${item.showEpisodesWatched} of ${item.showEpisodesTotal} episodes watched · ${item.showWatchPct}%",
+                    color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, lineHeight = 14.sp,
+                    modifier = Modifier.padding(horizontal = 2.dp).offset(y = (-6).dp).clip(RoundedCornerShape(8.dp))
+                        .background(Watchd.SurfaceHigh).border(1.dp, Color(0xFF3F3F46), RoundedCornerShape(8.dp))
+                        .padding(horizontal = 10.dp, vertical = 5.dp),
+                )
+            }
         }
     }
 }

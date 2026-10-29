@@ -14,11 +14,13 @@ import java.io.File
 import android.content.Context
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.Icon
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.res.painterResource
@@ -325,10 +327,10 @@ private val TmdbBlue = Color(0xFF01B4E4)
  * as a red star.
  */
 @Composable
-fun RatingsPill(tmdb: Double?, imdb: Double?, mine: Double?, modifier: Modifier = Modifier) {
+fun RatingsPill(tmdb: Double?, imdb: Double?, mine: Double?, modifier: Modifier = Modifier, onRate: (() -> Unit)? = null) {
     val hasTmdb = (tmdb ?: 0.0) > 0
     val hasImdb = (imdb ?: 0.0) > 0
-    if (!hasTmdb && !hasImdb && mine == null) return
+    if (!hasTmdb && !hasImdb && mine == null && onRate == null) return
     Row(
         modifier.clip(RoundedCornerShape(12.dp)).background(Watchd.Surface.copy(alpha = 0.6f))
             .border(1.dp, Watchd.SurfaceHigh, RoundedCornerShape(12.dp)).padding(horizontal = 12.dp, vertical = 8.dp),
@@ -347,10 +349,19 @@ fun RatingsPill(tmdb: Double?, imdb: Double?, mine: Double?, modifier: Modifier 
                 Text("%.1f".format(imdb), color = Watchd.ImdbYellow, fontWeight = FontWeight.Black, fontSize = 15.sp)
             }
         }
-        if (mine != null) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                Icon(Icons.Default.Star, contentDescription = "Your rating", tint = Watchd.Red, modifier = Modifier.size(18.dp))
-                Text(if (mine % 1.0 == 0.0) "${mine.toInt()}" else "$mine", color = Watchd.Red, fontWeight = FontWeight.Black, fontSize = 15.sp)
+        // Your rating, as on the site: a red star and the score, or (where you
+        // can rate) an empty star to tap for the stars.
+        if (mine != null || onRate != null) {
+            Row(
+                Modifier.clip(RoundedCornerShape(8.dp)).then(if (onRate != null) Modifier.clickable(onClick = onRate) else Modifier).padding(2.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Icon(
+                    if (mine != null) Icons.Default.Star else Icons.Default.StarBorder,
+                    contentDescription = if (mine != null) "Your rating" else "Rate this",
+                    tint = if (mine != null) Watchd.Red else Watchd.Faint, modifier = Modifier.size(20.dp),
+                )
+                if (mine != null) Text(if (mine % 1.0 == 0.0) "${mine.toInt()}" else "$mine", color = Watchd.Red, fontWeight = FontWeight.Black, fontSize = 15.sp)
             }
         }
     }

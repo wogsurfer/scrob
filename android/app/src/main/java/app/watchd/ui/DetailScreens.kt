@@ -56,6 +56,10 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import app.watchd.data.Disc
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.material3.AlertDialog
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -93,17 +97,18 @@ private fun plural(n: Int, word: String) = "$n $word${if (n == 1) "" else "s"}"
 // ------------------------------------------------------------------ film
 
 @Composable
-fun MovieScreen(tmdbId: Int, onBack: () -> Unit, openMovie: (Int) -> Unit, openPerson: (Int) -> Unit) {
+fun MovieScreen(tmdbId: Int, onBack: () -> Unit, openMovie: (Int) -> Unit, openPerson: (Int) -> Unit, openDisc: (Int) -> Unit) {
     val (state, reload) = rememberLoad(tmdbId, saved("movie-$tmdbId")) { movie(tmdbId) }
     val awards = rememberAwards(tmdbId) { filmAwards(tmdbId).awards }
     val soundtrack = rememberSoundtrack("movie", tmdbId)
     val app = LocalApp.current
-    val haptics = LocalHapticFeedback.current
     val list = rememberLazyListState()
     LoadContent(state, reload) { movie ->
-        var watched by remember(movie) { mutableStateOf(movie.watched) }
-        var plays by remember(movie) { mutableStateOf(movie.playCount) }
-        var inWatchlist by remember(movie) { mutableStateOf(movie.inWatchlist) }
+        var inLists by remember(movie) { mutableStateOf(movie.inLists) }
+        var listsOpen by remember { mutableStateOf(false) }
+        val rate = rememberRating(movie.tmdbId, "movie", movie.userRating)
+        val openDiscs = rememberDiscOpener(openDisc)
+        val target = WatchTarget(movie.tmdbId, "movie", movie.title, runtime = movie.runtime)
         DetailScaffold(movie.title, list, onBack) {
             item {
                 DetailHeader(
@@ -111,62 +116,25 @@ fun MovieScreen(tmdbId: Int, onBack: () -> Unit, openMovie: (Int) -> Unit, openP
                     facts = listOfNotNull(year(movie.releaseDate), movie.runtime?.takeIf { it > 0 }?.let { "${it / 60}h ${it % 60}m" }, movie.ageRating),
                 )
             }
-            item { RatingsRow(movie.tmdbId, "movie", movie.imdbRating, movie.tmdbRating, movie.userRating) }
+            item { RatingsPill(movie.tmdbRating, movie.imdbRating, rate.value, Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 4.dp), onRate = rate.open) }
             item {
-                Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    WatchedButton(watched, if (watched) (if (plays > 1) "Watched · ${plays}×" else "Watched") else "Mark watched") {
-                        // Once watched, the button opens the plays (add a rewatch,
-                        // remove one) rather than wiping the history in one tap.
-                        if (watched) {
-                            app.openWatchSheet(WatchTarget(movie.tmdbId, "movie", movie.title, runtime = movie.runtime), reload)
-                            return@WatchedButton
-                        }
-                        haptics.performHapticFeedback(HapticFeedbackType.Confirm)
-                        watched = true
-                        plays += 1
-                        app.act(
-                            "Marked watched",
-                            action = { markWatched(movie.tmdbId, "movie") },
-                            onFail = { watched = false; plays -= 1 },
-                            undo = { unwatch(movie.tmdbId, "movie") },
-                            onUndo = { watched = false; plays = (plays - 1).coerceAtLeast(0) },
-                        )
-                    }
-                    FilledTonalButton(
-                        onClick = { app.openWatchSheet(WatchTarget(movie.tmdbId, "movie", movie.title, runtime = movie.runtime), reload) },
-                        colors = ButtonDefaults.filledTonalButtonColors(containerColor = Watchd.Surface, contentColor = Color.White),
-                    ) {
-                        Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Check in")
-                    }
-                    IconButton(
-                        onClick = {
-                        haptics.performHapticFeedback(HapticFeedbackType.Confirm)
-                        val was = inWatchlist
-                        inWatchlist = !was
-                        app.act(
-                            if (was) "Removed from watchlist" else "Added to watchlist",
-                            action = { if (was) removeFromWatchlist(movie.tmdbId) else addToWatchlist(movie.tmdbId) },
-                            onFail = { inWatchlist = was },
-                            undo = { if (was) addToWatchlist(movie.tmdbId) else removeFromWatchlist(movie.tmdbId) },
-                            onUndo = { inWatchlist = was },
-                        )
-                        },
-                        colors = IconButtonDefaults.iconButtonColors(containerColor = Watchd.Surface),
-                    ) {
-                        Icon(
-                            if (inWatchlist) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                            contentDescription = if (inWatchlist) "Remove from watchlist" else "Add to watchlist",
-                            tint = if (inWatchlist) Watchd.Red else Color.White,
-                        )
-                    }
-                }
+                ActionStack(
+                    listOfNotNull(
+                        // As on the site, Watched opens the plays: add one (a rewatch, or a check-in) or take one off.
+                        ActionItem(
+                            "Watched", Tone.Red, movie.watched, value = movie.playCount.takeIf { it > 1 }?.let { "$it×" },
+                            icon = watchedIcon(movie.watched),
+                        ) { app.openWatchSheet(target, reload) },
+                        ActionItem("Lists", Tone.Sky, inLists.isNotEmpty(), icon = ListsIcon) { listsOpen = true },
+                        ActionItem("Collection", Tone.Purple, movie.inLibrary, icon = CollectionIcon) { openDiscs(movie.discs) },
+                        requestItem("movie", movie.tmdbId, movie.requestEnabled, movie.isMonitored, movie.requestStatus, done = movie.inLibrary),
+                    ),
+                )
             }
             movie.watchHistory.mapNotNull { it.watchedAt }.maxOrNull()?.let { last ->
                 item { Text("Last watched ${formatDate(last)}", color = Watchd.Faint, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp)) }
             }
-            if (movie.discs.isNotEmpty()) item { OnDisc(movie.discs) }
+            if (movie.discs.isNotEmpty()) item { OnDiscChips(movie.discs, openDisc = openDisc) }
             item { Overview(movie.tagline, movie.overview, movie.genres) }
             val directors = movie.crew.filter { it.job == "Director" }.map { it.name }.distinct()
             val writers = movie.crew.filter { it.job in setOf("Screenplay", "Writer") }.map { it.name }.distinct()
@@ -179,9 +147,7 @@ fun MovieScreen(tmdbId: Int, onBack: () -> Unit, openMovie: (Int) -> Unit, openP
                 }
             }
             if (movie.whereToWatch.isNotEmpty()) item { WhereToWatchRow(movie.whereToWatch) }
-            if (movie.cast.isNotEmpty()) {
-                item { CastSection(movie.cast, openPerson) }
-            }
+            item { CastTabs(movie.cast, emptyList(), openPerson) }
             movie.collection?.takeIf { it.parts.size > 1 }?.let { collection ->
                 item { SectionTitle(collection.name ?: "Collection", Modifier.padding(top = 8.dp)) }
                 item { CollectionRow(collection.parts, current = movie.tmdbId, openMovie = openMovie) }
@@ -189,6 +155,7 @@ fun MovieScreen(tmdbId: Int, onBack: () -> Unit, openMovie: (Int) -> Unit, openP
             item { AwardsSection(awards) }
             item { SoundtrackSection(soundtrack) }
         }
+        if (listsOpen) ListsSheet(movie.tmdbId, "movie", movie.title, inLists, onChanged = { inLists = it }) { listsOpen = false }
     }
 }
 
@@ -198,7 +165,7 @@ fun MovieScreen(tmdbId: Int, onBack: () -> Unit, openMovie: (Int) -> Unit, openP
 private data class ShowPage(val show: Show, val next: NextUpItem?)
 
 @Composable
-fun ShowScreen(tmdbId: Int, onBack: () -> Unit, openSeason: (Int, Int) -> Unit, openPerson: (Int) -> Unit) {
+fun ShowScreen(tmdbId: Int, onBack: () -> Unit, openSeason: (Int, Int) -> Unit, openPerson: (Int) -> Unit, openDisc: (Int) -> Unit) {
     val (state, reload) = rememberLoad(tmdbId, saved<ShowPage>("show-$tmdbId")) {
         coroutineScope {
             val show = async { show(tmdbId) }
@@ -216,6 +183,11 @@ fun ShowScreen(tmdbId: Int, onBack: () -> Unit, openSeason: (Int, Int) -> Unit, 
         val show = page.show
         // Seasons ticked or unticked here, ahead of the next reload.
         val seasonWatched = remember(show) { mutableStateMapOf<Int, Boolean>() }
+        var inLists by remember(show) { mutableStateOf(show.inLists) }
+        var listsOpen by remember { mutableStateOf(false) }
+        val rate = rememberRating(show.tmdbId, "series", show.userRating)
+        val openDiscs = rememberDiscOpener(openDisc, show.title)
+        val confirm = rememberConfirm()
         DetailScaffold(show.title, list, onBack) {
             item {
                 DetailHeader(
@@ -226,16 +198,29 @@ fun ShowScreen(tmdbId: Int, onBack: () -> Unit, openSeason: (Int, Int) -> Unit, 
                     ),
                 )
             }
-            item { RatingsRow(show.tmdbId, "series", show.imdbRating, show.tmdbRating, show.userRating) }
-            if (show.discs.isNotEmpty()) item { OnDisc(show.discs) }
-            if (show.watchPct in 1..99) {
-                item {
-                    Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                        Text("${show.watchPct}% watched", color = Watchd.Muted, fontSize = 13.sp)
-                        Progress(show.watchPct)
-                    }
-                }
+            item { RatingsPill(show.tmdbRating, show.imdbRating, rate.value, Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 4.dp), onRate = rate.open) }
+            item {
+                val all = show.watchPct == 100
+                ActionStack(
+                    listOfNotNull(
+                        ActionItem("Watched", Tone.Red, all, value = "${show.watchPct}%", icon = watchedIcon(all)) {
+                            if (all) {
+                                confirm("Remove all watch history?", "This will remove all watch events for every episode of this show.") {
+                                    app.act("${show.title} unmarked", action = { unwatchShow(show.tmdbId) }, onFail = {}, onDone = reload)
+                                }
+                            } else {
+                                confirm("Mark all episodes as watched?", "This will add a watch event for every episode in your library for this show.") {
+                                    app.act("${show.title} marked watched", action = { markShowWatched(show.tmdbId) }, onFail = {}, onDone = reload)
+                                }
+                            }
+                        },
+                        ActionItem("Lists", Tone.Sky, inLists.isNotEmpty(), icon = ListsIcon) { listsOpen = true },
+                        ActionItem("Collection", Tone.Purple, show.collectionPct > 0, value = "${show.collectionPct}%", icon = CollectionIcon) { openDiscs(show.discs) },
+                        requestItem("series", show.tmdbId, show.requestEnabled, show.isMonitored, show.requestStatus, done = show.collectionPct == 100),
+                    ),
+                )
             }
+            if (show.discs.isNotEmpty()) item { OnDiscChips(show.discs, show.title, openDisc) }
             page.next?.let { next ->
                 item {
                     NextEpisodeCard(
@@ -298,12 +283,11 @@ fun ShowScreen(tmdbId: Int, onBack: () -> Unit, openSeason: (Int, Int) -> Unit, 
                     }
                 }
             }
-            if (show.cast.isNotEmpty()) {
-                item { CastSection(show.cast, openPerson) }
-            }
+            item { CastTabs(show.cast, show.guestStars, openPerson, withEpisodes = true) }
             item { AwardsSection(awards) }
             item { SoundtrackSection(soundtrack) }
         }
+        if (listsOpen) ListsSheet(show.tmdbId, "series", show.title, inLists, onChanged = { inLists = it }) { listsOpen = false }
     }
 }
 
@@ -333,16 +317,22 @@ private fun NextEpisodeCard(next: NextUpItem, onOpen: () -> Unit, onLongPress: (
 // ------------------------------------------------------------------ season
 
 @Composable
-fun SeasonScreen(showTmdbId: Int, seasonNumber: Int, onBack: () -> Unit) {
+fun SeasonScreen(showTmdbId: Int, seasonNumber: Int, onBack: () -> Unit, openSeason: (Int, Int) -> Unit, openDisc: (Int) -> Unit) {
     val (state, reload) = rememberLoad(showTmdbId to seasonNumber, saved("season-$showTmdbId-$seasonNumber")) { season(showTmdbId, seasonNumber) }
     val app = LocalApp.current
     val haptics = LocalHapticFeedback.current
     val list = rememberLazyListState()
+    val scope = rememberCoroutineScope()
     LoadContent(state, reload) { season ->
         val watched = remember(season) { mutableStateMapOf<Int, Boolean>().apply { season.episodes.forEach { put(it.tmdbId, it.watched) } } }
         val aired = season.episodes.filter { !isFuture(it.airDate) }
         val done = aired.count { watched[it.tmdbId] == true }
         val title = season.name ?: "Season $seasonNumber"
+        val openDiscs = rememberDiscOpener(openDisc, season.show?.title)
+        val confirm = rememberConfirm()
+        // The show's seasons, specials aside, to step between.
+        val numbers = season.show?.seasonsMeta?.map { it.seasonNumber }?.filter { it > 0 }?.sorted().orEmpty()
+        val at = numbers.indexOf(seasonNumber)
         DetailScaffold(title, list, onBack, header = false) {
             item {
                 Row(
@@ -358,22 +348,39 @@ fun SeasonScreen(showTmdbId: Int, seasonNumber: Int, onBack: () -> Unit) {
                     }
                 }
             }
-            if (aired.isNotEmpty()) {
-                item {
-                    val all = done == aired.size
-                    WatchedButton(all, if (all) "Season watched" else "Mark season watched", Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                        haptics.performHapticFeedback(HapticFeedbackType.Confirm)
-                        val before = aired.associate { it.tmdbId to (watched[it.tmdbId] == true) }
-                        aired.forEach { watched[it.tmdbId] = !all }
-                        app.act(
-                            if (all) "$title unmarked" else "$title marked watched",
-                            action = { if (all) unwatchSeason(showTmdbId, seasonNumber) else markSeasonWatched(showTmdbId, seasonNumber) },
-                            onFail = { watched.putAll(before) },
-                            undo = { if (all) markSeasonWatched(showTmdbId, seasonNumber) else unwatchSeason(showTmdbId, seasonNumber) },
-                            onUndo = { watched.putAll(before) },
-                        )
-                    }
-                }
+            item {
+                StepRow("S", numbers.getOrNull(at - 1).takeIf { at > 0 }, numbers.getOrNull(at + 1).takeIf { at >= 0 }) { openSeason(showTmdbId, it) }
+            }
+            item { RatingsPill(season.tmdbRating, season.imdbRating, season.seasonUserRating, Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) }
+            item {
+                val all = aired.isNotEmpty() && done == aired.size
+                val pct = if (aired.isEmpty()) 0 else done * 100 / aired.size
+                ActionStack(
+                    listOf(
+                        ActionItem("Watched", Tone.Red, all, value = "$pct%", enabled = aired.isNotEmpty(), icon = watchedIcon(all)) {
+                            val (ask, detail) = if (all) "Mark season as unwatched?" to "This will remove all watch events for every episode in this season."
+                            else "Mark season as watched?" to "This will add a watch event for every episode in your library for this season."
+                            confirm(ask, detail) {
+                                haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                                val before = aired.associate { it.tmdbId to (watched[it.tmdbId] == true) }
+                                aired.forEach { watched[it.tmdbId] = !all }
+                                app.act(
+                                    if (all) "$title unmarked" else "$title marked watched",
+                                    action = { if (all) unwatchSeason(showTmdbId, seasonNumber) else markSeasonWatched(showTmdbId, seasonNumber) },
+                                    onFail = { watched.putAll(before) },
+                                    undo = { if (all) markSeasonWatched(showTmdbId, seasonNumber) else unwatchSeason(showTmdbId, seasonNumber) },
+                                    onUndo = { watched.putAll(before) },
+                                )
+                            }
+                        },
+                        ActionItem("Collection", Tone.Purple, season.seasonCollectionPct > 0, value = "${season.seasonCollectionPct}%", icon = CollectionIcon) {
+                            // Your disc of this season, else the show's discs.
+                            season.seasonDiscId?.let(openDisc) ?: scope.launch {
+                                openDiscs(runCatching { app.api.show(showTmdbId).discs }.getOrDefault(emptyList()))
+                            }
+                        },
+                    ),
+                )
             }
             if (!season.overview.isNullOrBlank()) {
                 item { Text(season.overview, color = Watchd.Muted, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
@@ -399,23 +406,28 @@ fun SeasonScreen(showTmdbId: Int, seasonNumber: Int, onBack: () -> Unit) {
 
 /**
  * One episode, as the site's episode page: its still, the show and season it
- * belongs to (tap for them), ratings, the W to mark it watched, the story and
- * its guest stars and cast.
+ * belongs to (tap for them), the step to the episodes either side, ratings,
+ * the site's buttons, the story, and its cast and guest stars.
  */
 @Composable
 fun EpisodeScreen(
     showTmdbId: Int, seasonNumber: Int, episodeNumber: Int, onBack: () -> Unit,
-    openShow: (Int) -> Unit, openSeason: (Int, Int) -> Unit, openPerson: (Int) -> Unit,
+    openShow: (Int) -> Unit, openSeason: (Int, Int) -> Unit, openEpisode: (Int, Int, Int) -> Unit,
+    openPerson: (Int) -> Unit, openDisc: (Int) -> Unit,
 ) {
     val (state, reload) = rememberLoad(Triple(showTmdbId, seasonNumber, episodeNumber), saved("episode-$showTmdbId-$seasonNumber-$episodeNumber")) {
         episode(showTmdbId, seasonNumber, episodeNumber)
     }
     val app = LocalApp.current
-    val haptics = LocalHapticFeedback.current
     val list = rememberLazyListState()
+    val scope = rememberCoroutineScope()
     LoadContent(state, reload) { ep ->
-        var watched by remember(ep) { mutableStateOf(ep.watched) }
+        var inLists by remember(ep) { mutableStateOf(ep.inLists) }
+        var listsOpen by remember { mutableStateOf(false) }
+        val openDiscs = rememberDiscOpener(openDisc, ep.show?.title)
         val code = episodeCode(ep.seasonNumber, ep.episodeNumber)
+        val numbers = ep.episodes.map { it.episodeNumber }
+        val at = numbers.indexOf(ep.episodeNumber)
         DetailScaffold(ep.title ?: code, list, onBack) {
             item {
                 DetailHeader(
@@ -437,26 +449,112 @@ fun EpisodeScreen(
                     )
                 }
             }
+            item {
+                StepRow("E", numbers.getOrNull(at - 1).takeIf { at > 0 }, numbers.getOrNull(at + 1).takeIf { at >= 0 }) {
+                    openEpisode(showTmdbId, ep.seasonNumber, it)
+                }
+            }
             ep.badge?.let { item { EpisodeBadge(it, Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) } }
             item { RatingsPill(ep.tmdbRating, ep.imdbRating, ep.userRating, Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) }
             ep.tmdbId?.let { id ->
                 item {
-                    WatchedButton(watched, if (watched) "Watched" else "Mark watched", Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
-                        haptics.performHapticFeedback(HapticFeedbackType.Confirm)
-                        val was = watched
-                        watched = !was
-                        app.act(
-                            "${ep.show?.title.orEmpty()} $code ${if (was) "unwatched" else "watched"}",
-                            action = { if (was) unwatch(id, "episode") else markWatched(id, "episode") },
-                            onFail = { watched = was },
-                        )
-                    }
+                    ActionStack(
+                        listOf(
+                            ActionItem("Watched", Tone.Red, ep.watched, value = ep.playCount.takeIf { it > 1 }?.let { "$it×" }, icon = watchedIcon(ep.watched)) {
+                                app.openWatchSheet(WatchTarget(id, "episode", ep.title, showTmdbId, ep.seasonNumber, ep.episodeNumber, ep.runtime), reload)
+                            },
+                            ActionItem("Lists", Tone.Sky, inLists.isNotEmpty(), icon = ListsIcon) { listsOpen = true },
+                            ActionItem("Collection", Tone.Purple, ep.collectionPct > 0, icon = CollectionIcon) {
+                                scope.launch { openDiscs(runCatching { app.api.show(showTmdbId).discs }.getOrDefault(emptyList())) }
+                            },
+                        ),
+                    )
                 }
             }
             item { Overview(null, ep.overview, emptyList()) }
-            val people = (ep.guestStars + ep.cast).distinctBy { it.tmdbId ?: it.name.hashCode() }
-            if (people.isNotEmpty()) item { CastSection(people, openPerson) }
+            item { CastTabs(ep.cast, ep.guestStars, openPerson) }
         }
+        if (listsOpen) ep.tmdbId?.let { id -> ListsSheet(id, "episode", ep.title ?: code, inLists, onChanged = { inLists = it }) { listsOpen = false } }
+    }
+}
+
+/** Your rating and the dialog that sets it, shown at once and put back if the server says no. */
+private class RatingControl(val value: Double?, val open: () -> Unit)
+
+@Composable
+private fun rememberRating(tmdbId: Int, mediaType: String, mine: Double?): RatingControl {
+    val app = LocalApp.current
+    var rating by remember(tmdbId, mine) { mutableStateOf(mine) }
+    var picking by remember { mutableStateOf(false) }
+    if (picking) {
+        RateDialog(rating, onDismiss = { picking = false }, onPick = { value ->
+            picking = false
+            val before = rating
+            rating = value
+            app.act(
+                if (value == null) "Rating cleared" else "Rated ${outOfTen(value)}/10",
+                action = { if (value == null) unrate(tmdbId, mediaType) else rate(tmdbId, mediaType, value) },
+                onFail = { rating = before },
+            )
+        })
+    }
+    return RatingControl(rating) { picking = true }
+}
+
+/**
+ * The Collection button: your one disc opens, several come up to pick from,
+ * and with none it says so (discs are added on the computer).
+ */
+@Composable
+private fun rememberDiscOpener(openDisc: (Int) -> Unit, seriesTitle: String? = null): (List<Disc>) -> Unit {
+    val app = LocalApp.current
+    var sheet by remember { mutableStateOf<List<Disc>?>(null) }
+    sheet?.let { discs -> DiscsSheet(discs, seriesTitle, openDisc = { sheet = null; openDisc(it) }) { sheet = null } }
+    return { discs ->
+        when {
+            discs.size == 1 -> openDisc(discs.first().id)
+            discs.size > 1 -> sheet = discs
+            else -> app.act("Not in your collection", action = {}, onFail = {})
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DiscsSheet(discs: List<Disc>, seriesTitle: String?, openDisc: (Int) -> Unit, onDismiss: () -> Unit) {
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Watchd.Background, contentColor = Watchd.Text) {
+        Text("Your discs", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(start = 20.dp, bottom = 4.dp))
+        OnDiscChips(discs, seriesTitle, openDisc)
+        Spacer(Modifier.height(24.dp))
+    }
+}
+
+/** Asks first, as the site does before marking a whole show or season. */
+@Composable
+private fun rememberConfirm(): (String, String, () -> Unit) -> Unit {
+    var ask by remember { mutableStateOf<Triple<String, String, () -> Unit>?>(null) }
+    ask?.let { (title, text, yes) ->
+        AlertDialog(
+            onDismissRequest = { ask = null }, containerColor = Watchd.Surface,
+            title = { Text(title) }, text = { Text(text, color = Watchd.Muted) },
+            confirmButton = { TextButton(onClick = { ask = null; yes() }) { Text("Confirm", color = Watchd.Red, fontWeight = FontWeight.Bold) } },
+            dismissButton = { TextButton(onClick = { ask = null }) { Text("Cancel", color = Watchd.Muted) } },
+        )
+    }
+    return { title, text, yes -> ask = Triple(title, text, yes) }
+}
+
+/** Radarr or Sonarr, as the site's last button: done once it's there or asked for. */
+@Composable
+private fun requestItem(mediaType: String, tmdbId: Int, enabled: Boolean, monitored: Boolean, status: String?, done: Boolean): ActionItem? {
+    if (!enabled) return null
+    val app = LocalApp.current
+    var asked by remember(tmdbId) { mutableStateOf(false) }
+    val sent = monitored || status != null || asked || done
+    val service = if (mediaType == "movie") "Radarr" else "Sonarr"
+    return ActionItem(service, Tone.Orange, sent, enabled = !sent, icon = RequestIcon) {
+        asked = true
+        app.act("Sent to $service", action = { requestMedia(mediaType, tmdbId) }, onFail = { asked = false })
     }
 }
 
@@ -541,45 +639,6 @@ internal fun DetailHeader(backdrop: String?, poster: String?, title: String, fac
                 if (facts.isNotEmpty()) Text(facts.joinToString(" · "), color = Watchd.Muted, fontSize = 13.sp)
             }
         }
-    }
-}
-
-/** IMDb, TMDB and your own rating, in the site's pill. */
-@Composable
-private fun RatingsRow(tmdbId: Int, mediaType: String, imdb: Double?, tmdb: Double?, mine: Double?) {
-    val app = LocalApp.current
-    // Shown at once; put back if the server says no.
-    var rating by remember(tmdbId, mine) { mutableStateOf(mine?.roundToInt()) }
-    RatingsPill(tmdb, imdb, rating?.toDouble(), Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp))
-    RateStars(rating) { stars ->
-        val before = rating
-        rating = stars
-        app.act(
-            if (stars == null) "Rating cleared" else "Rated $stars/10",
-            action = { if (stars == null) unrate(tmdbId, mediaType) else rate(tmdbId, mediaType, stars) },
-            onFail = { rating = before },
-        )
-    }
-}
-
-/** Ten stars, as on the site: tap one to rate, tap your rating again to clear it. */
-@Composable
-private fun RateStars(rating: Int?, onRate: (Int?) -> Unit) {
-    val haptics = LocalHapticFeedback.current
-    Row(Modifier.padding(start = 12.dp, end = 16.dp, top = 6.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        (1..10).forEach { n ->
-            val on = rating != null && n <= rating
-            Icon(
-                if (on) Icons.Default.Star else Icons.Default.StarBorder,
-                contentDescription = "Rate $n out of 10",
-                tint = if (on) Watchd.Red else Watchd.Faint,
-                modifier = Modifier.size(30.dp).clip(CircleShape).clickable {
-                    haptics.performHapticFeedback(HapticFeedbackType.Confirm)
-                    onRate(if (rating == n) null else n)
-                }.padding(3.dp),
-            )
-        }
-        Text(rating?.let { "$it/10" } ?: "Rate", color = if (rating != null) Watchd.Red else Watchd.Muted, fontWeight = FontWeight.Bold, fontSize = 13.sp, modifier = Modifier.padding(start = 6.dp))
     }
 }
 

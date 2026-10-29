@@ -318,19 +318,26 @@ private fun SignedIn(session: Session, incoming: Intent?, onHandled: () -> Unit,
                 composable<DiscRoute> { DiscScreen(it.toRoute<DiscRoute>().id, onBack = { nav.popBackStack() }, openDisc = { id -> nav.navigate(DiscRoute(id)) }, openShow = openShow, openMovie = openMovie) }
                 composable<WatchlistRoute> { WatchlistScreen(onBack = { nav.popBackStack() }, openMovie = openMovie) }
                 composable<ListRoute> { ListScreen(it.toRoute<ListRoute>().id, onBack = { nav.popBackStack() }, openShow = openShow, openMovie = openMovie) }
-                composable<MovieRoute> { MovieScreen(it.toRoute<MovieRoute>().tmdbId, onBack = { nav.popBackStack() }, openMovie = openMovie, openPerson = openPerson) }
+                composable<MovieRoute> { MovieScreen(it.toRoute<MovieRoute>().tmdbId, onBack = { nav.popBackStack() }, openMovie = openMovie, openPerson = openPerson, openDisc = { id -> nav.navigate(DiscRoute(id)) }) }
                 composable<ShowRoute> {
-                    ShowScreen(it.toRoute<ShowRoute>().tmdbId, onBack = { nav.popBackStack() }, openSeason = { show, season -> nav.navigate(SeasonRoute(show, season)) }, openPerson = openPerson)
+                    ShowScreen(it.toRoute<ShowRoute>().tmdbId, onBack = { nav.popBackStack() }, openSeason = { show, season -> nav.navigate(SeasonRoute(show, season)) }, openPerson = openPerson, openDisc = { id -> nav.navigate(DiscRoute(id)) })
                 }
                 composable<SeasonRoute> {
                     val route = it.toRoute<SeasonRoute>()
-                    SeasonScreen(route.showTmdbId, route.season, onBack = { nav.popBackStack() })
+                    SeasonScreen(
+                        route.showTmdbId, route.season, onBack = { nav.popBackStack() },
+                        // A step to the season either side replaces this one, so Back still goes to the show.
+                        openSeason = { show, season -> nav.navigate(SeasonRoute(show, season)) { popUpTo<SeasonRoute> { inclusive = true } } },
+                        openDisc = { id -> nav.navigate(DiscRoute(id)) },
+                    )
                 }
                 composable<EpisodeRoute> {
                     val route = it.toRoute<EpisodeRoute>()
                     EpisodeScreen(
                         route.showTmdbId, route.season, route.episode, onBack = { nav.popBackStack() },
-                        openShow = openShow, openSeason = { show, season -> nav.navigate(SeasonRoute(show, season)) }, openPerson = openPerson,
+                        openShow = openShow, openSeason = { show, season -> nav.navigate(SeasonRoute(show, season)) },
+                        openEpisode = { show, season, episode -> nav.navigate(EpisodeRoute(show, season, episode)) { popUpTo<EpisodeRoute> { inclusive = true } } },
+                        openPerson = openPerson, openDisc = { id -> nav.navigate(DiscRoute(id)) },
                     )
                 }
             }

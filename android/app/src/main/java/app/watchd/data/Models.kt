@@ -195,6 +195,11 @@ data class Movie(
     val collection: FilmCollection? = null,
     val watchHistory: List<WatchEvent> = emptyList(),
     val discs: List<Disc> = emptyList(),
+    val inLists: List<Int> = emptyList(),
+    val collectionPct: Int = 0,
+    val isMonitored: Boolean = false,
+    val requestEnabled: Boolean = false,
+    val requestStatus: String? = null,
 )
 
 @Serializable
@@ -241,8 +246,14 @@ data class Show(
     val seasonsMeta: List<SeasonMeta> = emptyList(),
     val seasonStates: Map<String, SeasonState> = emptyMap(),
     val cast: List<Person> = emptyList(),
+    val guestStars: List<Person> = emptyList(),
     val createdBy: List<Person> = emptyList(),
     val whereToWatch: List<WhereToWatch> = emptyList(),
+    val inLists: List<Int> = emptyList(),
+    val collectionPct: Int = 0,
+    val isMonitored: Boolean = false,
+    val requestEnabled: Boolean = false,
+    val requestStatus: String? = null,
 )
 
 @Serializable
@@ -271,7 +282,17 @@ data class Season(
     val episodes: List<Episode> = emptyList(),
     val seasonWatchPct: Int = 0,
     val seasonWatched: Boolean = false,
+    val imdbRating: Double? = null,
+    val tmdbRating: Double? = null,
+    val seasonUserRating: Double? = null,
+    val seasonDiscId: Int? = null,
+    val seasonCollectionPct: Int = 0,
+    val show: SeasonShow? = null,
 )
+
+/** The show a season or episode belongs to, with its seasons for moving between them. */
+@Serializable
+data class SeasonShow(val tmdbId: Int? = null, val title: String? = null, val seasonsMeta: List<SeasonMeta> = emptyList())
 
 // ------------------------------------------------------------------ round 2
 
@@ -624,7 +645,14 @@ data class DownloadedFilm(val tmdbId: Int, val title: String? = null, val year: 
 // ------------------------------------------------------------------ an episode
 
 @Serializable
-data class EpisodeShow(val tmdbId: Int? = null, val title: String? = null, val posterPath: String? = null, val backdropPath: String? = null)
+data class EpisodeShow(
+    val tmdbId: Int? = null, val title: String? = null, val posterPath: String? = null, val backdropPath: String? = null,
+    val seasonsMeta: List<SeasonMeta> = emptyList(),
+)
+
+/** An episode of the same season, for stepping between them. */
+@Serializable
+data class EpisodeNav(val episodeNumber: Int, val title: String? = null)
 
 @Serializable
 data class EpisodeDetail(
@@ -645,6 +673,9 @@ data class EpisodeDetail(
     val guestStars: List<Person> = emptyList(),
     val cast: List<Person> = emptyList(),
     val show: EpisodeShow? = null,
+    val episodes: List<EpisodeNav> = emptyList(),
+    val inLists: List<Int> = emptyList(),
+    val collectionPct: Int = 0,
 )
 
 // ------------------------------------------------------------------ the home screen widget

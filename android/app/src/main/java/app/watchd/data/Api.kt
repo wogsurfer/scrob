@@ -160,6 +160,15 @@ class Api(server: String, private val token: String?) {
     suspend fun unwatchSeason(showTmdbId: Int, season: Int) =
         send(request("history/season", "series_tmdb_id" to "$showTmdbId", "season_number" to "$season").delete())
 
+    /** Every episode of a show watched, or all its watches taken off, as the site's show button. */
+    suspend fun markShowWatched(showTmdbId: Int) {
+        val body = buildJsonObject { put("series_tmdb_id", showTmdbId) }
+        send(request("history/show-all").post(body.toString().toRequestBody(jsonType)))
+    }
+
+    suspend fun unwatchShow(showTmdbId: Int) =
+        send(request("history/show-all", "series_tmdb_id" to "$showTmdbId").delete())
+
     suspend fun unwatch(tmdbId: Int, mediaType: String) =
         send(request("history/item", "tmdb_id" to "$tmdbId", "media_type" to mediaType).delete())
 
@@ -168,8 +177,24 @@ class Api(server: String, private val token: String?) {
 
     suspend fun removeFromWatchlist(tmdbId: Int) = send(request("watchlist/$tmdbId").delete())
 
+    /** Puts a film or show on one of your lists. */
+    suspend fun addToList(listId: Int, tmdbId: Int, mediaType: String) {
+        val body = buildJsonObject { put("tmdb_id", tmdbId); put("media_type", mediaType) }
+        send(request("lists/$listId/items").post(body.toString().toRequestBody(jsonType)))
+    }
+
+    /** Takes a film or show off a list (by kind too: a film and a show can share a TMDB number). */
+    suspend fun removeFromList(listId: Int, tmdbId: Int, mediaType: String) {
+        val item = list(listId).items.firstOrNull { it.media.tmdbId == tmdbId && it.media.type == mediaType } ?: return
+        send(request("lists/$listId/items/${item.id}").delete())
+    }
+
+    /** Asks Radarr (a film) or Sonarr (a show) for it, as the site's button does. */
+    suspend fun requestMedia(mediaType: String, tmdbId: Int) =
+        send(request("media/$mediaType/$tmdbId/request").post("".toRequestBody(jsonType)))
+
     /** Your 1 to 10 rating of a film ("movie") or show ("series"). */
-    suspend fun rate(tmdbId: Int, mediaType: String, rating: Int) {
+    suspend fun rate(tmdbId: Int, mediaType: String, rating: Double) {
         val body = buildJsonObject {
             put("tmdb_id", tmdbId)
             put("media_type", mediaType)

@@ -1949,6 +1949,15 @@ async def get_show(
 
         show_dict = format_show(show)
 
+        # Most shows have no IMDb rating stored yet: look it up once and keep it.
+        imdb_id = (show.tmdb_data or {}).get("external_ids", {}).get("imdb_id")
+        if show_dict.get("imdb_rating") is None and imdb_id:
+            rating = await tmdb.get_imdb_rating(imdb_id)
+            if rating:
+                show.tmdb_data = {**(show.tmdb_data or {}), "imdb_rating": rating}
+                await db.commit()
+                show_dict["imdb_rating"] = rating
+
         if tvdb_genres:
             show_dict["genres"] = tvdb_genres
         if metadata_lang and tmdb_extra:

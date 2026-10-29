@@ -300,9 +300,6 @@ private fun DiscStars(discId: Int, mine: Double?) {
     }
 }
 
-/** "7" or "7.5". */
-private fun outOfTen(r: Double) = if (r % 1.0 == 0.0) r.toInt().toString() else r.toString()
-
 /** IMDb's yellow tag as the site's disc details show it: "IMDb 6.6 204,067". */
 @Composable
 private fun ImdbPill(rating: Double?, votes: Int?) {
