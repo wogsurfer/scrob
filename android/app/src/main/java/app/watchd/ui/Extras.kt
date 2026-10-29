@@ -35,7 +35,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.material.icons.filled.GridView
-import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.outlined.EmojiEvents
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -411,7 +410,7 @@ private fun shelfKey(item: PhysicalItem): String {
 private val SHELVES = listOf("All", "4K UHD", "Blu-ray", "Blu-ray 3D", "Sets", "Wishlist")
 
 @Composable
-fun CollectionScreen(onBack: () -> Unit, openDisc: (Int) -> Unit, addDisc: () -> Unit) {
+fun CollectionScreen(onBack: () -> Unit, openDisc: (Int) -> Unit) {
     val (state, reload) = rememberLoad(Unit, saved<Shelf>("collection")) { Shelf(discItems().items, discStats()) }
     var shelf by rememberSaveable { mutableStateOf("All") }
     var query by rememberSaveable { mutableStateOf("") }
@@ -459,7 +458,6 @@ fun CollectionScreen(onBack: () -> Unit, openDisc: (Int) -> Unit, addDisc: () ->
                     Row(Modifier.statusBarsPadding().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         SectionTitle("Collection", Modifier.weight(1f))
-                        IconButton(onClick = addDisc) { Icon(Icons.Default.QrCodeScanner, contentDescription = "Add a disc", tint = Watchd.Red) }
                     }
                     val s = data.stats
                     Text(

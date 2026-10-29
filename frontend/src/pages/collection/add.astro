@@ -1,5 +1,5 @@
 ---
-// Adding a disc: find it by barcode (typed; the app scans them) or by
+// Adding a disc: find it by barcode (typed) or by
 // title, pick the film or series it's of, then fill in the edition on the
 // form. TMDB supplies the film's details when it's saved.
 import Base from "../../layouts/Base.astro";
@@ -69,7 +69,6 @@ const coverUrl = p.get("cover");
       <p id="add-status" class="add-status"></p>
       <div id="add-product" class="add-product" hidden></div>
       <div id="add-results" class="add-results"></div>
-      <p class="add-manual">Got the disc in your hand? Scan its barcode with the Watchd app: Collection, then the scan button.</p>
       <p class="add-manual">Can't find it? <a href={`/collection/add?${new URLSearchParams({ title: "", ...(inSet ? { set: inSet } : {}) })}`}>Fill in the form yourself</a>.</p>
       {!inSet && <p class="add-manual">Adding a box set or a disc with several films? <a href="/collection/add?newset=1">Start the set</a>, then add its films to it.</p>}
     </div>

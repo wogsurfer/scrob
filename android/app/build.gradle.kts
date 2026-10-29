@@ -76,7 +76,6 @@ dependencies {
     implementation(libs.serialization.json)
     implementation(libs.datastore.preferences)
     implementation(libs.work.runtime)
-    implementation(libs.code.scanner)
     implementation(libs.glance.appwidget)
     debugImplementation(libs.compose.ui.tooling)
 }

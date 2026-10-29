@@ -3,7 +3,7 @@ import unittest
 from datetime import date
 
 from core.clz_import import parse_clz, parse_date
-from routers.physical import clean_product_title, _franchise_sort, _shelf_sort
+from routers.physical import clean_product_title, _franchise_sort, _shelf_sort, lookup_rank
 
 EXPORT = """<?xml version="1.0" encoding="UTF-8"?>
 <movieinfo>
@@ -122,6 +122,15 @@ class ClzImportTests(unittest.TestCase):
         self.assertEqual(clean_product_title("Warner Home Video - Wonder Woman [BLU-RAY]", "SDS"), "Wonder Woman")
         self.assertEqual(clean_product_title("Arrow Video - The Thing (Blu-ray)", "Arrow Video"), "The Thing")
         self.assertEqual(clean_product_title("Spider-Man: No Way Home [Blu-ray]"), "Spider-Man: No Way Home")
+
+    def test_lookup_puts_the_film_first(self):
+        found = [
+            {"kind": "tv", "title": "Wonder Woman", "popularity": 90},
+            {"kind": "movie", "title": "Wonder Woman 1984", "popularity": 80},
+            {"kind": "movie", "title": "Wonder Woman", "popularity": 60},
+        ]
+        best = sorted(found, key=lambda r: lookup_rank(r, "Wonder Woman"))[0]
+        self.assertEqual((best["kind"], best["title"]), ("movie", "Wonder Woman"))
 
     def test_franchise_sort_drops_the(self):
         self.assertEqual(_franchise_sort({"franchise": "The Avengers", "auto_sort": "The Avengers 03"}), "Avengers 03")

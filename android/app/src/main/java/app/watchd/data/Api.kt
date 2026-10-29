@@ -78,28 +78,6 @@ class Api(server: String, private val token: String?) {
     suspend fun discItems(): PhysicalItems = get("physical/items")
     suspend fun discStats(): PhysicalStats = get("physical/stats")
     suspend fun disc(id: Int): DiscDetail = get("physical/items/$id")
-    /** What a barcode is, and the TMDB films and series it might be (or matches for [query]). */
-    suspend fun lookupDisc(barcode: String?, query: String?): DiscLookup =
-        get("physical/lookup", *listOfNotNull(barcode?.let { "barcode" to it }, query?.let { "q" to it }).toTypedArray())
-    /** The edit form's pick lists ("format" and the rest). */
-    suspend fun discOptions(): Map<String, List<String>> = get("physical/options")
-
-    /** Adds a disc to the collection or wish list; TMDB fills in the rest. */
-    suspend fun addDisc(pick: LookupResult, barcode: String?, format: String?, wishlist: Boolean, coverUrl: String?): Int {
-        val body = buildJsonObject {
-            put("title", pick.title ?: "")
-            pick.year?.toIntOrNull()?.let { put("release_year", it) }
-            put("tmdb_id", pick.tmdbId)
-            put("is_tv", pick.kind == "tv")
-            barcode?.let { put("barcode", it) }
-            format?.let { put("format", it) }
-            put("status", if (wishlist) "wishlist" else "owned")
-            put("specs", buildJsonObject { put("tmdb_kind", pick.kind) })
-            coverUrl?.let { put("cover_url", it) }
-        }
-        return decode<Created>(send(request("physical/items").post(body.toString().toRequestBody(jsonType)))).id
-    }
-
     /** Films and shows with this IMDb id ("tt0266697"). */
     suspend fun findImdb(imdbId: String): List<FoundTitle> = get("media/find-by-imdb", "imdb_id" to imdbId, "kind" to "any")
 

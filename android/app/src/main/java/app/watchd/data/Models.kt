@@ -620,26 +620,3 @@ data class AppLink(val url: String)
 /** A film Radarr has downloaded. */
 @Serializable
 data class DownloadedFilm(val tmdbId: Int, val title: String? = null, val year: Int? = null, val quality: String? = null, val importedAt: String? = null, val posterPath: String? = null)
-
-// ------------------------------------------------------------------ adding a disc
-
-@Serializable
-data class AlreadyOwned(val id: Int, val title: String? = null, val status: String? = null)
-
-/** What a barcode belongs to, from the free UPC database. */
-@Serializable
-data class BarcodeProduct(
-    val title: String? = null,
-    val brand: String? = null,
-    val images: List<String> = emptyList(),
-    val already: AlreadyOwned? = null,
-)
-
-@Serializable
-data class LookupResult(val kind: String = "movie", val tmdbId: Int, val title: String? = null, val year: String? = null, val poster: String? = null)
-
-@Serializable
-data class DiscLookup(val product: BarcodeProduct? = null, val query: String? = null, val results: List<LookupResult> = emptyList())
-
-@Serializable
-data class Created(val id: Int)

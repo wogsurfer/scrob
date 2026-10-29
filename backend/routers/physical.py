@@ -788,6 +788,14 @@ def clean_product_title(title: str, brand: str | None = None) -> str:
     return cleaned or (title or "").strip()
 
 
+def lookup_rank(result: dict, query: str) -> tuple:
+    """Best match first: the title exactly as searched, then films (most discs
+    are), then the most popular. "Wonder Woman" puts the 2017 film ahead of
+    the 1975 TV series."""
+    norm = lambda t: re.sub(r"[^a-z0-9]+", " ", (t or "").lower()).strip()
+    return (norm(result.get("title")) != norm(query), result.get("kind") != "movie", -(result.get("popularity") or 0))
+
+
 @router.get("/lookup")
 async def lookup(
     barcode: str | None = None,
@@ -850,7 +858,7 @@ async def lookup(
                     "poster": tmdb.poster_url(r.get("poster_path"), size="w185"),
                     "popularity": r.get("popularity") or 0,
                 })
-        results.sort(key=lambda r: r["popularity"], reverse=True)
+        results.sort(key=lambda r: lookup_rank(r, q))
     return {"product": product, "query": q, "results": results}
 
 
