@@ -1,5 +1,8 @@
 package app.watchd.ui
 
+import androidx.compose.ui.text.style.LineHeightStyle
+import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.text.TextStyle
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
@@ -298,12 +301,17 @@ fun ImdbBadge(rating: Double?, showEmpty: Boolean = false) {
     val has = rating != null && rating > 0
     if (!has && !showEmpty) return
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+        // A slim tag, as on the site: no font padding, a tight line.
         Text(
             "IMDb",
             color = Color.Black,
             fontWeight = FontWeight.Black,
-            fontSize = 10.sp,
-            modifier = Modifier.clip(RoundedCornerShape(3.dp)).background(Watchd.ImdbYellow).padding(horizontal = 4.dp, vertical = 1.dp),
+            style = TextStyle(
+                fontSize = 10.sp, lineHeight = 12.sp,
+                platformStyle = PlatformTextStyle(includeFontPadding = false),
+                lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.Both),
+            ),
+            modifier = Modifier.clip(RoundedCornerShape(3.dp)).background(Watchd.ImdbYellow).padding(horizontal = 4.dp, vertical = 2.dp),
         )
         Text(if (has) "%.1f".format(rating) else "—", fontWeight = FontWeight.ExtraBold, fontSize = 15.sp, color = if (has) Watchd.ImdbYellow else Watchd.Muted)
     }
