@@ -13,7 +13,8 @@ const { item } = Astro.props;
 
 // Fields added to /history/next-up for this card (not in the MediaItem type yet)
 const extra = item as MediaItem & {
-  show_imdb_rating?: number | null;
+  /** The episode's own IMDb rating; none until IMDb has one (never the show's). */
+  imdb_rating?: number | null;
   show_watch_pct?: number | null;
   show_episodes_watched?: number | null;
   show_episodes_total?: number | null;
@@ -44,8 +45,8 @@ const inLibrary = item.in_library ?? false;
 const collectionPct = item.collection_pct ?? (inLibrary ? 100 : 0);
 
 const imdb =
-  extra.show_imdb_rating != null
-    ? Number(extra.show_imdb_rating).toFixed(1)
+  extra.imdb_rating != null
+    ? Number(extra.imdb_rating).toFixed(1)
     : null;
 
 const progress =

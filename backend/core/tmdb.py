@@ -423,6 +423,7 @@ async def get_show_watch_providers(show_id: int, api_key: str = None) -> dict:
 # IMDb ratings barely move, and the ratings service slows right down under
 # 20-40 concurrent requests, so cache them for a day and limit concurrency.
 _IMDB_RATING_TTL = 24 * 3600
+_IMDB_UNRATED_TTL = 3600
 _imdb_rating_cache: dict[str, tuple[float, tuple[float | None, int | None]]] = {}
 _imdb_rating_limit = asyncio.Semaphore(5)
 
@@ -437,7 +438,9 @@ async def get_imdb_score(imdb_id: str) -> tuple[float | None, int | None]:
         return None, None
 
     hit = _imdb_rating_cache.get(imdb_id)
-    if hit and time.monotonic() - hit[0] < _IMDB_RATING_TTL:
+    # A title IMDb has no rating for yet (a new episode) is asked again sooner.
+    ttl = _IMDB_RATING_TTL if hit and hit[1][0] is not None else _IMDB_UNRATED_TTL
+    if hit and time.monotonic() - hit[0] < ttl:
         return hit[1]
 
     # Reuse the shared client: creating one per call loads the SSL

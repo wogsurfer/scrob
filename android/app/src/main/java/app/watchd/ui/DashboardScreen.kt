@@ -302,7 +302,7 @@ private fun NextUpCard(
         Row(Modifier.fillMaxWidth().padding(end = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             WatchButton(false, size = 26.dp, onTap = onWatched, onLongPress = onLongPress)
             Spacer(Modifier.weight(1f))
-            ImdbBadge(item.showImdbRating, showEmpty = true)
+            ImdbBadge(item.imdbRating, showEmpty = true)
         }
         // The show's progress; touch the bar for how far, as hovering it does on the site.
         var tip by remember { mutableStateOf(false) }

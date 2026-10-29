@@ -37,6 +37,8 @@ data class NextUpItem(
     val showBackdropPath: String? = null,
     val seasonPosterPath: String? = null,
     val showImdbRating: Double? = null,
+    /** The episode's own IMDb rating; none until IMDb has one. */
+    val imdbRating: Double? = null,
     val showWatchPct: Int = 0,
     val showEpisodesWatched: Int = 0,
     val showEpisodesTotal: Int = 0,

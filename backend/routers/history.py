@@ -532,6 +532,62 @@ def _format_media_item(media: Media) -> dict:
     return data
 
 
+# An episode with no IMDb rating yet is asked about again after this long; a
+# new one's rating (which moves as votes come in) is refreshed daily for a month.
+_EPISODE_RATING_RETRY = timedelta(hours=6)
+_EPISODE_RATING_REFRESH = timedelta(days=1)
+_EPISODE_RATING_NEW = timedelta(days=30)
+
+
+async def _fill_episode_imdb_ratings(db: AsyncSession, episodes: list[Media], api_key: str | None) -> None:
+    """Look up the IMDb rating of each episode that needs one, keeping it (and
+    the episode's IMDb id, and when it was checked) in the episode's data.
+    Lookups get a few seconds; any not done are tried on a later load."""
+    if not api_key:
+        return
+    now = datetime.now(UTC)
+
+    def due(m: Media) -> bool:
+        data = m.tmdb_data or {}
+        try:
+            checked = datetime.fromisoformat(data["imdb_checked_at"])
+        except (KeyError, TypeError, ValueError):
+            return True
+        if data.get("imdb_rating") is None:
+            return now - checked > _EPISODE_RATING_RETRY
+        try:
+            aired = datetime.fromisoformat((m.release_date or "")[:10]).replace(tzinfo=UTC)
+        except ValueError:
+            return False
+        return now - aired < _EPISODE_RATING_NEW and now - checked > _EPISODE_RATING_REFRESH
+
+    async def one(m: Media) -> None:
+        data = dict(m.tmdb_data or {})
+        try:
+            imdb_id = data.get("imdb_id")
+            if not imdb_id:
+                ext = await tmdb.get_episode_external_ids(m.show.tmdb_id, m.season_number, m.episode_number, api_key=api_key)
+                imdb_id = ext.get("imdb_id")
+            rating = await tmdb.get_imdb_rating(imdb_id) if imdb_id else None
+        except Exception:
+            return
+        if imdb_id:
+            data["imdb_id"] = imdb_id
+        if rating:
+            data["imdb_rating"] = rating
+        data["imdb_checked_at"] = now.isoformat()
+        m.tmdb_data = data
+
+    todo = [m for m in episodes if m.show and m.show.tmdb_id and m.season_number and m.episode_number and due(m)]
+    if not todo:
+        return
+    tasks = [asyncio.create_task(one(m)) for m in todo[:80]]
+    _, pending = await asyncio.wait(tasks, timeout=4)
+    for task in pending:
+        task.cancel()
+    await db.commit()
+
+
 def _compute_next_episode(seasons: list[dict], season: int, episode: int) -> tuple[int, int] | None:
     """Given a show's TMDB season metadata and the last-watched (season, episode),
     returns the next (season, episode), or None if the show has no more aired/
@@ -1307,19 +1363,11 @@ async def get_next_up(
 
         await asyncio.gather(*(fetch_season_poster(m, item) for m, item in missing))
 
-    # Most shows keep their IMDb rating on the show's own media row (where the
-    # show page and posters get it), not in the show's stored TMDB data.
-    unrated = {i["show_tmdb_id"] for i in items if i.get("show_tmdb_id") and i.get("show_imdb_rating") is None}
-    if unrated:
-        rows = await db.execute(
-            select(Media.tmdb_id, Media.tmdb_data["imdb_rating"].astext)
-            .where(Media.media_type == MediaType.series, Media.tmdb_id.in_(unrated))
-            .where(Media.tmdb_data["imdb_rating"].astext.isnot(None))
-        )
-        show_ratings = {tmdb_id: float(rating) for tmdb_id, rating in rows.all()}
-        for item in items:
-            if item.get("show_imdb_rating") is None:
-                item["show_imdb_rating"] = show_ratings.get(item.get("show_tmdb_id"))
+    # Each card shows its episode's own IMDb rating (never the show's): fetched
+    # and kept on the episode, and checked again until IMDb has one.
+    await _fill_episode_imdb_ratings(db, next_up, tmdb_api_key)
+    for m, item in zip(next_up, items):
+        item["imdb_rating"] = (m.tmdb_data or {}).get("imdb_rating")
 
     progress_by_show = await _show_watch_pct(
         db,
