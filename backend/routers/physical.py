@@ -419,7 +419,7 @@ class ItemFields(BaseModel):
     location: str | None = None
     owner: str | None = None
     index_no: int | None = None
-    my_rating: int | None = None
+    my_rating: float | None = None
     seen_it: bool | None = None
     viewing_date: date | None = None
     notes: str | None = None
@@ -562,8 +562,8 @@ async def update_item(
 
 
 class RatingIn(BaseModel):
-    # 1 to 10, or null to clear.
-    rating: int | None = None
+    # 0.5 to 10 in half stars, or null to clear.
+    rating: float | None = None
 
 
 @router.put("/items/{item_id}/rating")
@@ -576,8 +576,8 @@ async def rate_item(
     """Your rating of a disc, from its stars. Unlike an edit it leaves the
     disc's other details to Collectorz (and its NEW tag where it has one); a
     later import keeps this rating."""
-    if body.rating is not None and not 1 <= body.rating <= 10:
-        raise HTTPException(status_code=422, detail="A rating is 1 to 10")
+    if body.rating is not None and not (0.5 <= body.rating <= 10 and (body.rating * 2).is_integer()):
+        raise HTTPException(status_code=422, detail="A rating is 0.5 to 10, in halves")
     item = await _own_item(db, current_user.id, item_id)
     item.my_rating = body.rating
     specs = dict(item.specs or {})

@@ -8,7 +8,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.foundation.shape.CircleShape
-import kotlin.math.roundToInt
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.height
 import androidx.compose.ui.res.painterResource
@@ -102,7 +106,7 @@ fun DiscScreen(discId: Int, onBack: () -> Unit, openDisc: (Int) -> Unit, openSho
                     itemVerticalAlignment = Alignment.CenterVertically,
                 ) {
                     ImdbPill(d.imdbRating, d.imdbVotes)
-                    DiscStars(d.id, d.myRating?.roundToInt())
+                    DiscStars(d.id, d.myRating)
                 }
             }
             item {
@@ -256,33 +260,48 @@ private fun DiscBadges(d: DiscDetail, format: String?) {
 
 /**
  * Your rating of the disc as the site shows it, ten stars with yours in
- * amber: tap one to rate, tap your rating again to clear it.
+ * amber: tap a star to rate, its left half for half a star less, and tap
+ * your rating again to clear it.
  */
 @Composable
-private fun DiscStars(discId: Int, mine: Int?) {
+private fun DiscStars(discId: Int, mine: Double?) {
     val app = LocalApp.current
     val haptics = LocalHapticFeedback.current
     var rating by remember(discId, mine) { mutableStateOf(mine) }
     Row {
         (1..10).forEach { n ->
-            Icon(
-                Icons.Default.Star, contentDescription = "Rate $n out of 10",
-                tint = if (rating != null && n <= rating!!) Color(0xFFFBBF24) else Color(0xFF3F3F46),
-                modifier = Modifier.size(24.dp).clip(CircleShape).clickable {
-                    haptics.performHapticFeedback(HapticFeedbackType.Confirm)
-                    val before = rating
-                    val stars = if (rating == n) null else n
-                    rating = stars
-                    app.act(
-                        if (stars == null) "Rating cleared" else "Rated $stars/10",
-                        action = { rateDisc(discId, stars) },
-                        onFail = { rating = before },
-                    )
+            val lit = rating?.let { (it - (n - 1)).coerceIn(0.0, 1.0) } ?: 0.0
+            Box(
+                Modifier.size(24.dp).clip(CircleShape).pointerInput(n) {
+                    detectTapGestures { at ->
+                        haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                        val before = rating
+                        val tapped = if (at.x < size.width / 2) n - 0.5 else n.toDouble()
+                        val stars = if (rating == tapped) null else tapped
+                        rating = stars
+                        app.act(
+                            if (stars == null) "Rating cleared" else "Rated ${outOfTen(stars)}/10",
+                            action = { rateDisc(discId, stars) },
+                            onFail = { rating = before },
+                        )
+                    }
                 }.padding(2.dp),
-            )
+            ) {
+                Icon(Icons.Default.Star, contentDescription = "Rate $n out of 10", tint = Color(0xFF3F3F46))
+                if (lit > 0) {
+                    // Amber over the grey, cut off at half way for a half star.
+                    Icon(
+                        Icons.Default.Star, contentDescription = null, tint = Color(0xFFFBBF24),
+                        modifier = Modifier.drawWithContent { clipRect(right = size.width * lit.toFloat()) { this@drawWithContent.drawContent() } },
+                    )
+                }
+            }
         }
     }
 }
+
+/** "7" or "7.5". */
+private fun outOfTen(r: Double) = if (r % 1.0 == 0.0) r.toInt().toString() else r.toString()
 
 /** IMDb's yellow tag as the site's disc details show it: "IMDb 6.6 204,067". */
 @Composable

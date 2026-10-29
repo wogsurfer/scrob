@@ -321,9 +321,11 @@ const wishlist = items.filter((i) => i.status === "wishlist" && !i.parent_id).le
 
     // Your rating of the disc: ten stars to click, yours lit; clicking your
     // rating again clears it.
+    // A star lit, half lit (its left half is the half rating) or not, for a rating out of 10.
+    const starClass = (star: number, r?: number | null) => (!r ? "" : star <= r ? "on" : star - 0.5 === r ? "half" : "");
     function stars(id: number, n?: number | null) {
       return `<span class="cd-stars cd-rate" data-id="${id}" data-rating="${n || 0}" title="${n ? `Your rating: ${n}/10` : "Rate this disc"}">${Array.from({ length: 10 }, (_, k) =>
-        `<button type="button" data-star="${k + 1}" class="${n && k < n ? "on" : ""}" aria-label="Rate ${k + 1} out of 10"></button>`).join("")}</span>`;
+        `<button type="button" data-star="${k + 1}" class="${starClass(k + 1, n)}" aria-label="Rate ${k + 1} out of 10"></button>`).join("")}</span>`;
     }
 
     function discsHtml(d: PhysicalDetail) {
@@ -565,13 +567,14 @@ const wishlist = items.filter((i) => i.status === "wishlist" && !i.parent_id).le
       if (star) {
         const box = star.closest<HTMLElement>(".cd-rate")!;
         const id = Number(box.dataset.id), before = Number(box.dataset.rating) || null;
-        const n = Number(star.dataset.star);
+        // The left half of a star rates half a star less.
+        const n = Number(star.dataset.star) - (e.offsetX < star.offsetWidth / 2 ? 0.5 : 0);
         const rating = before === n ? null : n;
         // Shown at once, put back if the server says no.
         const show = (r: number | null) => {
           box.dataset.rating = String(r || 0);
           box.title = r ? `Your rating: ${r}/10` : "Rate this disc";
-          box.querySelectorAll<HTMLElement>("[data-star]").forEach((b) => b.classList.toggle("on", !!r && Number(b.dataset.star) <= r));
+          box.querySelectorAll<HTMLElement>("[data-star]").forEach((b) => b.className = starClass(Number(b.dataset.star), r));
         };
         show(rating);
         const res = await fetch(`/api/proxy/physical/items/${id}/rating`, {

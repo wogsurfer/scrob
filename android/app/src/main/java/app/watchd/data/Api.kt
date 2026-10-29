@@ -179,7 +179,7 @@ class Api(server: String, private val token: String?) {
     }
 
     /** Your 1 to 10 rating of a disc in the collection; null clears it. */
-    suspend fun rateDisc(discId: Int, rating: Int?) {
+    suspend fun rateDisc(discId: Int, rating: Double?) {
         val body = buildJsonObject { put("rating", rating?.let { JsonPrimitive(it) } ?: JsonNull) }
         send(request("physical/items/$discId/rating").put(body.toString().toRequestBody(jsonType)))
     }

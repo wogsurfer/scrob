@@ -63,7 +63,7 @@ class PhysicalItem(Base):
     location          : Mapped[Optional[str]]      = mapped_column(String(255))
     owner             : Mapped[Optional[str]]      = mapped_column(String(255))
     index_no          : Mapped[Optional[int]]      = mapped_column(Integer)
-    my_rating         : Mapped[Optional[int]]      = mapped_column(Integer)
+    my_rating         : Mapped[Optional[float]]    = mapped_column(Numeric(3, 1, asdecimal=False))  # 0.5 to 10, in halves
     seen_it           : Mapped[bool]               = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     viewing_date      : Mapped[Optional[date]]     = mapped_column(Date)
     notes             : Mapped[Optional[str]]      = mapped_column(Text)

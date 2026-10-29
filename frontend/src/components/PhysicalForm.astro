@@ -119,7 +119,7 @@ const lists: { key: string; label: string; hint: string }[] = [
       <label>Location<input name="location" data-combo="pf-location" value={v(item?.location)} /></label>
       <label>Owner<input name="owner" data-combo="pf-owner" value={v(item?.owner)} /></label>
       <label>Index<input name="index_no" type="number" min="0" value={v(item?.index_no)} /></label>
-      <label>My rating (out of 10)<input name="my_rating" type="number" min="1" max="10" value={v(item?.my_rating)} /></label>
+      <label>My rating (out of 10)<input name="my_rating" type="number" min="0.5" max="10" step="0.5" value={v(item?.my_rating)} /></label>
       <label>Seen in cinema
         <select name="specs.seen_in_cinema">
           {["", "Yes", "No", "Not Applicable"].map((o) => <option value={o} selected={(s.seen_in_cinema ?? "") === o}>{o || "—"}</option>)}
@@ -374,8 +374,8 @@ const lists: { key: string; label: string; hint: string }[] = [
       document.getElementById("pf-in-set")!.hidden = (e.target as HTMLInputElement).checked;
     });
 
-    const numberFields = ["release_year", "tmdb_id", "disc_count", "runtime", "index_no", "my_rating"];
-    const decimalFields = ["purchase_price", "current_value"];
+    const numberFields = ["release_year", "tmdb_id", "disc_count", "runtime", "index_no"];
+    const decimalFields = ["purchase_price", "current_value", "my_rating"];
 
     function collect() {
       const fd = new FormData(form!);

@@ -180,6 +180,7 @@ html.light :where(.coll-list) td:first-child { background: #fff; box-shadow: ins
 .coll-detail .cd-stars { display: inline-flex; gap: 2px; }
 .coll-detail .cd-stars button { width: 14px; height: 14px; padding: 0; border: 0; cursor: pointer; clip-path: polygon(50% 0, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%); background: #3f3f46; transition: transform .1s; }
 .coll-detail .cd-stars button.on { background: #fbbf24; }
+.coll-detail .cd-stars button.half { background: linear-gradient(90deg, #fbbf24 50%, #3f3f46 50%); }
 /* Hovering lights the stars up to the one under the pointer. */
 .coll-detail .cd-rate:hover button { background: #fbbf24; }
 .coll-detail .cd-rate button:hover ~ button { background: #3f3f46; }
