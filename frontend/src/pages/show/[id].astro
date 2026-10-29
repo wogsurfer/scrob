@@ -9,6 +9,7 @@ import SoundtrackList from "../../components/SoundtrackList.astro";
 import ActionStack from "../../components/ActionStack.astro";
 import EpisodeOrderSelector from "../../components/EpisodeOrderSelector.astro";
 import CrewSection from "../../components/CrewSection.astro";
+import EpisodeStrip from "../../components/EpisodeStrip.astro";
 import { api, type Show } from "../../lib/api";
 export const prerender = false;
 
@@ -369,6 +370,9 @@ const watchedRange = (() => {
             </div>
           </div><!-- /Info column -->
         </div><!-- /Poster + Info row -->
+
+<!-- Next Episode / Recently Aired, filled after load -->
+<EpisodeStrip tmdbId={show.tmdb_id} latestSeason={seasonCards.filter((c) => c.season_number > 0).map((c) => c.season_number).sort((a, b) => b - a)[0] ?? null} />
 
 <!-- Awards: filled from TVDB after load; hidden when there are none -->
 {show?.tvdb_id && <AwardsList endpoint={`/api/proxy/shows/tvdb/${show.tvdb_id}/awards?tmdb_id=${show.tmdb_id}`} />}

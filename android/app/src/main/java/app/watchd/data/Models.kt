@@ -379,6 +379,23 @@ private fun hexColor(hex: String) = runCatching {
     androidx.compose.ui.graphics.Color(android.graphics.Color.parseColor(hex))
 }.getOrNull()
 
+/** An episode on the show page's strip: the next to air, or one recently aired. */
+@Serializable
+data class StripEpisode(
+    val tmdbId: Int? = null,
+    val seasonNumber: Int = 0,
+    val episodeNumber: Int = 0,
+    val title: String? = null,
+    val stillPath: String? = null,
+    val airDate: String? = null,
+    val airTime: String? = null,
+    val watched: Boolean = false,
+    val imdbRating: Double? = null,
+)
+
+@Serializable
+data class EpisodeStrip(val next: StripEpisode? = null, val recent: List<StripEpisode> = emptyList())
+
 @Serializable
 data class HistoryPage(
     val page: Int = 1,

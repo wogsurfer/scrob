@@ -331,7 +331,8 @@ private fun SignedIn(session: Session, incoming: Intent?, onHandled: () -> Unit,
                 composable<ListRoute> { ListScreen(it.toRoute<ListRoute>().id, onBack = { nav.popBackStack() }, openShow = openShow, openMovie = openMovie) }
                 composable<MovieRoute> { MovieScreen(it.toRoute<MovieRoute>().tmdbId, onBack = { nav.popBackStack() }, openMovie = openMovie, openPerson = openPerson, openDisc = { id -> nav.navigate(DiscRoute(id)) }) }
                 composable<ShowRoute> {
-                    ShowScreen(it.toRoute<ShowRoute>().tmdbId, onBack = { nav.popBackStack() }, openSeason = { show, season -> nav.navigate(SeasonRoute(show, season)) }, openPerson = openPerson, openDisc = { id -> nav.navigate(DiscRoute(id)) })
+                    ShowScreen(it.toRoute<ShowRoute>().tmdbId, onBack = { nav.popBackStack() }, openSeason = { show, season -> nav.navigate(SeasonRoute(show, season)) }, openPerson = openPerson, openDisc = { id -> nav.navigate(DiscRoute(id)) },
+                        openEpisode = { show, season, episode -> nav.navigate(EpisodeRoute(show, season, episode)) })
                 }
                 composable<SeasonRoute> {
                     val route = it.toRoute<SeasonRoute>()

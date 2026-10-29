@@ -1,0 +1,104 @@
+---
+// The show page's Next Episode and Recently Aired strip (Trakt had one): the
+// next episode to air and the last two that aired, or for an ended show (or
+// one with no date yet) the last three. Filled after the page loads, so it
+// never holds the page up; hidden when there's nothing to show.
+interface Props {
+  tmdbId: number;
+  /** The show's latest season, which "All episodes" opens. */
+  latestSeason?: number | null;
+}
+
+const { tmdbId, latestSeason } = Astro.props;
+---
+
+<section class="page-section episode-strip" data-strip={String(tmdbId)} data-latest-season={latestSeason ?? ""} hidden>
+  <div class="es-heads">
+    <h2 class="es-next-head text-2xl font-black text-zinc-100 tracking-tight">Next Episode</h2>
+    <h2 class="es-recent-head text-2xl font-black text-zinc-100 tracking-tight">Recently Aired</h2>
+    <a class="es-all" href={latestSeason ? `/show/${tmdbId}/season/${latestSeason}` : `/show/${tmdbId}`}>All episodes →</a>
+  </div>
+  <div class="es-row"></div>
+</section>
+
+<style>
+  .episode-strip .es-heads { display: grid; grid-template-columns: 1fr 2fr; align-items: end; gap: 16px; margin-bottom: 14px; position: relative; }
+  .episode-strip.no-next .es-heads { grid-template-columns: 1fr; }
+  .episode-strip.no-next .es-next-head { display: none; }
+  .episode-strip .es-all { position: absolute; right: 0; bottom: 4px; font-size: 12px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; color: var(--color-zinc-500); }
+  .episode-strip .es-all:hover { color: var(--color-zinc-100); }
+  .episode-strip .es-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  @media (max-width: 767px) {
+    .episode-strip .es-heads { grid-template-columns: 1fr; }
+    .episode-strip .es-recent-head { display: none; }
+    .episode-strip .es-row { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; padding-bottom: 6px; }
+    .episode-strip .es-row > * { flex: 0 0 82%; scroll-snap-align: start; }
+  }
+  :global(.es-card) { display: block; border-radius: 14px; overflow: hidden; background: var(--color-zinc-900); border: 1px solid var(--color-zinc-800); }
+  :global(.es-still) { position: relative; aspect-ratio: 16 / 9; background: #18181b center / cover no-repeat; }
+  :global(.es-still::after) { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 40%, rgba(0,0,0,.85)); }
+  :global(.es-text) { position: absolute; left: 14px; right: 14px; bottom: 12px; z-index: 1; }
+  :global(.es-when) { display: inline-block; padding: 3px 8px; border-radius: 6px; background: var(--color-red-600); color: #fff; font-size: 12px; font-weight: 800; }
+  :global(.es-soon) { margin-left: 6px; font-size: 12px; font-weight: 800; color: #fff; opacity: .85; }
+  :global(.es-title) { margin-top: 6px; color: #fff; font-size: 18px; font-weight: 900; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  :global(.es-code) { color: var(--color-red-400); }
+  :global(.es-foot) { display: flex; align-items: center; gap: 10px; padding: 8px 12px; min-height: 44px; }
+  :global(.es-w) { width: 24px; height: 24px; }
+  :global(.es-seen) { font-size: 12px; font-weight: 700; color: var(--color-zinc-400); }
+  :global(.es-imdb) { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-weight: 900; }
+  :global(.es-imdb b) { background: #f5c518; color: #000; font-size: 11px; padding: 1px 5px; border-radius: 4px; }
+  :global(.es-imdb span) { color: #f5c518; font-size: 16px; }
+</style>
+
+<script>
+  import wRed from "../assets/watchd-w-red.png";
+  import wWhite from "../assets/watchd-w-white.png";
+
+  const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
+  const pad = (n: number) => String(n).padStart(2, "0");
+
+  // "Tue 3 Nov · 21:00", in Malta time like the rest of Watchd.
+  function when(date: string, time: string | null) {
+    const d = new Date(`${date}T12:00:00`);
+    const day = d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: d.getFullYear() === new Date().getFullYear() ? undefined : "numeric" });
+    return time ? `${day} · ${time}` : day;
+  }
+
+  function soon(date: string) {
+    const days = Math.round((new Date(`${date}T00:00:00`).getTime() - new Date(new Date().toDateString()).getTime()) / 86400000);
+    return days <= 0 ? "today" : days === 1 ? "tomorrow" : `in ${days} days`;
+  }
+
+  function card(show: string, e: any, next: boolean) {
+    const href = `/show/${show}/season/${e.season_number}/${e.episode_number}`;
+    return `<a class="es-card" href="${href}">
+      <div class="es-still" style="${e.still_path ? `background-image:url('${esc(e.still_path)}')` : ""}">
+        <div class="es-text">
+          ${e.air_date ? `<span class="es-when">${esc(when(e.air_date, e.air_time))}</span>${next ? `<span class="es-soon">${soon(e.air_date)}</span>` : ""}` : ""}
+          <div class="es-title"><span class="es-code">${e.season_number}x${pad(e.episode_number)}</span> ${esc(e.title || "")}</div>
+        </div>
+      </div>
+      <div class="es-foot">
+        <img class="es-w" src="${e.watched ? wRed.src : wWhite.src}" alt="" />
+        <span class="es-seen">${next ? "Coming up" : e.watched ? "Watched" : "Not watched"}</span>
+        ${e.imdb_rating ? `<span class="es-imdb"><b>IMDb</b><span>${Number(e.imdb_rating).toFixed(1)}</span></span>` : ""}
+      </div>
+    </a>`;
+  }
+
+  document.querySelectorAll<HTMLElement>("[data-strip]").forEach(async (strip) => {
+    const show = strip.dataset.strip!;
+    try {
+      const res = await fetch(`/api/proxy/shows/${show}/episode-strip`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const cards = [...(data.next ? [card(show, data.next, true)] : []), ...data.recent.map((e: any) => card(show, e, false))];
+      if (!cards.length) return;
+      strip.classList.toggle("no-next", !data.next);
+      // Ended or between seasons: the last episodes, not "recently" aired.
+      if (!data.next) strip.querySelector(".es-recent-head")!.textContent = "Latest Episodes";
+      strip.querySelector(".es-row")!.innerHTML = cards.join("");
+      strip.hidden = false;
+    } catch { /* The strip just stays hidden. */ }
+  });
+</script>

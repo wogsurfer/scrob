@@ -56,6 +56,12 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.runtime.produceState
+import app.watchd.data.StripEpisode
+import app.watchd.data.EpisodeStrip
 import app.watchd.data.Disc
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
@@ -162,7 +168,10 @@ fun MovieScreen(tmdbId: Int, onBack: () -> Unit, openMovie: (Int) -> Unit, openP
 private data class ShowPage(val show: Show, val next: NextUpItem?)
 
 @Composable
-fun ShowScreen(tmdbId: Int, onBack: () -> Unit, openSeason: (Int, Int) -> Unit, openPerson: (Int) -> Unit, openDisc: (Int) -> Unit) {
+fun ShowScreen(
+    tmdbId: Int, onBack: () -> Unit, openSeason: (Int, Int) -> Unit, openPerson: (Int) -> Unit, openDisc: (Int) -> Unit,
+    openEpisode: (Int, Int, Int) -> Unit = { _, _, _ -> },
+) {
     val (state, reload) = rememberLoad(tmdbId, saved<ShowPage>("show-$tmdbId")) {
         coroutineScope {
             val show = async { show(tmdbId) }
@@ -176,6 +185,8 @@ fun ShowScreen(tmdbId: Int, onBack: () -> Unit, openSeason: (Int, Int) -> Unit, 
     val soundtrack = rememberSoundtrack("tv", tmdbId)
     val tvdbId = (state as? Load.Ready)?.value?.show?.tvdbId
     val awards = rememberAwards(tvdbId ?: 0) { tvdbId?.let { showAwards(it, tmdbId).awards } ?: emptyList() }
+    // Loaded on its own so the page shows first.
+    val strip by produceState<EpisodeStrip?>(null, tmdbId) { value = runCatching { app.api.episodeStrip(tmdbId) }.getOrNull() }
     LoadContent(state, reload) { page ->
         val show = page.show
         // Seasons ticked or unticked here, ahead of the next reload.
@@ -237,6 +248,10 @@ fun ShowScreen(tmdbId: Int, onBack: () -> Unit, openSeason: (Int, Int) -> Unit, 
                         )
                     }
                 }
+            }
+            strip?.let { s ->
+                val latest = show.seasonsMeta.map { it.seasonNumber }.filter { it > 0 }.maxOrNull()
+                item { EpisodeStripRow(s, show.tmdbId, openEpisode, openAll = latest?.let { n -> { openSeason(show.tmdbId, n) } }) }
             }
             item { Overview(show.tagline, show.overview, show.genres) }
             if (show.whereToWatch.isNotEmpty()) item { WhereToWatchRow(show.whereToWatch) }
@@ -810,3 +825,62 @@ private fun isFuture(date: String?) =
 private fun formatDate(value: String): String = runCatching {
     if (value.length > 10) LocalDateTime.parse(value.take(19)).toLocalDate().format(longDate) else LocalDate.parse(value).format(longDate)
 }.getOrDefault(value)
+
+
+private val stripDay = DateTimeFormatter.ofPattern("EEE d MMM")
+
+/**
+ * The site's Next Episode and Recently Aired: the next episode to air and the
+ * last two that aired, or for an ended show the last three. Tap one to open it.
+ */
+@Composable
+private fun EpisodeStripRow(strip: EpisodeStrip, showTmdbId: Int, openEpisode: (Int, Int, Int) -> Unit, openAll: (() -> Unit)?) {
+    val cards = listOfNotNull(strip.next) + strip.recent
+    if (cards.isEmpty()) return
+    Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        SectionTitle(if (strip.next != null) "Next & recently aired" else "Latest episodes", Modifier.weight(1f))
+        openAll?.let { TextButton(onClick = it, modifier = Modifier.padding(end = 8.dp)) { Text("All episodes", color = Watchd.Red, fontWeight = FontWeight.Bold) } }
+    }
+    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        items(cards, key = { "${it.seasonNumber}x${it.episodeNumber}" }) { e ->
+            val next = e == strip.next
+            Column(
+                Modifier.width(264.dp).clip(RoundedCornerShape(14.dp)).background(Watchd.Surface)
+                    .clickable { openEpisode(showTmdbId, e.seasonNumber, e.episodeNumber) },
+            ) {
+                Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).background(Watchd.SurfaceHigh)) {
+                    AsyncImage(e.stillPath, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.4f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.85f))))
+                    Column(Modifier.align(Alignment.BottomStart).padding(12.dp)) {
+                        e.airDate?.let { date ->
+                            val day = runCatching { LocalDate.parse(date).format(stripDay) }.getOrDefault(date)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    listOfNotNull(day, e.airTime).joinToString(" · "), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold,
+                                    modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(Watchd.Red).padding(horizontal = 8.dp, vertical = 3.dp),
+                                )
+                                if (next) {
+                                    val days = runCatching { java.time.temporal.ChronoUnit.DAYS.between(LocalDate.now(), LocalDate.parse(date)) }.getOrNull()
+                                    days?.let { Text(if (it <= 0) "today" else if (it == 1L) "tomorrow" else "in $it days", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 6.dp)) }
+                                }
+                            }
+                        }
+                        Text(
+                            buildAnnotatedString {
+                                withStyle(SpanStyle(color = Watchd.Red)) { append(episodeCode(e.seasonNumber, e.episodeNumber)) }
+                                append(" ${e.title.orEmpty()}")
+                            },
+                            color = Color.White, fontWeight = FontWeight.Black, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(top = 6.dp),
+                        )
+                    }
+                }
+                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    WatchedMark(e.watched, Modifier.size(22.dp))
+                    Text(if (next) "Coming up" else if (e.watched) "Watched" else "Not watched", color = Watchd.Muted, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 8.dp).weight(1f))
+                    if (!next) ImdbBadge(e.imdbRating)
+                }
+            }
+        }
+    }
+}

@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from fastapi import APIRouter, BackgroundTasks, Depends, Query, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy import select, update, func, case, cast as sa_cast, Text, or_, and_
-from sqlalchemy.orm import aliased
+from sqlalchemy.orm import aliased, selectinload
 import os
 import re
 import time
@@ -45,7 +45,7 @@ from core.translations import (
     apply_media_translations,
     apply_show_translations,
 )
-from routers.calendar import get_tvmaze_episodes
+from routers.calendar import get_tvmaze_episodes, _cached_tvmaze_show, tvmaze_release
 
 MALTA_TZ = ZoneInfo("Europe/Malta")
 
@@ -3836,3 +3836,107 @@ async def refresh_tvdb_show_metadata(
     }
     await db.commit()
     return {"message": "Metadata refreshed successfully"}
+
+
+@router.get("/{series_tmdb_id}/episode-strip")
+async def get_episode_strip(
+    series_tmdb_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """The show page's strip: the next episode to air and the last two that
+    aired, or, with nothing to come (an ended show, or no date yet), the last
+    three. Times are Malta's, from TVMaze where it has them."""
+    import asyncio
+    from routers.history import _fill_episode_imdb_ratings
+
+    api_key = await get_user_tmdb_key(db, current_user.id)
+    if not check_tmdb_key(api_key):
+        raise HTTPException(status_code=400, detail="TMDB API key not configured")
+    data = await tmdb.get_show_light(series_tmdb_id, api_key=api_key)
+    numbers = sorted(s["season_number"] for s in data.get("seasons") or [] if (s.get("season_number") or 0) > 0)
+    if not numbers:
+        return {"next": None, "recent": []}
+    seasons = await asyncio.gather(
+        *(tmdb.get_season(series_tmdb_id, n, api_key=api_key) for n in numbers[-2:]),
+        return_exceptions=True,
+    )
+    episodes = sorted(
+        (e for season in seasons if isinstance(season, dict) for e in season.get("episodes") or []),
+        key=lambda e: (e.get("season_number") or 0, e.get("episode_number") or 0),
+    )
+
+    # When each lands in Malta, from TVMaze; TMDB's date alone otherwise.
+    airs: dict = {}
+    try:
+        tvmaze = await _cached_tvmaze_show(data.get("name") or "")
+        for ep in tvmaze.get("episodes") or []:
+            stamp = tvmaze_release(ep, tvmaze.get("web_channel"))
+            if stamp and ep.get("season") and ep.get("number"):
+                airs[(ep["season"], ep["number"])] = stamp
+    except Exception:
+        pass
+
+    now = datetime.now(MALTA_TZ)
+    def aired(e: dict) -> bool:
+        stamp = airs.get((e.get("season_number"), e.get("episode_number")))
+        if stamp:
+            return stamp <= now
+        return bool(e.get("air_date")) and e["air_date"] <= now.date().isoformat()
+
+    past = [e for e in episodes if aired(e)]
+    coming = [e for e in episodes if not aired(e) and e.get("air_date")]
+    nxt = coming[0] if coming else None
+    recent = list(reversed(past[-2:] if nxt else past[-3:]))
+
+    # What you've watched, and each episode's own IMDb rating, from Watchd's episodes.
+    show = (await db.execute(select(ShowModel).where(ShowModel.tmdb_id == series_tmdb_id))).scalar_one_or_none()
+    local: dict = {}
+    watched: set = set()
+    if show:
+        wanted = [(e["season_number"], e["episode_number"]) for e in [*recent, *([nxt] if nxt else [])]]
+        rows = (await db.execute(
+            select(Media).options(selectinload(Media.show)).where(
+                Media.show_id == show.id, Media.media_type == MediaType.episode,
+                Media.season_number.in_({s for s, _ in wanted}),
+            )
+        )).scalars().all()
+        local = {(m.season_number, m.episode_number): m for m in rows if (m.season_number, m.episode_number) in wanted}
+        await _fill_episode_imdb_ratings(db, [local[k] for k in local if k in {(e["season_number"], e["episode_number"]) for e in recent}], api_key)
+        if local:
+            watched = set((await db.execute(
+                select(WatchEvent.media_id).where(
+                    WatchEvent.user_id == current_user.id, WatchEvent.completed == True,
+                    WatchEvent.media_id.in_([m.id for m in local.values()]),
+                )
+            )).scalars().all())
+
+    def card(e: dict) -> dict:
+        key = (e.get("season_number"), e.get("episode_number"))
+        m = local.get(key)
+        stamp = airs.get(key)
+        return {
+            "tmdb_id": e.get("id"),
+            "season_number": key[0],
+            "episode_number": key[1],
+            "title": e.get("name"),
+            # An episode yet to air rarely has a still; the show's backdrop stands in.
+            "still_path": tmdb.poster_url(e.get("still_path") or data.get("backdrop_path"), size="w780") if (e.get("still_path") or data.get("backdrop_path")) else None,
+            "air_date": stamp.date().isoformat() if stamp else e.get("air_date"),
+            "air_time": stamp.strftime("%H:%M") if stamp else None,
+            "watched": bool(m and m.id in watched),
+            "imdb_rating": (m.tmdb_data or {}).get("imdb_rating") if m else None,
+        }
+
+    out = {"next": card(nxt) if nxt else None, "recent": [card(e) for e in recent]}
+
+    # Aired episodes Watchd hasn't a rating for yet: ask IMDb (cached) directly.
+    async def rate(c: dict) -> None:
+        try:
+            ext = await tmdb.get_episode_external_ids(series_tmdb_id, c["season_number"], c["episode_number"], api_key=api_key)
+            if ext.get("imdb_id"):
+                c["imdb_rating"] = await tmdb.get_imdb_rating(ext["imdb_id"])
+        except Exception:
+            pass
+    await asyncio.gather(*(rate(c) for c in out["recent"] if c["imdb_rating"] is None))
+    return out
