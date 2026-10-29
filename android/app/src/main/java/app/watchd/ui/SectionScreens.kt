@@ -45,6 +45,9 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.runtime.snapshots.SnapshotStateList
+import androidx.compose.runtime.key
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.FilterChip
@@ -172,70 +175,155 @@ private fun localTime(utc: String?): LocalDateTime? = utc?.let {
     runCatching { LocalDateTime.parse(it.take(19)).atOffset(ZoneOffset.UTC).atZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime() }.getOrNull()
 }
 
-/** Everything watched, newest first, a page at a time as you scroll. */
-@Composable
-fun HistoryScreen(openShow: (Int) -> Unit, openMovie: (Int) -> Unit) {
-    val app = LocalApp.current
-    val events = remember { mutableStateListOf<HistoryEvent>() }
-    var page by remember { mutableIntStateOf(0) }
-    var lastPage by remember { mutableIntStateOf(Int.MAX_VALUE) }
-    var total by remember { mutableIntStateOf(0) }
-    var loading by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
-    val list = rememberLazyListState()
-    val nearEnd by remember { derivedStateOf { list.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 >= list.layoutInfo.totalItemsCount - 10 } }
+/** The site's History tabs: what each shows, and the query it asks for. */
+private val HISTORY_TABS = listOf(null to "All", "movie" to "Movies", "episode" to "Episodes", "show" to "Shows")
 
-    LaunchedEffect(nearEnd, page) {
-        if (!nearEnd || loading || page >= lastPage) return@LaunchedEffect
-        loading = true
+/**
+ * Everything watched, newest first, a page at a time as you scroll; with the
+ * site's tabs for films, episodes, or the shows by when you last watched one.
+ * [startOn] opens it on a tab, as the home page's numbers do.
+ */
+@Composable
+fun HistoryScreen(openShow: (Int) -> Unit, openMovie: (Int) -> Unit, startOn: String? = null) {
+    var type by rememberSaveable { mutableStateOf(startOn) }
+    key(type) {
+        if (type == "show") ShowHistory(openShow) { HistoryHeader(type) { type = it } }
+        else PlayHistory(type, openShow, openMovie) { HistoryHeader(type) { type = it } }
+    }
+}
+
+@Composable
+private fun HistoryHeader(type: String?, onType: (String?) -> Unit) {
+    PageTitle("History")
+    val chipColors = FilterChipDefaults.filterChipColors(
+        selectedContainerColor = Watchd.Red, selectedLabelColor = Color.White,
+        containerColor = Watchd.Surface, labelColor = Watchd.Muted,
+    )
+    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        items(HISTORY_TABS) { (key, label) -> FilterChip(type == key, { onType(key) }, label = { Text(label) }, colors = chipColors, border = null) }
+    }
+}
+
+/** Pages of a history list, loaded as the list nears its end. */
+private class Paged<T>(val items: SnapshotStateList<T>) {
+    var page by mutableIntStateOf(0)
+    var lastPage by mutableIntStateOf(Int.MAX_VALUE)
+    var total by mutableIntStateOf(0)
+    var loading by mutableStateOf(false)
+    var error by mutableStateOf<String?>(null)
+}
+
+@Composable
+private fun <T> rememberPaged(list: LazyListState, same: (T, T) -> Boolean, load: suspend app.watchd.data.Api.(Int) -> Triple<List<T>, Int, Int>): Paged<T> {
+    val app = LocalApp.current
+    val paged = remember { Paged(mutableStateListOf<T>()) }
+    val nearEnd by remember { derivedStateOf { list.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 >= list.layoutInfo.totalItemsCount - 10 } }
+    LaunchedEffect(nearEnd, paged.page, paged.lastPage) {
+        if (!nearEnd || paged.loading || paged.page >= paged.lastPage) return@LaunchedEffect
+        paged.loading = true
         try {
-            val next = app.api.history(page + 1)
-            events.addAll(next.results.filter { e -> events.none { it.id == e.id } })
-            lastPage = next.totalPages
-            total = next.totalResults
-            page = next.page
-            error = null
+            val (results, pages, total) = app.api.load(paged.page + 1)
+            paged.items.addAll(results.filter { r -> paged.items.none { same(it, r) } })
+            paged.lastPage = pages
+            paged.total = total
+            paged.page += 1
+            paged.error = null
         } catch (e: SignedOut) {
             app.signOut()
         } catch (e: Exception) {
-            error = e.message ?: "Couldn't reach Watchd"
-            lastPage = page  // stop retrying until Try again
+            paged.error = e.message ?: "Couldn't reach Watchd"
+            paged.lastPage = paged.page  // stop retrying until Try again
         } finally {
-            loading = false
+            paged.loading = false
         }
     }
+    return paged
+}
 
+@Composable
+private fun PagedFooter(paged: Paged<*>) {
+    Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+        when {
+            paged.loading -> CircularProgressIndicator(color = Watchd.Red)
+            paged.error != null -> OutlinedButton(onClick = { paged.error = null; paged.lastPage = Int.MAX_VALUE }) { Text("Try again") }
+        }
+    }
+}
+
+private fun dayLabel(day: LocalDate?, today: LocalDate) = when (day) {
+    null -> "Unknown date"
+    today -> "Today"
+    today.minusDays(1) -> "Yesterday"
+    else -> day.format(historyDay)
+}
+
+@Composable
+private fun PlayHistory(type: String?, openShow: (Int) -> Unit, openMovie: (Int) -> Unit, header: @Composable () -> Unit) {
+    val list = rememberLazyListState()
+    val paged = rememberPaged<HistoryEvent>(list, { a, b -> a.id == b.id }) { page ->
+        history(page, type = type).let { Triple(it.results, it.totalPages, it.totalResults) }
+    }
     val today = LocalDate.now()
-    val grouped = events.groupBy { localTime(it.watchedAt)?.toLocalDate() }
+    val grouped = paged.items.groupBy { localTime(it.watchedAt)?.toLocalDate() }
     LazyColumn(Modifier.fillMaxSize(), state = list, contentPadding = PaddingValues(bottom = 24.dp)) {
         item {
-            PageTitle("History")
-            if (total > 0) Text("%,d plays".format(total), color = Watchd.Muted, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp))
+            header()
+            if (paged.total > 0) Text("%,d plays".format(paged.total), color = Watchd.Muted, fontSize = 13.sp, modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp))
         }
         grouped.forEach { (day, dayEvents) ->
             item(key = "h-day-$day") {
-                val label = when (day) {
-                    null -> "Unknown date"
-                    today -> "Today"
-                    today.minusDays(1) -> "Yesterday"
-                    else -> day.format(historyDay)
-                }
                 Text(
-                    label.uppercase(), style = MaterialTheme.typography.labelSmall,
+                    dayLabel(day, today).uppercase(), style = MaterialTheme.typography.labelSmall,
                     color = if (day == today) Watchd.Red else Watchd.Muted,
                     modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 6.dp),
                 )
             }
             items(dayEvents, key = { "h-${it.id}" }) { event -> HistoryRow(event, openShow, openMovie) }
         }
+        item { PagedFooter(paged) }
+    }
+}
+
+/** The site's Shows tab: each show by the day you last watched it, with how many episodes you've seen. */
+@Composable
+private fun ShowHistory(openShow: (Int) -> Unit, header: @Composable () -> Unit) {
+    val list = rememberLazyListState()
+    val paged = rememberPaged<app.watchd.data.ShowHistoryItem>(list, { a, b -> a.id == b.id }) { page ->
+        showHistory(page).let { Triple(it.results, it.totalPages, it.totalResults) }
+    }
+    val today = LocalDate.now()
+    val grouped = paged.items.groupBy { localTime(it.lastWatchedAt)?.toLocalDate() }
+    LazyColumn(Modifier.fillMaxSize(), state = list, contentPadding = PaddingValues(bottom = 24.dp)) {
         item {
-            Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
-                when {
-                    loading -> CircularProgressIndicator(color = Watchd.Red)
-                    error != null -> OutlinedButton(onClick = { error = null; lastPage = Int.MAX_VALUE }) { Text("Try again") }
+            header()
+            if (paged.total > 0) Text("%,d shows".format(paged.total), color = Watchd.Muted, fontSize = 13.sp, modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp))
+        }
+        grouped.forEach { (day, shows) ->
+            item(key = "s-day-$day") {
+                Text(
+                    dayLabel(day, today).uppercase(), style = MaterialTheme.typography.labelSmall,
+                    color = if (day == today) Watchd.Red else Watchd.Muted,
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 8.dp),
+                )
+            }
+            items(shows.chunked(3), key = { row -> "s-${row.first().id}" }) { row ->
+                Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    row.forEach { show ->
+                        Column(Modifier.weight(1f).clickable(enabled = show.tmdbId != null) { show.tmdbId?.let(openShow) }) {
+                            Poster(show.posterPath, Modifier.fillMaxWidth())
+                            localTime(show.lastWatchedAt)?.let { Text(it.format(historyTime), color = Watchd.Faint, fontSize = 11.sp, modifier = Modifier.padding(top = 6.dp)) }
+                            Text(show.title.orEmpty(), fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(
+                                "%,d episode%s".format(show.episodesWatched, if (show.episodesWatched == 1) "" else "s"),
+                                color = Watchd.Muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                    repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
                 }
             }
         }
+        item { PagedFooter(paged) }
     }
 }
 

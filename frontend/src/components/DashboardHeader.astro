@@ -149,12 +149,11 @@ function formatDuration(minutes: number) {
 
         <div class="stat-text">
 
+          <!-- Your discs on one line; the disc icon says what they are. -->
           <div class="line1">
-            <a href="/collection"><strong>{stats.library.movies.toLocaleString()}</strong> films on disc</a>
-          </div>
-
-          <div class="line2">
-            <a href="/collection?group=kind&folder=TV"><strong>{stats.library.shows.toLocaleString()}</strong> TV series on disc</a>
+            <a href="/collection"><strong>{stats.library.movies.toLocaleString()}</strong> films</a>
+            ·
+            <a href="/collection?group=kind&folder=TV"><strong>{stats.library.shows.toLocaleString()}</strong> TV series</a>
           </div>
 
         </div>

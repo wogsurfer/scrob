@@ -338,6 +338,25 @@ data class HistoryEvent(
     val media: HistoryMedia,
 )
 
+/** A show on History's Shows tab: when you last watched it and how much. */
+@Serializable
+data class ShowHistoryItem(
+    val id: Int,
+    val tmdbId: Int? = null,
+    val title: String? = null,
+    val posterPath: String? = null,
+    val lastWatchedAt: String? = null,
+    val episodesWatched: Int = 0,
+)
+
+@Serializable
+data class ShowHistoryPage(
+    val page: Int = 1,
+    val totalPages: Int = 1,
+    val totalResults: Int = 0,
+    val results: List<ShowHistoryItem> = emptyList(),
+)
+
 @Serializable
 data class HistoryPage(
     val page: Int = 1,
@@ -400,7 +419,7 @@ data class WatchlistMovie(
 )
 
 @Serializable
-data class TvTotals(val minutes: Long = 0, val episodes: Int = 0, val shows: Int = 0)
+data class TvTotals(val minutes: Long = 0, val episodes: Int = 0, val shows: Int = 0, val plays: Int? = null)
 
 @Serializable
 data class FilmTotals(val minutes: Long = 0, val plays: Int = 0, val movies: Int = 0)

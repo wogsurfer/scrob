@@ -51,7 +51,10 @@ class Api(server: String, private val token: String?) {
     suspend fun season(showTmdbId: Int, season: Int): Season = get("shows/$showTmdbId/season/$season")
     suspend fun episode(showTmdbId: Int, season: Int, episode: Int): EpisodeDetail = get("shows/$showTmdbId/season/$season/$episode")
     suspend fun calendar(days: Int = 35): Upcoming = get("calendar/upcoming", "days" to "$days", "from_week_start" to "true")
-    suspend fun history(page: Int, pageSize: Int = 50): HistoryPage = get("history", "page" to "$page", "page_size" to "$pageSize")
+    /** Plays, newest first; [type] "movie" or "episode" for just those. */
+    suspend fun history(page: Int, pageSize: Int = 50, type: String? = null): HistoryPage =
+        get("history", *listOfNotNull("page" to "$page", "page_size" to "$pageSize", type?.let { "type" to it }).toTypedArray())
+    suspend fun showHistory(page: Int, pageSize: Int = 30): ShowHistoryPage = get("history", "page" to "$page", "page_size" to "$pageSize", "type" to "show")
     suspend fun lists(): ListsResponse = get("lists")
     suspend fun list(id: Int): ListDetail = get("lists/$id")
     suspend fun watchlist(): List<WatchlistMovie> = get("watchlist")

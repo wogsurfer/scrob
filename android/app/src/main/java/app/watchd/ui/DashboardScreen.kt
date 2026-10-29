@@ -1,5 +1,8 @@
 package app.watchd.ui
 
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.withLink
+import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.foundation.layout.offset
 import kotlinx.coroutines.delay
 import androidx.compose.ui.input.pointer.pointerInput
@@ -90,6 +93,7 @@ private data class Header(val posters: List<String>, val totals: Totals?, val he
 fun DashboardScreen(
     openShow: (Int) -> Unit, openMovie: (Int) -> Unit, openCollection: () -> Unit,
     openSeason: (Int, Int) -> Unit, openEpisode: (Int, Int, Int) -> Unit,
+    openHistory: (String) -> Unit = {},
 ) {
     val (state, reload) = rememberLoad(Unit, saved<Dashboard>("home")) {
         coroutineScope {
@@ -118,7 +122,7 @@ fun DashboardScreen(
     PullToRefreshBox(isRefreshing = refreshing, onRefresh = { refreshing = true; reload(); reloadHeader() }) {
         LoadContent(state, reload) { data ->
             LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
-                item { HeroHeader((header as? Load.Ready)?.value, openCollection) }
+                item { HeroHeader((header as? Load.Ready)?.value, openCollection, openHistory) }
                 item { SectionTitle("Next Up") }
                 item {
                     val nextUp = data.nextUp.nextUp.filter { it.tmdbId !in ticked }
@@ -174,7 +178,7 @@ fun DashboardScreen(
  * the downloads health chip, and what you've watched and own.
  */
 @Composable
-private fun HeroHeader(header: Header?, openCollection: () -> Unit) {
+private fun HeroHeader(header: Header?, openCollection: () -> Unit, openHistory: (String) -> Unit) {
     Box(Modifier.fillMaxWidth().clipToBounds()) {
         val posters = header?.posters.orEmpty()
         if (posters.isNotEmpty()) {
@@ -209,21 +213,39 @@ private fun HeroHeader(header: Header?, openCollection: () -> Unit) {
             }
             val totals = header?.totals
             Column(Modifier.padding(top = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                // Each number opens what it counts, as the site's links do.
                 HeroStat(
                     Icons.Default.Tv,
                     totals?.let { "${duration(it.tv.minutes)} watched" },
-                    totals?.let { "${"%,d".format(it.tv.episodes)} episodes · ${"%,d".format(it.tv.shows)} shows" },
+                    totals?.let {
+                        // Worded as the site: "17,773 episodes (17,773 plays of 359 shows)".
+                        listOf(
+                            "${"%,d".format(it.tv.episodes)} episodes" to { openHistory("episode") },
+                            " (" to null,
+                            "${"%,d".format(it.tv.plays ?: it.tv.episodes)} plays" to { openHistory("episode") },
+                            " of " to null,
+                            "${"%,d".format(it.tv.shows)} shows" to { openHistory("show") },
+                            ")" to null,
+                        )
+                    },
                 )
                 HeroStat(
                     Icons.Default.Movie,
                     totals?.let { "${duration(it.movies.minutes)} watched" },
-                    totals?.let { "${"%,d".format(it.movies.movies)} movies · ${"%,d".format(it.movies.plays)} plays" },
+                    totals?.let {
+                        listOf(
+                            "${"%,d".format(it.movies.movies)} movies" to { openHistory("movie") },
+                            " (" to null,
+                            "${"%,d".format(it.movies.plays)} plays" to { openHistory("movie") },
+                            ")" to null,
+                        )
+                    },
                 )
+                // Your discs, on one line in the headline's font; the disc icon says what they are.
                 HeroStat(
                     Icons.Default.Album,
-                    totals?.let { "${"%,d".format(it.library.movies)} films on disc" },
-                    totals?.let { "${"%,d".format(it.library.shows)} TV series on disc" },
-                    onClick = openCollection,
+                    totals?.let { "${"%,d".format(it.library.movies)} films · ${"%,d".format(it.library.shows)} TV series" },
+                    links = null, onClick = openCollection,
                 )
             }
         }
@@ -231,7 +253,7 @@ private fun HeroHeader(header: Header?, openCollection: () -> Unit) {
 }
 
 @Composable
-private fun HeroStat(icon: ImageVector, line1: String?, line2: String?, onClick: (() -> Unit)? = null) {
+private fun HeroStat(icon: ImageVector, line1: String?, links: List<Pair<String, (() -> Unit)?>>?, onClick: (() -> Unit)? = null) {
     Row(
         Modifier.fillMaxWidth().then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
         verticalAlignment = Alignment.CenterVertically,
@@ -239,7 +261,21 @@ private fun HeroStat(icon: ImageVector, line1: String?, line2: String?, onClick:
         Icon(icon, contentDescription = null, tint = Watchd.Red, modifier = Modifier.size(26.dp))
         Column(Modifier.padding(start = 12.dp)) {
             Text(line1 ?: " ", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            Text(line2 ?: " ", color = Watchd.Muted, fontSize = 12.sp)
+            // One line of text, each number a link (no extra height for tapping).
+            if (links != null) Text(
+                buildAnnotatedString {
+                    links.forEach { (text, open) ->
+                        if (open == null) append(text)
+                        // As the site's links: grey, the number in bold, no underline.
+                        else withLink(LinkAnnotation.Clickable(text, TextLinkStyles(SpanStyle(color = Watchd.Muted))) { open() }) {
+                            val number = text.substringBefore(' ')
+                            withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = Watchd.Text)) { append(number) }
+                            append(text.removePrefix(number))
+                        }
+                    }
+                },
+                color = Watchd.Muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }

@@ -103,6 +103,8 @@ import kotlinx.serialization.Serializable
 @Serializable data class EpisodeRoute(val showTmdbId: Int, val season: Int, val episode: Int)
 @Serializable object CalendarRoute
 @Serializable object HistoryRoute
+/** History opened on one of its tabs ("movie", "episode", "show"). */
+@Serializable data class HistoryOfRoute(val type: String)
 @Serializable object YouRoute
 @Serializable object WatchlistRoute
 @Serializable object StatsRoute
@@ -304,6 +306,7 @@ private fun SignedIn(session: Session, incoming: Intent?, onHandled: () -> Unit,
                 composable<HomeRoute> {
                     DashboardScreen(
                         openShow, openMovie, openCollection = { nav.navigate(CollectionRoute) },
+                        openHistory = { type -> nav.navigate(HistoryOfRoute(type)) },
                         openSeason = { show, season -> nav.navigate(SeasonRoute(show, season)) },
                         openEpisode = { show, season, episode -> nav.navigate(EpisodeRoute(show, season, episode)) },
                     )
@@ -311,6 +314,7 @@ private fun SignedIn(session: Session, incoming: Intent?, onHandled: () -> Unit,
                 composable<SearchRoute> { SearchScreen(openShow, openMovie) }
                 composable<CalendarRoute> { CalendarScreen(openShow, openMovie) }
                 composable<HistoryRoute> { HistoryScreen(openShow, openMovie) }
+                composable<HistoryOfRoute> { HistoryScreen(openShow, openMovie, startOn = it.toRoute<HistoryOfRoute>().type) }
                 composable<YouRoute> { YouScreen(openWatchlist = { nav.navigate(WatchlistRoute) }, openList = { nav.navigate(ListRoute(it)) }, openStats = { nav.navigate(StatsRoute) }) }
                 composable<StatsRoute> { StatsScreen(onBack = { nav.popBackStack() }) }
                 composable<PersonRoute> { PersonScreen(it.toRoute<PersonRoute>().id, onBack = { nav.popBackStack() }, openShow = openShow, openMovie = openMovie) }
