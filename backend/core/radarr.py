@@ -143,3 +143,12 @@ async def get_imports_since(url: str, token: str, since: str) -> List[Dict[str, 
         )
         response.raise_for_status()
         return response.json()
+
+
+async def get_movies(url: str, token: str) -> List[Dict[str, Any]]:
+    """Every film in Radarr, with its tmdbId, monitored and hasFile."""
+    url = _base(url)
+    async with httpx.AsyncClient(timeout=30.0, follow_redirects=False) as client:
+        response = await client.get(f"{url}/api/v3/movie", params={"apiKey": token})
+        response.raise_for_status()
+        return response.json()

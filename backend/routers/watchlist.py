@@ -1,7 +1,7 @@
 import asyncio
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -204,6 +204,72 @@ async def recently_downloaded(
         for f in films:
             f["poster_path"] = posters.get(f["tmdb_id"])
     return films
+
+
+# How many watchlist films Radarr works on at once, as the Trakt list it replaced did.
+RADARR_LIST_SIZE = 25
+# Days a film can go unfound before it gives up its place to the next one.
+RADARR_GIVE_UP_DAYS = 30
+
+
+@router.get("/radarr-list")
+async def radarr_list(
+    api_key: str = Query(..., description="Your Watchd API key (Settings → Account)"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Radarr's import list (a "Custom Lists" entry pointing here): your next
+    25 watchlist films still to download, in watchlist rank order. A film
+    drops out once Radarr has it, you've watched it, you've unmonitored it in
+    Radarr, or Radarr has looked for a month without finding it, and the next
+    one takes its place."""
+    from datetime import date, timedelta, timezone
+    from models.events import WatchEvent
+
+    user = (await db.execute(select(User).where(User.api_key == api_key))).scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=401, detail="Unknown API key")
+    user_settings = (await db.execute(select(UserSettings).where(UserSettings.user_id == user.id))).scalar_one_or_none()
+    global_settings = (await db.execute(select(GlobalSettings).where(GlobalSettings.id == 1))).scalar_one_or_none()
+    cfg = _effective_radarr(user_settings, global_settings)
+    if not cfg:
+        raise HTTPException(status_code=400, detail="Radarr isn't set up in Watchd")
+    try:
+        movies = await radarr_client.get_movies(cfg.radarr_url, cfg.radarr_token)
+    except Exception:
+        # Better an empty list than one that re-adds films Radarr already has.
+        raise HTTPException(status_code=502, detail="Radarr isn't answering")
+    # Out of the window: downloaded, unmonitored, or searched for a month with
+    # nothing found (Radarr keeps watching for those; they just stop holding a slot).
+    month_ago = (datetime.now(timezone.utc) - timedelta(days=RADARR_GIVE_UP_DAYS)).isoformat()
+    done = {
+        m["tmdbId"] for m in movies
+        if m.get("hasFile") or not m.get("monitored") or (m.get("added") or "9999") < month_ago
+    }
+
+    watched = set((await db.execute(
+        select(Media.tmdb_id)
+        .join(WatchEvent, WatchEvent.media_id == Media.id)
+        .where(WatchEvent.user_id == user.id, Media.media_type == MediaType.movie, Media.tmdb_id.isnot(None))
+    )).scalars().all())
+    rows = (await db.execute(
+        select(MovieWatchlist, Media.release_date)
+        .outerjoin(Media, (Media.tmdb_id == MovieWatchlist.tmdb_id) & (Media.media_type == MediaType.movie))
+        .where(MovieWatchlist.user_id == user.id)
+        .order_by(MovieWatchlist.rank.asc().nulls_last(), MovieWatchlist.listed_at)
+    )).all()
+
+    today = date.today().isoformat()
+    out = []
+    for w, release_date in rows:
+        if w.tmdb_id in done or w.tmdb_id in watched:
+            continue
+        # Not out anywhere yet (or no date at all): it would sit in a slot for months.
+        if not w.year or (release_date and str(release_date)[:10] > today):
+            continue
+        out.append({"id": w.tmdb_id, "imdb_id": w.imdb_id, "title": w.title, "year": w.year})
+        if len(out) == RADARR_LIST_SIZE:
+            break
+    return out
 
 
 @router.post("")
