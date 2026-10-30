@@ -314,15 +314,29 @@ async def _helper_checks(client: httpx.AsyncClient, sonarr_key: str | None) -> l
     return out
 
 
-def _downloads_check() -> list[dict]:
+async def _downloads_check(client: httpx.AsyncClient) -> list[dict]:
     out = []
-    if not DOWNLOADS.is_dir():
-        return [check("downloads", "Downloads folder", WARN, "Couldn't see the downloads folder", [str(DOWNLOADS)])]
-    left = unpacked_leftovers(DOWNLOADS, timedelta(hours=6))
-    out.append(check("downloads", "Downloads folder",
-                     WARN if left else OK,
-                     f"{len(left)} download{'s' * (len(left) != 1)} never unpacked" if left else "Nothing left packed",
-                     left))
+    try:
+        seen = DOWNLOADS.is_dir()
+        left = unpacked_leftovers(DOWNLOADS, timedelta(hours=6)) if seen else []
+    except OSError:
+        # Docker loses a Windows drive it mounted if the drive drops out
+        # (asleep, reconnected); the container needs restarting to see it again.
+        seen = False
+    if not seen:
+        return [check("downloads", "Downloads folder", WARN, "Couldn't see the downloads folder",
+                      [str(DOWNLOADS), "Restart Watchd's container to reconnect it"])]
+    # A broken copy that never unpacked is only a leftover once another copy came in.
+    spare = [f for f in left if await _already_imported(client, f.split("/", 1)[-1])]
+    left = [f for f in left if f not in spare]
+    if left:
+        summary = f"{len(left)} download{'s' * (len(left) != 1)} never unpacked"
+    elif spare:
+        summary = f"{len(spare)} broken download{'s' * (len(spare) != 1)} left over, already replaced"
+    else:
+        summary = "Nothing left packed"
+    out.append(check("downloads", "Downloads folder", WARN if left else OK, summary,
+                     left + [f"Safe to delete: {f} (another copy came in)" for f in spare]))
     usage = shutil.disk_usage(DOWNLOADS)
     used = usage.used / usage.total
     free_gb = usage.free / 2**30
@@ -343,8 +357,9 @@ async def pipeline_health(force: bool = False) -> dict:
         checks, keys = await _arr_checks(client)
         helpers = await _helper_checks(client, keys.get("sonarr"))
         checks.append(await _unpackerr_check(client, keys))
+        downloads = await _downloads_check(client)
     checks += helpers
-    checks += _downloads_check()
+    checks += downloads
     result = {
         "status": worst(c["status"] for c in checks),
         "problems": sum(1 for c in checks if c["status"] != OK),
