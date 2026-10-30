@@ -3,9 +3,12 @@ interface Props {
   currentPage: number;
   totalPages: number;
   baseUrl: string;
+  /** "top" sits above the results: tighter spacing and no "Go to page" box. */
+  position?: "top" | "bottom";
 }
 
-const { currentPage, totalPages, baseUrl } = Astro.props;
+const { currentPage, totalPages, baseUrl, position = "bottom" } = Astro.props;
+const top = position === "top";
 
 // Limit to 500 pages as per TMDB recommendation
 const effectiveTotalPages = Math.min(totalPages, 500);
@@ -31,7 +34,7 @@ const pagesMobile  = getPages(1); // 3 wide
 ---
 
 {effectiveTotalPages > 1 && (
-<nav aria-label="Pagination" class="mt-12 mb-8 flex flex-col items-center gap-3">
+<nav aria-label={top ? "Pagination (top)" : "Pagination"} class={`${top ? "mb-6" : "mt-12 mb-8"} flex flex-col items-center gap-3`}>
   <div class="flex items-center justify-center gap-2">
     {/* Previous */}
     {hasPrevious ? (
@@ -117,7 +120,7 @@ const pagesMobile  = getPages(1); // 3 wide
   </div>
 
   {/* Jump to page */}
-  {effectiveTotalPages > 5 && (
+  {!top && effectiveTotalPages > 5 && (
     <form id="page-jump-form" class="flex items-center gap-2">
       <label for="page-jump-input" class="text-xs text-zinc-500 whitespace-nowrap">Go to page</label>
       <input

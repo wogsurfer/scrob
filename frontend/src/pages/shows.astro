@@ -124,6 +124,11 @@ const baseUrl = `/shows?${baseParams.toString()}`;
     </div>
   ) : (
     <>
+      <Pagination position="top"
+        currentPage={data.page}
+        totalPages={data.total_pages}
+        baseUrl={baseUrl}
+      />
       <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-x-6 gap-y-8">
         {data.results.map(item => <PosterCard item={item} />)}
       </div>
