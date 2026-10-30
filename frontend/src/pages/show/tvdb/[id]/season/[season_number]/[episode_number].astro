@@ -60,6 +60,22 @@ return Astro.redirect(
       )}
 
       <div class="relative z-20">
+        {episode.in_library && (
+          <div class="absolute top-0 right-0">
+            <button
+              id="refresh-metadata-btn"
+              class="flex items-center gap-2 px-4 py-2 text-sm font-bold text-zinc-400 hover:text-zinc-100 bg-zinc-900/60 hover:bg-zinc-800/80 border border-zinc-800 hover:border-zinc-700 rounded-xl transition-all duration-200 cursor-pointer"
+            >
+              <svg id="refresh-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
+                <path d="M21 3v5h-5"/>
+                <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/>
+                <path d="M8 16H3v5"/>
+              </svg>
+              <span id="refresh-label">Refresh Metadata</span>
+            </button>
+          </div>
+        )}
         <nav class="flex items-center gap-2 text-sm text-zinc-400 mb-8 overflow-hidden whitespace-nowrap">
           <a href="/shows" class="hover:text-zinc-100 transition shrink-0">Shows</a>
           <span class="text-zinc-700">/</span>
@@ -231,19 +247,7 @@ return Astro.redirect(
             )}
 
             {episode.in_library && (
-              <div class="mb-8 flex flex-wrap gap-3 items-start">
-                <button
-                  id="refresh-metadata-btn"
-                  class="flex items-center gap-2 px-4 py-2 text-sm font-bold leading-none text-zinc-300 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-lg transition-colors cursor-pointer"
-                >
-                  <svg id="refresh-icon" xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
-                    <path d="M21 3v5h-5"/>
-                    <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/>
-                    <path d="M8 16H3v5"/>
-                  </svg>
-                  <span id="refresh-label">Refresh Metadata</span>
-                </button>
+              <div class="mb-8 flex flex-wrap gap-3 items-start empty:hidden">
                 <VideoPlayer
                   tmdbId={episode.tmdb_id ?? episode.tvdb_id ?? Number(id)}
                   mediaId={episode.id}
