@@ -17,7 +17,7 @@ import httpx
 from core import disk_cache, tmdb
 
 _TTL = 7 * 24 * 3600
-_HEADERS = {"User-Agent": f"Watchd/1.0 (https://github.com/wogsurfer/scrob) httpx/{httpx.__version__}"}
+_HEADERS = {"User-Agent": f"Watchd/1.0 (https://github.com/wogsurfer/watchd) httpx/{httpx.__version__}"}
 _WIKIDATA = "https://query.wikidata.org/sparql"
 _WIKIPEDIA = "https://en.wikipedia.org/w/api.php"
 _TMDB_PROP = {"movie": "P4947", "tv": "P4983"}

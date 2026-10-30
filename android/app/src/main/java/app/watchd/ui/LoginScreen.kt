@@ -76,7 +76,7 @@ fun LoginScreen(initialServer: String, onSignedIn: (server: String, token: Strin
         Text("watchd.", style = MaterialTheme.typography.headlineLarge)
         if (tempToken == null) {
             OutlinedTextField(
-                server, { server = it }, label = { Text("Server") }, singleLine = true,
+                server, { server = it }, label = { Text("Server") }, placeholder = { Text("http://your-pc:7330") }, singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                 modifier = Modifier.fillMaxWidth(),
             )

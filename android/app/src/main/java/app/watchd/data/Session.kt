@@ -32,7 +32,7 @@ class SessionStore(private val context: Context) {
     }
 
     companion object {
-        /** The PC running Watchd, by its Tailscale name: works at home and away. */
-        const val DEFAULT_SERVER = "http://your-server:7330"
+        /** Empty until the sign-in screen is given your Watchd server's address. */
+        const val DEFAULT_SERVER = ""
     }
 }

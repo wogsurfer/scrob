@@ -17,7 +17,7 @@ _ENDPOINT = "https://query.wikidata.org/sparql"
 # Wikimedia's robot policy wants the client, a contact URL and the library;
 # requests without them get blocked.
 _HEADERS = {
-    "User-Agent": f"Watchd/1.0 (https://github.com/wogsurfer/scrob) httpx/{httpx.__version__}",
+    "User-Agent": f"Watchd/1.0 (https://github.com/wogsurfer/watchd) httpx/{httpx.__version__}",
     "Accept": "application/sparql-results+json",
 }
 # The query service throttles parallel requests per client.

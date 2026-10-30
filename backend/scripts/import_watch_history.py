@@ -244,7 +244,7 @@ async def main():
     async with AsyncSessionLocal() as session:
 
         result = await session.execute(
-            select(User).where(User.username == "your-username")
+            select(User).where(User.username == USERNAME)
         )
 
         user = result.scalar_one()
@@ -258,4 +258,7 @@ async def main():
 
 
 if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        sys.exit("Usage: python scripts/import_watch_history.py <username>")
+    USERNAME = sys.argv[1]
     asyncio.run(main())
