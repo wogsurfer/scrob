@@ -136,6 +136,9 @@ def log_problems(lines: list[str], since: datetime) -> list[dict]:
             continue
         app, plain, kind = explain(text)
         p = problems.setdefault(plain, {"text": plain, "app": app, "kind": kind, "count": 0, "first": when, "last": when})
+        release = re.match(r"Extraction Failed: ([^:]+):", text)
+        if release:
+            p["release"] = release.group(1).strip()
         p["count"] += 1
         p["last"] = max(p["last"], when)
     for p in problems.values():
@@ -201,7 +204,26 @@ async def _arr_checks(client: httpx.AsyncClient) -> tuple[list[dict], dict[str, 
     return out, keys
 
 
-def _unpackerr_check(app_keys: dict[str, str]) -> dict:
+async def _already_imported(client: httpx.AsyncClient, release: str) -> bool:
+    """Whether what a failed release was for has a file now (another copy came
+    in): Sonarr for an episode, Radarr for a film, by parsing its name."""
+    is_tv = bool(re.search(r"S\d{1,2}E\d{1,3}", release, re.I))
+    name, folder, default_port = ("Sonarr", "Sonarr", 8989) if is_tv else ("Radarr", "Radarr", 7878)
+    key, port = arr_config(folder)
+    if not key:
+        return False
+    try:
+        res = await client.get(f"http://{HOST}:{port or default_port}/api/v3/parse", params={"title": release}, headers={"X-Api-Key": key})
+        data = res.raise_for_status().json()
+    except Exception:  # noqa: BLE001 - unknown means not shown as fixed
+        return False
+    if is_tv:
+        episodes = data.get("episodes") or []
+        return bool(episodes) and all(e.get("hasFile") for e in episodes)
+    return bool((data.get("movie") or {}).get("hasFile"))
+
+
+async def _unpackerr_check(client: httpx.AsyncClient, app_keys: dict[str, str]) -> dict:
     details, level = [], OK
     try:
         age = datetime.now() - datetime.fromtimestamp(UNPACKERR_LOG.stat().st_mtime)
@@ -223,6 +245,11 @@ def _unpackerr_check(app_keys: dict[str, str]) -> dict:
         f.seek(max(0, UNPACKERR_LOG.stat().st_size - 3_000_000))
         lines = f.read().decode("utf-8", "replace").splitlines()
     problems = log_problems(lines, datetime.now() - timedelta(hours=24))
+    # A download that couldn't be unpacked is fixed once another copy is in.
+    for p in problems:
+        if p["kind"] == "unpack" and not p["fixed"] and p.get("release") and await _already_imported(client, p["release"]):
+            p["fixed"] = True
+            p["imported"] = True
     current = [p for p in problems if not p["fixed"]]
     fixed = [p for p in problems if p["fixed"]]
     times = lambda p: "once" if p["count"] == 1 else f"{p['count']} times"
@@ -236,7 +263,11 @@ def _unpackerr_check(app_keys: dict[str, str]) -> dict:
     else:
         summary = details[0] if len(details) == 1 else f"{len(details)} problems"
     # Fixed ones stay listed for the day, marked as such.
-    details += [f"Fixed: {in_the_past(p['app'], p['text'])}, {times(p)} today until {p['last']:%H:%M}" for p in fixed[:3]]
+    details += [
+        f"Fixed: couldn't unpack {p['release']}, but another copy has since come in" if p.get("imported")
+        else f"Fixed: {in_the_past(p['app'], p['text'])}, {times(p)} today until {p['last']:%H:%M}"
+        for p in fixed[:3]
+    ]
     return check("unpackerr", "Unpackerr", level, summary, details)
 
 
@@ -311,7 +342,7 @@ async def pipeline_health(force: bool = False) -> dict:
     async with httpx.AsyncClient(timeout=8) as client:
         checks, keys = await _arr_checks(client)
         helpers = await _helper_checks(client, keys.get("sonarr"))
-    checks.append(_unpackerr_check(keys))
+        checks.append(await _unpackerr_check(client, keys))
     checks += helpers
     checks += _downloads_check()
     result = {
