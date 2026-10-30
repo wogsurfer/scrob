@@ -377,16 +377,19 @@ async def enrich_with_state(
     )
     watchlist_tmdb_ids = set(watchlist_result.scalars().all())
 
-    list_membership: dict[int, list[int]] = {}
+    # Keyed by TMDB id and type: TMDB numbers films and shows separately, so a
+    # film and a show can share an id (Cool Hand Luke and Black Books are both 903).
+    list_membership: dict[tuple[int, str], list[int]] = {}
     if user_list_ids and all_tmdb_ids:
         q = await db.execute(
-            select(Media.tmdb_id, ListItem.list_id)
+            select(Media.tmdb_id, Media.media_type, ListItem.list_id)
             .join(ListItem, ListItem.media_id == Media.id)
             .where(ListItem.list_id.in_(user_list_ids), Media.tmdb_id.in_(all_tmdb_ids))
             .distinct()
         )
-        for row_tmdb_id, list_id in q.all():
-            list_membership.setdefault(row_tmdb_id, []).append(list_id)
+        for row_tmdb_id, row_type, list_id in q.all():
+            key = (row_tmdb_id, getattr(row_type, "value", row_type))
+            list_membership.setdefault(key, []).append(list_id)
 
     # --- Collection pct and watched status for shows ---
     show_pct: dict[int, int] = {}
@@ -711,7 +714,7 @@ async def enrich_with_state(
             item["collection_pct"] = 0
             item["in_library"] = False
 
-        item["in_lists"] = list_membership.get(tid, [])
+        item["in_lists"] = list_membership.get((tid, t), [])
         item["in_watchlist"] = (
             t == "movie"
             and tid in watchlist_tmdb_ids
