@@ -56,6 +56,10 @@ const refreshUrl = isEpisode
   ? `/api/proxy/shows/${item?.show_tmdb_id}/refresh`
   : `/api/proxy/media/movie/${item?.tmdb_id}/refresh`;
 import FullCast from "../../../components/FullCast.astro";
+
+// "$44.5M", "$1.2B", "$850K": a film's budget or box office, in US dollars.
+const money = (n: number) =>
+  n >= 1e9 ? `$${(n / 1e9).toFixed(1)}B` : n >= 1e6 ? `$${(n / 1e6).toFixed(1).replace(/\.0$/, "")}M` : `$${Math.round(n / 1e3)}K`;
 ---
 
 <Base title={item?.title || "Media Details"}>
@@ -331,6 +335,25 @@ import FullCast from "../../../components/FullCast.astro";
                     {item.production_countries
                       .map((country: any) => country.name ?? country)
                       .join(" • ")}
+                  </span>
+                )}
+
+                {item.budget && (
+                  <span class="flex items-center gap-1.5" title="Production budget (US dollars)">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4 text-zinc-500" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>
+                    <span class="font-medium">Budget</span> {money(item.budget)}
+                  </span>
+                )}
+
+                {item.revenue && (
+                  <span class="flex items-center gap-1.5" title="Worldwide box office (US dollars)">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4 text-zinc-500" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18 9 11.25l4.306 4.306a11.95 11.95 0 0 1 5.814-5.518l2.74-1.22m0 0-5.94-2.281m5.94 2.28-2.28 5.941" /></svg>
+                    <span class="font-medium">Box office</span> {money(item.revenue)}
+                    {item.budget && (
+                      <span class={item.revenue >= item.budget ? "text-emerald-400" : "text-red-400"}>
+                        ({(item.revenue / item.budget).toFixed(1)}× budget)
+                      </span>
+                    )}
                   </span>
                 )}
               </div>

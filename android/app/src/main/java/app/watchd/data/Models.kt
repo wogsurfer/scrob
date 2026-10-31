@@ -218,6 +218,9 @@ data class Movie(
     val requestStatus: String? = null,
     val library: LibraryFile? = null,
     val productionCountries: List<Country> = emptyList(),
+    /** Production budget and worldwide box office, US dollars, when known. */
+    val budget: Long? = null,
+    val revenue: Long? = null,
 )
 
 @Serializable

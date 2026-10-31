@@ -5457,6 +5457,9 @@ async def get_media_details(
             "collection": collection,
             "production_companies": production_companies,
             "production_countries": production_countries,
+            # TMDB has 0 for unknown, so only real figures (US dollars).
+            "budget": data.get("budget") or None,
+            "revenue": data.get("revenue") or None,
             "crew": await source_work.with_source_credits(
                 [
                     {

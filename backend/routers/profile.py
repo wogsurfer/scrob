@@ -2100,6 +2100,7 @@ async def get_stats_overview(
             select(
                 Media.id, Media.tmdb_id, Media.title, Media.poster_path, Media.release_date,
                 Media.tmdb_data["genres"], Media.tmdb_data["production_companies"],
+                Media.tmdb_data["budget"].astext, Media.tmdb_data["revenue"].astext,
             ).where(Media.id.in_(movie_media_ids[start:start + 500]))
         )
         movie_rows.extend(res.all())
@@ -2110,7 +2111,19 @@ async def get_stats_overview(
     movie_info = {}
     movie_cards = []
 
-    for mid, m_tmdb, m_title, m_poster, m_release, m_genres, m_companies in movie_rows:
+    # Each film once, however often it was watched: what the films you saw cost and took.
+    box_office = {"revenue": 0, "budget": 0, "films": 0, "top": []}
+    for mid, m_tmdb, m_title, m_poster, m_release, m_genres, m_companies, m_budget, m_revenue in movie_rows:
+        revenue = int(m_revenue) if (m_revenue or "").isdigit() else 0
+        budget = int(m_budget) if (m_budget or "").isdigit() else 0
+        if revenue:
+            box_office["revenue"] += revenue
+            box_office["films"] += 1
+            box_office["top"].append({
+                "tmdb_id": m_tmdb, "title": m_title, "poster_path": m_poster,
+                "year": _so_year(m_release), "revenue": revenue,
+            })
+        box_office["budget"] += budget
         year = _so_year(m_release)
         movie_info[mid] = (m_title, year)
         if year:
@@ -2134,6 +2147,7 @@ async def get_stats_overview(
 
     movie_cards.sort(key=lambda c: (-c["plays"], (c["title"] or "").casefold()))
     top_movies = movie_cards[:10]
+    box_office["top"] = sorted(box_office["top"], key=lambda c: -c["revenue"])[:10]
 
     # ── Ratings (show-level and movie ratings only) ──────────────────────────
     rating_filters = [
@@ -2278,6 +2292,7 @@ async def get_stats_overview(
         "genres": ranked(movie_genres, 30),
         "release_years": series(movie_release_years),
         "studios": ranked(movie_studios, 20),
+        "box_office": box_office,
     })
 
     # Discs you own (sets count by their discs, not as one more), added in the

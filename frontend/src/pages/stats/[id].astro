@@ -759,6 +759,9 @@ const heroSubtitle =
     return out.join('');
   }
 
+  // "$232.3M", "$41.2B": box office and budgets, in US dollars.
+  const money = (n) => n >= 1e9 ? `$${(n / 1e9).toFixed(1)}B` : n >= 1e6 ? `$${(n / 1e6).toFixed(1).replace(/\.0$/, '')}M` : `$${Math.round(n / 1e3)}K`;
+
   function movieSection(d, days) {
     const mv = d.movies;
     const hours = mv.minutes / 60;
@@ -780,6 +783,16 @@ const heroSubtitle =
     }
     out.push(H3('Movie Genres') + genreStrip(mv.genres, ['Movie', 'Movies']));
     out.push(H3('Movies by Release Year') + `<div class="ws-card">${barChart(mv.release_years, { tip: 'movies' })}</div>`);
+    const bo = mv.box_office;
+    if (bo && bo.films) {
+      out.push(H3('Box Office'));
+      out.push(metricRow([
+        ['Box Office of Films Watched', money(bo.revenue)],
+        ['Combined Budgets', money(bo.budget)],
+        ['Films with Figures', num(bo.films)],
+      ]));
+      out.push(posterGrid(bo.top, movieHref, m => `<b>${money(m.revenue)}</b> worldwide`));
+    }
     if ((mv.studios || []).length) {
       out.push(H3('Movie Studios') + bubbleChart(mv.studios, {
         unit: ['movie', 'movies'],

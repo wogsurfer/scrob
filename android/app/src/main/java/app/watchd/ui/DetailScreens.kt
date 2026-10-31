@@ -130,6 +130,13 @@ fun MovieScreen(tmdbId: Int, onBack: () -> Unit, openMovie: (Int) -> Unit, openP
             if (released.isNotEmpty()) {
                 item { Text(released.joinToString("   "), color = Watchd.Muted, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) }
             }
+            val money = listOfNotNull(
+                movie.budget?.let { "Budget ${money(it)}" },
+                movie.revenue?.let { r -> "Box office ${money(r)}" + (movie.budget?.let { b -> " (${"%.1f".format(r.toDouble() / b)}× budget)" } ?: "") },
+            )
+            if (money.isNotEmpty()) {
+                item { Text(money.joinToString("   "), color = Watchd.Muted, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)) }
+            }
             item {
                 ActionStack(
                     listOfNotNull(
@@ -881,4 +888,12 @@ private fun EpisodeStripRow(strip: EpisodeStrip, showTmdbId: Int, openEpisode: (
             }
         }
     }
+}
+
+
+/** "$44.5M", "$1.2B", "$850K": a budget or box office in US dollars. */
+private fun money(n: Long): String = when {
+    n >= 1_000_000_000 -> "$" + "%.1f".format(n / 1e9) + "B"
+    n >= 1_000_000 -> "$" + "%.1f".format(n / 1e6).removeSuffix(".0") + "M"
+    else -> "$" + (n / 1000) + "K"
 }
