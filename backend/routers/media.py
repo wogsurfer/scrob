@@ -844,7 +844,7 @@ def format_media(media: Media) -> dict:
         "show_poster_path": media.show.poster_path if media.show else None,
         "show_backdrop_path": media.show.backdrop_path if media.show else None,
         "genres": (media.tmdb_data or {}).get("genres", []),
-        "cast": cast[:12],
+        "cast": cast,
         "collection": (media.tmdb_data or {}).get("collection"),
         "adult": media.adult,
     }
@@ -5218,7 +5218,7 @@ async def get_media_details(
                         "character": c.get("character"),
                         "profile_path": tmdb.poster_url(c.get("profile_path"), size="w185"),
                     }
-                    for c in (ep_data.get("credits") or {}).get("cast", [])[:12]
+                    for c in (ep_data.get("credits") or {}).get("cast", [])
                 ],
                 "genres": (show.tmdb_data or {}).get("genres", []),
                 "in_library": ep_state.get("in_library", False),
@@ -5482,7 +5482,7 @@ async def get_media_details(
                     "character": c["character"],
                     "profile_path": tmdb.poster_url(c["profile_path"]),
                 }
-                for c in data.get("credits", {}).get("cast", [])[:12]
+                for c in data.get("credits", {}).get("cast", [])
             ],
             "where_to_watch": where_to_watch,
         }

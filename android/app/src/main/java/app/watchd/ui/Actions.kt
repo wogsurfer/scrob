@@ -304,6 +304,9 @@ private fun seasonOf(title: String?, series: String): String? {
 
 // ------------------------------------------------------------------ cast
 
+/** How many the cast row shows; Full cast opens the rest. */
+private const val CAST_ROW = 20
+
 /**
  * The site's Cast and Guest Stars: two headings, the one showing in red,
  * over a row of cards. [withEpisodes] adds how many episodes each is in.
@@ -312,7 +315,8 @@ private fun seasonOf(title: String?, series: String): String? {
 fun CastTabs(cast: List<Person>, guestStars: List<Person>, openPerson: (Int) -> Unit, withEpisodes: Boolean = false, castTitle: String = "Cast") {
     if (cast.isEmpty() && guestStars.isEmpty()) return
     var guests by remember { mutableStateOf(cast.isEmpty()) }
-    Row(Modifier.padding(start = 16.dp, end = 16.dp, top = 24.dp, bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+    var fullCast by remember { mutableStateOf(false) }
+    Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 24.dp, bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.CenterVertically) {
         listOf(false to castTitle.uppercase(), true to "GUEST STARS").forEach { (tab, name) ->
             if (tab && guestStars.isEmpty() || !tab && cast.isEmpty()) return@forEach
             Text(
@@ -321,8 +325,13 @@ fun CastTabs(cast: List<Person>, guestStars: List<Person>, openPerson: (Int) -> 
                 modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable { guests = tab },
             )
         }
+        if (!guests && cast.size > CAST_ROW) {
+            Spacer(Modifier.weight(1f))
+            TextButton(onClick = { fullCast = true }) { Text("Full cast (${cast.size})", color = Watchd.Red, fontWeight = FontWeight.Bold) }
+        }
     }
-    val people = if (guests) guestStars else cast.take(12)
+    if (fullCast) CastSheet(cast, openPerson = { fullCast = false; openPerson(it) }) { fullCast = false }
+    val people = if (guests) guestStars else cast.take(CAST_ROW)
     LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
         items(people, key = { "${if (guests) "g" else "c"}-${it.tmdbId}-${it.name}" }) { person ->
             val shape = RoundedCornerShape(22.dp)

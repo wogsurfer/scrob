@@ -124,7 +124,7 @@ def _format_aggregate_show_cast(data: dict) -> tuple[list[dict], list[dict]]:
                 "profile_path": tmdb.poster_url(person.get("profile_path")),
                 "episode_count": None,
             }
-            for person in credits.get("cast", [])[:12]
+            for person in credits.get("cast", [])
             if person.get("id") and person.get("name")
         ]
         return cast, []
@@ -160,7 +160,7 @@ def _format_aggregate_show_cast(data: dict) -> tuple[list[dict], list[dict]]:
 
     cast.sort(key=lambda person: person["episode_count"], reverse=True)
     guest_stars.sort(key=lambda person: person["episode_count"], reverse=True)
-    return cast[:12], guest_stars
+    return cast, guest_stars
 
 
 async def get_user_tvdb_key(db: AsyncSession, user_id: int) -> str | None:
@@ -2664,7 +2664,7 @@ async def get_episode_detail(
                 "character": c.get("character"),
                 "profile_path": tmdb.poster_url(c.get("profile_path")),
             }
-            for c in credits.get("cast", [])[:12]
+            for c in credits.get("cast", [])
         ]
         guest_stars = [
             {

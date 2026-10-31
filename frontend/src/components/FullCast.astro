@@ -1,0 +1,120 @@
+---
+// The whole cast under a page's cast row, for ensembles the row can't hold:
+// a "Full cast (N)" button opening a compact grid of everyone, with
+// uncredited roles folded away at the end. Shows nothing when the row
+// already holds everyone.
+interface Person {
+  tmdb_id: number;
+  name: string;
+  character?: string | null;
+  profile_path?: string | null;
+}
+interface Props {
+  cast: Person[];
+  /** How many the row above already shows. */
+  shown: number;
+}
+
+const { cast, shown } = Astro.props;
+const uncredited = (p: Person) => /uncredited/i.test(p.character ?? "");
+const credited = cast.filter((p) => !uncredited(p));
+const extras = cast.filter(uncredited);
+---
+
+{cast.length > shown && (
+  <div class="full-cast" data-full-cast>
+    <button type="button" class="fc-toggle" aria-expanded="false" data-fc-toggle>
+      <span data-fc-label>Full cast ({cast.length})</span>
+      <svg class="fc-chev" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+    </button>
+
+    <div class="fc-panel" hidden data-fc-panel>
+      <ul class="fc-grid">
+        {credited.map((p) => (
+          <li>
+            <a href={`/person/${p.tmdb_id}`} class="fc-person">
+              {p.profile_path
+                ? <img src={p.profile_path} alt="" loading="lazy" decoding="async" />
+                : <span class="fc-blank" aria-hidden="true">{p.name.charAt(0)}</span>}
+              <span class="fc-text">
+                <b>{p.name}</b>
+                {p.character && <span>{p.character}</span>}
+              </span>
+            </a>
+          </li>
+        ))}
+      </ul>
+
+      {extras.length > 0 && (
+        <details class="fc-extras">
+          <summary>Show uncredited ({extras.length})</summary>
+          <ul class="fc-grid">
+            {extras.map((p) => (
+              <li>
+                <a href={`/person/${p.tmdb_id}`} class="fc-person">
+                  {p.profile_path
+                    ? <img src={p.profile_path} alt="" loading="lazy" decoding="async" />
+                    : <span class="fc-blank" aria-hidden="true">{p.name.charAt(0)}</span>}
+                  <span class="fc-text">
+                    <b>{p.name}</b>
+                    <span>{(p.character ?? "").replace(/\s*\(uncredited\)/i, "")}</span>
+                  </span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </div>
+  </div>
+)}
+
+<style>
+  .full-cast { margin-top: 12px; }
+  .fc-toggle {
+    display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px;
+    border-radius: 12px; border: 1px solid var(--color-zinc-800); background: var(--color-zinc-900);
+    color: var(--color-zinc-300); font-size: 13px; font-weight: 800; cursor: pointer;
+  }
+  .fc-toggle:hover { color: var(--color-zinc-100); border-color: var(--color-zinc-700); }
+  .fc-toggle[aria-expanded="true"] .fc-chev { transform: rotate(180deg); }
+  .fc-panel { margin-top: 16px; }
+  .fc-grid {
+    list-style: none; margin: 0; padding: 0;
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px;
+  }
+  .fc-person {
+    display: flex; align-items: center; gap: 12px; padding: 8px; border-radius: 14px;
+    background: rgb(24 24 27 / .4); border: 1px solid rgb(39 39 42 / .6); min-width: 0;
+  }
+  .fc-person:hover { border-color: var(--color-zinc-700); background: rgb(39 39 42 / .5); }
+  .fc-person img, .fc-blank {
+    width: 48px; height: 48px; border-radius: 999px; object-fit: cover; flex-shrink: 0;
+    background: var(--color-zinc-800);
+  }
+  .fc-blank { display: flex; align-items: center; justify-content: center; color: var(--color-zinc-500); font-weight: 900; font-size: 18px; }
+  .fc-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+  .fc-text b { color: var(--color-zinc-100); font-size: 13px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fc-text span { color: var(--color-zinc-500); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fc-extras { margin-top: 16px; }
+  .fc-extras summary {
+    cursor: pointer; width: fit-content; margin-bottom: 12px; font-size: 12px; font-weight: 800;
+    letter-spacing: .1em; text-transform: uppercase; color: var(--color-zinc-500);
+  }
+  .fc-extras summary:hover { color: var(--color-zinc-300); }
+</style>
+
+<script>
+  document.querySelectorAll<HTMLElement>("[data-full-cast]").forEach((box) => {
+    const toggle = box.querySelector<HTMLButtonElement>("[data-fc-toggle]")!;
+    const panel = box.querySelector<HTMLElement>("[data-fc-panel]")!;
+    const label = box.querySelector<HTMLElement>("[data-fc-label]")!;
+    const closed = label.textContent!;
+    toggle.addEventListener("click", () => {
+      const open = panel.hidden;
+      panel.hidden = !open;
+      toggle.setAttribute("aria-expanded", String(open));
+      label.textContent = open ? "Hide full cast" : closed;
+    });
+  });
+</script>

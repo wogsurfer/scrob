@@ -10,6 +10,7 @@ import ActionStack from "../../components/ActionStack.astro";
 import EpisodeOrderSelector from "../../components/EpisodeOrderSelector.astro";
 import CrewSection from "../../components/CrewSection.astro";
 import EpisodeStrip from "../../components/EpisodeStrip.astro";
+import FullCast from "../../components/FullCast.astro";
 import { api, type Show } from "../../lib/api";
 export const prerender = false;
 
@@ -423,7 +424,7 @@ const watchedRange = (() => {
           <div id="cast-panel">
             {show.cast?.length > 0 && (
               <div class="flex gap-6 overflow-x-auto pb-4">
-                {show.cast.slice(0, 12).map((person) => (
+                {show.cast.slice(0, 20).map((person) => (
                   <a
                     href={`/person/${person.tmdb_id}`}
                     class="group/cast shrink-0 w-[240px] sm:w-[260px] bg-zinc-900/20 border border-zinc-800/40 p-4 rounded-3xl active:scale-95 active:opacity-70"
@@ -459,6 +460,7 @@ const watchedRange = (() => {
                 ))}
               </div>
             )}
+            {show.cast?.length > 0 && <FullCast cast={show.cast} shown={20} />}
           </div>
 
           <!-- Guest Stars -->

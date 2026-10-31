@@ -55,6 +55,7 @@ const originalLanguage = item?.original_language
 const refreshUrl = isEpisode
   ? `/api/proxy/shows/${item?.show_tmdb_id}/refresh`
   : `/api/proxy/media/movie/${item?.tmdb_id}/refresh`;
+import FullCast from "../../../components/FullCast.astro";
 ---
 
 <Base title={item?.title || "Media Details"}>
@@ -420,7 +421,7 @@ const refreshUrl = isEpisode
               <h2 class="text-3xl font-black text-zinc-100 tracking-tighter uppercase">Top Cast</h2>
             </div>
             <div class="flex gap-6 overflow-x-auto pb-4 min-w-0 max-w-full">
-              {item.cast.slice(0, 12).map((person) => (
+              {item.cast.slice(0, 20).map((person) => (
                 <a
                   href={`/person/${person.tmdb_id}`}
                   class="group/cast shrink-0 w-[240px] sm:w-[260px] bg-zinc-900/20 border border-zinc-800/40 p-4 rounded-3xl active:scale-95 active:opacity-70"
@@ -447,6 +448,7 @@ const refreshUrl = isEpisode
                 </a>
               ))}
             </div>
+            <FullCast cast={item.cast} shown={20} />
           </div>
         )}
 

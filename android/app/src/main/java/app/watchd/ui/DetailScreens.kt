@@ -715,28 +715,42 @@ private fun CastSection(cast: List<Person>, openPerson: (Int) -> Unit) {
     if (showAll) CastSheet(cast, openPerson = { showAll = false; openPerson(it) }) { showAll = false }
 }
 
+/** Everyone in the cast, credited first; uncredited roles folded away at the end. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CastSheet(cast: List<Person>, openPerson: (Int) -> Unit, onDismiss: () -> Unit) {
+internal fun CastSheet(cast: List<Person>, openPerson: (Int) -> Unit, onDismiss: () -> Unit) {
+    val (credited, extras) = cast.partition { !(it.character ?: "").contains("uncredited", ignoreCase = true) }
+    var showExtras by remember { mutableStateOf(false) }
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Watchd.Surface, contentColor = Watchd.Text) {
-        Text("Cast", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(start = 20.dp, bottom = 8.dp))
+        Text("Full cast (${cast.size})", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(start = 20.dp, bottom = 8.dp))
         LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
-            items(cast) { person ->
-                Row(
-                    Modifier.fillMaxWidth().clickable(enabled = person.tmdbId != null) { person.tmdbId?.let(openPerson) }.padding(horizontal = 20.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                ) {
-                    AsyncImage(
-                        model = person.profilePath, contentDescription = null, contentScale = ContentScale.Crop,
-                        modifier = Modifier.size(44.dp).clip(CircleShape).background(Watchd.SurfaceHigh),
-                    )
-                    Column(Modifier.weight(1f)) {
-                        Text(person.name, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        role(person).takeIf { it.isNotEmpty() }?.let { Text(it, color = Watchd.Muted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+            items(credited) { person -> CastSheetRow(person, openPerson) }
+            if (extras.isNotEmpty()) {
+                item {
+                    TextButton(onClick = { showExtras = !showExtras }, modifier = Modifier.padding(start = 8.dp, top = 8.dp)) {
+                        Text(if (showExtras) "Hide uncredited" else "Show uncredited (${extras.size})", color = Watchd.Red, fontWeight = FontWeight.Bold)
                     }
                 }
+                if (showExtras) items(extras) { person -> CastSheetRow(person, openPerson) }
             }
+        }
+    }
+}
+
+@Composable
+private fun CastSheetRow(person: Person, openPerson: (Int) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable(enabled = person.tmdbId != null) { person.tmdbId?.let(openPerson) }.padding(horizontal = 20.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        AsyncImage(
+            model = person.profilePath, contentDescription = null, contentScale = ContentScale.Crop,
+            modifier = Modifier.size(44.dp).clip(CircleShape).background(Watchd.SurfaceHigh),
+        )
+        Column(Modifier.weight(1f)) {
+            Text(person.name, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            role(person).takeIf { it.isNotEmpty() }?.let { Text(it, color = Watchd.Muted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
         }
     }
 }
